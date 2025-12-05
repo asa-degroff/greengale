@@ -53,12 +53,11 @@ interface JetstreamAccount {
 
 type JetstreamEvent = JetstreamCommit | JetstreamIdentity | JetstreamAccount
 
+// Alarm interval - check connection every 30 seconds
+const ALARM_INTERVAL_MS = 30 * 1000
+
 export class FirehoseConsumer extends DurableObject<Env> {
   private ws: WebSocket | null = null
-  private connected = false
-  private cursor: number = 0
-  private reconnectTimeout: number | null = null
-  private lastTimeUs: number = 0
   private processedCount = 0
   private errorCount = 0
 
@@ -73,18 +72,24 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
 
     if (url.pathname === '/stop' && request.method === 'POST') {
-      this.stop()
+      await this.stop()
       return new Response(JSON.stringify({ status: 'stopped' }), {
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
     if (url.pathname === '/status') {
+      const enabled = await this.ctx.storage.get<boolean>('enabled')
+      const cursor = await this.ctx.storage.get<number>('cursor')
+      const lastTimeUs = await this.ctx.storage.get<number>('lastTimeUs')
+      const processedCount = await this.ctx.storage.get<number>('processedCount') || 0
+
       return new Response(JSON.stringify({
-        connected: this.connected,
-        cursor: this.cursor,
-        lastTimeUs: this.lastTimeUs,
-        processedCount: this.processedCount,
+        enabled: enabled || false,
+        connected: this.ws !== null && this.ws.readyState === WebSocket.OPEN,
+        cursor: cursor || 0,
+        lastTimeUs: lastTimeUs || 0,
+        processedCount: processedCount + this.processedCount,
         errorCount: this.errorCount,
       }), {
         headers: { 'Content-Type': 'application/json' },
@@ -94,44 +99,93 @@ export class FirehoseConsumer extends DurableObject<Env> {
     return new Response('Not found', { status: 404 })
   }
 
-  private async start() {
-    if (this.connected) {
-      console.log('Already connected to Jetstream')
+  // Alarm handler - this survives hibernation!
+  async alarm() {
+    const enabled = await this.ctx.storage.get<boolean>('enabled')
+    if (!enabled) {
+      console.log('Firehose not enabled, skipping alarm')
       return
     }
 
-    // Load cursor from storage
-    const stored = await this.ctx.storage.get<number>('cursor')
-    if (stored) {
-      this.cursor = stored
+    console.log('Alarm fired, checking connection...')
+
+    // Check if WebSocket is connected
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket not connected, reconnecting...')
+      await this.connect()
+    } else {
+      console.log('WebSocket still connected')
     }
 
-    await this.connect()
+    // Schedule next alarm
+    await this.scheduleAlarm()
   }
 
-  private stop() {
+  private async scheduleAlarm() {
+    const currentAlarm = await this.ctx.storage.getAlarm()
+    if (!currentAlarm) {
+      await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS)
+    }
+  }
+
+  private async start() {
+    // Mark as enabled in storage (persists across hibernation)
+    await this.ctx.storage.put('enabled', true)
+
+    // Connect immediately
+    await this.connect()
+
+    // Schedule recurring alarm to maintain connection
+    await this.scheduleAlarm()
+
+    console.log('Firehose consumer started with alarm')
+  }
+
+  private async stop() {
+    // Mark as disabled
+    await this.ctx.storage.put('enabled', false)
+
+    // Clear any pending alarm
+    await this.ctx.storage.deleteAlarm()
+
+    // Close WebSocket if open
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
-    this.connected = false
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout)
-      this.reconnectTimeout = null
-    }
+
+    // Persist counts before stopping
+    const existingCount = await this.ctx.storage.get<number>('processedCount') || 0
+    await this.ctx.storage.put('processedCount', existingCount + this.processedCount)
+    this.processedCount = 0
+
+    console.log('Firehose consumer stopped')
   }
 
   private async connect() {
+    // Close existing connection if any
+    if (this.ws) {
+      try {
+        this.ws.close()
+      } catch {
+        // Ignore close errors
+      }
+      this.ws = null
+    }
+
     // Use Jetstream - it provides JSON instead of CBOR
     const baseUrl = this.env.JETSTREAM_URL || 'wss://jetstream2.us-east.bsky.network'
+
+    // Load cursor from storage
+    const cursor = await this.ctx.storage.get<number>('cursor')
 
     // Build URL with wanted collections
     const params = new URLSearchParams()
     for (const collection of BLOG_COLLECTIONS) {
       params.append('wantedCollections', collection)
     }
-    if (this.cursor) {
-      params.append('cursor', this.cursor.toString())
+    if (cursor) {
+      params.append('cursor', cursor.toString())
     }
 
     const wsUrl = `${baseUrl}/subscribe?${params.toString()}`
@@ -143,7 +197,6 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       ws.addEventListener('open', () => {
         console.log('Connected to Jetstream')
-        this.connected = true
       })
 
       ws.addEventListener('message', async (event) => {
@@ -157,13 +210,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       ws.addEventListener('close', (event) => {
         console.log(`Jetstream connection closed: ${event.code} ${event.reason}`)
-        this.connected = false
         this.ws = null
-
-        // Reconnect after delay
-        this.reconnectTimeout = setTimeout(() => {
-          this.connect()
-        }, 5000) as unknown as number
+        // Don't reconnect here - let the alarm handle it
       })
 
       ws.addEventListener('error', (error) => {
@@ -175,11 +223,6 @@ export class FirehoseConsumer extends DurableObject<Env> {
     } catch (error) {
       console.error('Failed to connect to Jetstream:', error)
       this.errorCount++
-
-      // Retry after delay
-      this.reconnectTimeout = setTimeout(() => {
-        this.connect()
-      }, 10000) as unknown as number
     }
   }
 
@@ -211,14 +254,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
       await this.indexPost(uri, did, rkey, source, record)
     }
 
-    this.lastTimeUs = commit.time_us
+    // Update cursor in storage (persists across hibernation)
+    await this.ctx.storage.put('lastTimeUs', commit.time_us)
     this.processedCount++
 
-    // Periodically save cursor (every 100 events)
-    if (this.processedCount % 100 === 0) {
-      this.cursor = commit.time_us
-      await this.ctx.storage.put('cursor', commit.time_us)
-    }
+    // Save cursor every event (since blog posts are rare)
+    await this.ctx.storage.put('cursor', commit.time_us)
   }
 
   private async indexPost(
