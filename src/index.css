@@ -50,30 +50,46 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Green color palette (OKLCH) */
+:root {
+  --color-tin-1: oklch(4% 0.127 159);    /* Black */
+  --color-tin-2: oklch(10% 0.124 158);   /* Black Metal */
+  --color-tin-3: oklch(18% 0.12 158);    /* Nightmare */
+  --color-tin-4: oklch(26% 0.114 158);   /* Haunted Forest */
+  --color-tin-5: oklch(38% 0.106 157);   /* O Tannenbaum */
+  --color-tin-6: oklch(42% 0.103 157);   /* Ficus Elastica */
+  --color-tin-7: oklch(50% 0.097 157);   /* Opal Green */
+  --color-tin-8: oklch(62% 0.088 156);   /* Natural Orchestra */
+  --color-tin-9: oklch(74% 0.08 156);    /* Neptune Green */
+  --color-tin-10: oklch(84% 0.072 155);  /* Big Spender */
+  --color-tin-11: oklch(90% 0.068 155);  /* Mint-o-licious */
+  --color-tin-12: oklch(97% 0.063 155);  /* Mint Coffee */
+}
+
 /* Site-wide Light Mode (default) */
 :root {
-  --site-bg: #ffffff;
-  --site-bg-secondary: #f6f8fa;
-  --site-text: #24292f;
-  --site-text-secondary: #57606a;
-  --site-border: #d0d7de;
-  --site-accent: #22c55e;
-  --site-accent-hover: #16a34a;
-  --sidebar-bg: #f6f8fa;
-  --sidebar-border: #e5e7eb;
+  --site-bg: var(--color-tin-12);
+  --site-bg-secondary: var(--color-tin-11);
+  --site-text: var(--color-tin-2);
+  --site-text-secondary: var(--color-tin-5);
+  --site-border: var(--color-tin-10);
+  --site-accent: var(--color-tin-6);
+  --site-accent-hover: var(--color-tin-5);
+  --sidebar-bg: var(--color-tin-11);
+  --sidebar-border: var(--color-tin-10);
 }
 
 /* Site-wide Dark Mode */
 [data-site-theme="dark"] {
-  --site-bg: #0d1117;
-  --site-bg-secondary: #161b22;
-  --site-text: #c9d1d9;
-  --site-text-secondary: #8b949e;
-  --site-border: #30363d;
-  --site-accent: #22c55e;
-  --site-accent-hover: #4ade80;
-  --sidebar-bg: #161b22;
-  --sidebar-border: #30363d;
+  --site-bg: var(--color-tin-1);
+  --site-bg-secondary: var(--color-tin-2);
+  --site-text: var(--color-tin-11);
+  --site-text-secondary: var(--color-tin-8);
+  --site-border: var(--color-tin-4);
+  --site-accent: var(--color-tin-9);
+  --site-accent-hover: var(--color-tin-10);
+  --sidebar-bg: var(--color-tin-2);
+  --sidebar-border: var(--color-tin-3);
 }
 
 /* Blog theme variables - Light variants */
@@ -185,14 +201,14 @@ body {
 
 /* Grid and vignette colors for light mode */
 :root {
-  --grid-color: rgba(0, 0, 0, 0.04);
-  --vignette-color: rgba(0, 0, 0, 0.08);
+  --grid-color: oklch(84% 0.072 155 / 0.3);
+  --vignette-color: oklch(38% 0.106 157 / 0.08);
 }
 
 /* Grid and vignette colors for dark mode */
 [data-site-theme="dark"] {
-  --grid-color: rgba(255, 255, 255, 0.03);
-  --vignette-color: rgba(0, 0, 0, 0.4);
+  --grid-color: oklch(18% 0.12 158 / 0.5);
+  --vignette-color: oklch(4% 0.127 159 / 0.5);
 }
 
 /* Graph paper grid background */
