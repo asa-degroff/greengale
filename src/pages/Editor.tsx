@@ -434,7 +434,7 @@ export function EditorPage() {
                   <select
                     value={theme}
                     onChange={(e) => setTheme(e.target.value as ThemePreset)}
-                    className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                    className="w-full h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
                   >
                     {THEME_PRESETS.map((preset) => (
                       <option key={preset} value={preset}>
@@ -449,13 +449,26 @@ export function EditorPage() {
                   <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
                     Options
                   </label>
-                  <label className="flex items-center gap-3 px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={enableLatex}
-                      onChange={(e) => setEnableLatex(e.target.checked)}
-                      className="w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
-                    />
+                  <label className="flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
+                    <span className="relative flex items-center justify-center w-5 h-5">
+                      <input
+                        type="checkbox"
+                        checked={enableLatex}
+                        onChange={(e) => setEnableLatex(e.target.checked)}
+                        className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer"
+                      />
+                      <svg
+                        className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </span>
                     <span className="text-[var(--site-text)]">Enable KaTeX</span>
                   </label>
                 </div>
