@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { useAuth } from '@/lib/auth'
 import {
@@ -11,6 +11,7 @@ import {
 
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
+  const navigate = useNavigate()
   const { session } = useAuth()
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [entries, setEntries] = useState<BlogEntry[]>([])
@@ -29,6 +30,12 @@ export function AuthorPage() {
           getAuthorProfile(handle!),
           listBlogEntries(handle!, { viewerDid: session?.did }),
         ])
+
+        // Check if handle has changed - redirect to canonical URL
+        if (profileResult.handle.toLowerCase() !== handle!.toLowerCase()) {
+          navigate(`/${profileResult.handle}`, { replace: true })
+          return
+        }
 
         setAuthor(profileResult)
         setEntries(entriesResult.entries)

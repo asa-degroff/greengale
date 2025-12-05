@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogViewer } from '@/components/BlogViewer'
 import { useAuth } from '@/lib/auth'
 import {
@@ -13,6 +13,7 @@ import { getEffectiveTheme } from '@/lib/themes'
 
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
+  const navigate = useNavigate()
   const { session } = useAuth()
   const [entry, setEntry] = useState<BlogEntry | null>(null)
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
@@ -35,6 +36,12 @@ export function PostPage() {
 
         if (!entryResult) {
           setError('Blog post not found')
+          return
+        }
+
+        // Check if handle has changed - redirect to canonical URL
+        if (authorResult.handle.toLowerCase() !== handle!.toLowerCase()) {
+          navigate(`/${authorResult.handle}/${rkey}`, { replace: true })
           return
         }
 
