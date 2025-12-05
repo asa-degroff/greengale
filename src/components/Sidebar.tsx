@@ -4,6 +4,7 @@ import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
+import logoImage from '/grey-logo.avif?url'
 
 // Icons as inline SVGs
 function MenuIcon({ className = '' }: { className?: string }) {
@@ -136,8 +137,8 @@ function Logo({ className = '' }: { className?: string }) {
       className={`${className} rounded-md`}
       style={{
         backgroundColor: 'var(--site-accent)',
-        WebkitMaskImage: 'url(/grey-logo.avif)',
-        maskImage: 'url(/grey-logo.avif)',
+        WebkitMaskImage: `url(${logoImage})`,
+        maskImage: `url(${logoImage})`,
         WebkitMaskSize: 'contain',
         maskSize: 'contain',
         WebkitMaskRepeat: 'no-repeat',
