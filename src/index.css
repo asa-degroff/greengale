@@ -87,8 +87,8 @@
   --site-text: var(--color-tin-11);
   --site-text-secondary: var(--color-tin-8);
   --site-border: var(--color-tin-4);
-  --site-accent: var(--color-tin-9);
-  --site-accent-hover: var(--color-tin-10);
+  --site-accent: var(--color-tin-6);
+  --site-accent-hover: var(--color-tin-7);
   --sidebar-bg: var(--color-tin-2);
   --sidebar-border: var(--color-tin-3);
 }
