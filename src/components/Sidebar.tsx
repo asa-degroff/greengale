@@ -83,6 +83,15 @@ function ExternalLinkIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function BookIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  )
+}
+
 function PaletteIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -296,6 +305,16 @@ export function Sidebar({ children }: SidebarProps) {
                 )}
               </div>
             </div>
+            {handle && (
+              <Link
+                to={`/${handle}`}
+                onClick={() => setMobileOpen(false)}
+                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+              >
+                <BookIcon className="w-5 h-5" />
+                <span>My Blog</span>
+              </Link>
+            )}
             <button
               onClick={logout}
               className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
