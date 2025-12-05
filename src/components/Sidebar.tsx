@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
+import { useThemePreference } from '@/lib/useThemePreference'
 
 // Icons as inline SVGs
 function MenuIcon({ className = '' }: { className?: string }) {
@@ -78,6 +79,18 @@ function ExternalLinkIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <path strokeLinecap="round" strokeLinejoin="round" d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+    </svg>
+  )
+}
+
+function PaletteIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="8" r="1.5" fill="currentColor" />
+      <circle cx="8" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="16" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="12" cy="16" r="1.5" fill="currentColor" />
     </svg>
   )
 }
@@ -166,6 +179,7 @@ export function Sidebar({ children }: SidebarProps) {
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isWhitelisted, isLoading, handle, login, logout, error } = useAuth()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme } = useThemePreference()
 
   const navLinks = [
     { to: '/', label: 'Home', icon: HomeIcon },
@@ -299,6 +313,22 @@ export function Sidebar({ children }: SidebarProps) {
           {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
           <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
+
+        {/* Theme Override Toggle - show when viewing a post with non-default theme */}
+        {activePostTheme && activePostTheme !== 'default' && (
+          <button
+            onClick={() => setForceDefaultTheme(!forceDefaultTheme)}
+            className={`flex items-center gap-3 w-full px-3 py-2 rounded-lg transition-colors ${
+              forceDefaultTheme
+                ? 'bg-[var(--site-accent)] text-white'
+                : 'sidebar-link hover:bg-[var(--site-bg-secondary)]'
+            }`}
+            aria-label={forceDefaultTheme ? 'Use post themes' : 'Use default styling'}
+          >
+            <PaletteIcon className="w-5 h-5" />
+            <span>{forceDefaultTheme ? 'Using Default' : 'Use Default Style'}</span>
+          </button>
+        )}
       </div>
     </div>
   )

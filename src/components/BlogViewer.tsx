@@ -1,6 +1,6 @@
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
-import { getEffectiveTheme, getCustomColorStyles, type Theme } from '@/lib/themes'
+import { getCustomColorStyles, type Theme } from '@/lib/themes'
 import type { AuthorProfile } from '@/lib/atproto'
 
 interface BlogViewerProps {
@@ -24,7 +24,7 @@ export function BlogViewer({
   author,
   source,
 }: BlogViewerProps) {
-  const themePreset = getEffectiveTheme(theme)
+  // Custom color overrides (inline styles) - theme preset is now applied globally via data-active-theme
   const customStyles = getCustomColorStyles(theme?.custom)
 
   const formattedDate = createdAt
@@ -37,9 +37,8 @@ export function BlogViewer({
 
   return (
     <article
-      data-theme={themePreset}
       style={customStyles}
-      className="min-h-screen bg-[var(--theme-bg)] text-[var(--theme-text)]"
+      className="min-h-screen text-[var(--theme-text)]"
     >
       <div className="max-w-3xl mx-auto px-4 py-8">
         {/* Header */}

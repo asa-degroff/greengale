@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
-import { THEME_PRESETS, type ThemePreset } from '@/lib/themes'
+import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
 
 const VISIBILITY_OPTIONS = [
   { value: 'public', label: 'Public', description: 'Anyone can see this post' },
@@ -18,7 +18,7 @@ export function EditorPage() {
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
   const [content, setContent] = useState('')
-  const [theme, setTheme] = useState<ThemePreset>('github-light')
+  const [theme, setTheme] = useState<ThemePreset>('default')
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [enableLatex, setEnableLatex] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
@@ -218,7 +218,7 @@ export function EditorPage() {
                 >
                   {THEME_PRESETS.map((preset) => (
                     <option key={preset} value={preset}>
-                      {preset.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                      {THEME_LABELS[preset]}
                     </option>
                   ))}
                 </select>

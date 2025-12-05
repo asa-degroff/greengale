@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from '@/lib/auth'
+import { ThemePreferenceProvider } from '@/lib/useThemePreference'
 import { Sidebar } from '@/components/Sidebar'
 import { HomePage } from '@/pages/Home'
 import { AuthorPage } from '@/pages/Author'
@@ -11,7 +12,8 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Sidebar>
+        <ThemePreferenceProvider>
+          <Sidebar>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -20,7 +22,8 @@ function App() {
             <Route path="/:handle" element={<AuthorPage />} />
             <Route path="/:handle/:rkey" element={<PostPage />} />
           </Routes>
-        </Sidebar>
+          </Sidebar>
+        </ThemePreferenceProvider>
       </AuthProvider>
     </BrowserRouter>
   )

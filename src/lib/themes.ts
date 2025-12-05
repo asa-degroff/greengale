@@ -1,4 +1,5 @@
 export type ThemePreset =
+  | 'default'
   | 'github-light'
   | 'github-dark'
   | 'dracula'
@@ -20,6 +21,7 @@ export interface Theme {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
+  'default',
   'github-light',
   'github-dark',
   'dracula',
@@ -30,6 +32,7 @@ export const THEME_PRESETS: ThemePreset[] = [
 ]
 
 export const THEME_LABELS: Record<ThemePreset, string> = {
+  default: 'Default',
   'github-light': 'GitHub Light',
   'github-dark': 'GitHub Dark',
   dracula: 'Dracula',
@@ -43,7 +46,7 @@ export const THEME_LABELS: Record<ThemePreset, string> = {
  * Get the effective theme preset to use
  */
 export function getEffectiveTheme(theme?: Theme): ThemePreset {
-  return theme?.preset || 'github-light'
+  return theme?.preset || 'default'
 }
 
 /**
@@ -72,8 +75,12 @@ export function getCustomColorStyles(custom?: CustomColors): React.CSSProperties
 }
 
 /**
- * Check if a theme is dark
+ * Check if a theme is dark (default follows site theme, so we check separately)
  */
 export function isDarkTheme(preset: ThemePreset): boolean {
+  if (preset === 'default') {
+    // Default theme follows site theme - check current site theme
+    return document.documentElement.getAttribute('data-site-theme') === 'dark'
+  }
   return ['github-dark', 'dracula', 'nord', 'solarized-dark', 'monokai'].includes(preset)
 }

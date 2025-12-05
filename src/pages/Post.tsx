@@ -7,6 +7,8 @@ import {
   type BlogEntry,
   type AuthorProfile,
 } from '@/lib/atproto'
+import { useThemePreference } from '@/lib/useThemePreference'
+import { getEffectiveTheme } from '@/lib/themes'
 
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
@@ -14,6 +16,7 @@ export function PostPage() {
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { setActivePostTheme } = useThemePreference()
 
   useEffect(() => {
     if (!handle || !rkey) return
@@ -36,6 +39,10 @@ export function PostPage() {
         setEntry(entryResult)
         setAuthor(authorResult)
 
+        // Set active theme from post
+        const postTheme = getEffectiveTheme(entryResult.theme)
+        setActivePostTheme(postTheme)
+
         // Update page title
         if (entryResult.title) {
           document.title = `${entryResult.title} - GreenGale`
@@ -51,8 +58,9 @@ export function PostPage() {
 
     return () => {
       document.title = 'GreenGale'
+      setActivePostTheme(null) // Reset theme when leaving post
     }
-  }, [handle, rkey])
+  }, [handle, rkey, setActivePostTheme])
 
   if (loading) {
     return (
