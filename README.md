@@ -38,13 +38,13 @@ Cloudflare Workers with D1 (SQLite) database and KV caching.
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  AT Protocol    │────▶│  Firehose DO     │────▶│  D1 Database │
+│  AT Protocol    │───▶│  Firehose DO     │───▶│  D1 Database │
 │  Firehose       │     │  (indexer)       │     │  (posts,     │
 └─────────────────┘     └──────────────────┘     │   authors)   │
-                                                  └──────┬──────┘
+                                                 └──────┬──────┘
                                                          │
-┌─────────────────┐     ┌──────────────────┐            │
-│  React Frontend │◀───▶│  API Worker      │◀───────────┘
+┌─────────────────┐     ┌──────────────────┐             │
+│  React Frontend │◀─▶│  API Worker      │◀───────────┘
 │  (greengale.app)│     │  + KV Cache      │
 └─────────────────┘     └──────────────────┘
 ```
