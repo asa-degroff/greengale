@@ -3,7 +3,7 @@ import { DurableObject } from 'cloudflare:workers'
 interface Env {
   DB: D1Database
   CACHE: KVNamespace
-  RELAY_URL: string
+  JETSTREAM_URL: string
 }
 
 // Collections we're interested in
@@ -12,27 +12,53 @@ const BLOG_COLLECTIONS = [
   'app.greengale.blog.entry',
 ]
 
-interface CommitEvent {
+// Jetstream event types
+interface JetstreamCommit {
   did: string
-  seq: number
+  time_us: number
+  kind: 'commit'
   commit: {
-    ops: Array<{
-      action: 'create' | 'update' | 'delete'
-      path: string
-      cid?: string
-    }>
-    blobs: unknown[]
+    rev: string
+    operation: 'create' | 'update' | 'delete'
+    collection: string
+    rkey: string
     record?: Record<string, unknown>
+    cid?: string
   }
-  time: string
 }
+
+interface JetstreamIdentity {
+  did: string
+  time_us: number
+  kind: 'identity'
+  identity: {
+    did: string
+    handle: string
+    seq: number
+    time: string
+  }
+}
+
+interface JetstreamAccount {
+  did: string
+  time_us: number
+  kind: 'account'
+  account: {
+    active: boolean
+    did: string
+    seq: number
+    time: string
+  }
+}
+
+type JetstreamEvent = JetstreamCommit | JetstreamIdentity | JetstreamAccount
 
 export class FirehoseConsumer extends DurableObject<Env> {
   private ws: WebSocket | null = null
   private connected = false
   private cursor: number = 0
   private reconnectTimeout: number | null = null
-  private lastSeq: number = 0
+  private lastTimeUs: number = 0
   private processedCount = 0
   private errorCount = 0
 
@@ -57,7 +83,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
       return new Response(JSON.stringify({
         connected: this.connected,
         cursor: this.cursor,
-        lastSeq: this.lastSeq,
+        lastTimeUs: this.lastTimeUs,
         processedCount: this.processedCount,
         errorCount: this.errorCount,
       }), {
@@ -70,7 +96,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
   private async start() {
     if (this.connected) {
-      console.log('Already connected to firehose')
+      console.log('Already connected to Jetstream')
       return
     }
 
@@ -96,22 +122,33 @@ export class FirehoseConsumer extends DurableObject<Env> {
   }
 
   private async connect() {
-    const relayUrl = this.env.RELAY_URL || 'wss://bsky.network'
-    const wsUrl = `${relayUrl}/xrpc/com.atproto.sync.subscribeRepos${this.cursor ? `?cursor=${this.cursor}` : ''}`
+    // Use Jetstream - it provides JSON instead of CBOR
+    const baseUrl = this.env.JETSTREAM_URL || 'wss://jetstream2.us-east.bsky.network'
 
-    console.log(`Connecting to firehose: ${wsUrl}`)
+    // Build URL with wanted collections
+    const params = new URLSearchParams()
+    for (const collection of BLOG_COLLECTIONS) {
+      params.append('wantedCollections', collection)
+    }
+    if (this.cursor) {
+      params.append('cursor', this.cursor.toString())
+    }
+
+    const wsUrl = `${baseUrl}/subscribe?${params.toString()}`
+
+    console.log(`Connecting to Jetstream: ${wsUrl}`)
 
     try {
       const ws = new WebSocket(wsUrl)
 
       ws.addEventListener('open', () => {
-        console.log('Connected to firehose')
+        console.log('Connected to Jetstream')
         this.connected = true
       })
 
       ws.addEventListener('message', async (event) => {
         try {
-          await this.handleMessage(event.data)
+          await this.handleMessage(event.data as string)
         } catch (error) {
           console.error('Error handling message:', error)
           this.errorCount++
@@ -119,7 +156,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
       })
 
       ws.addEventListener('close', (event) => {
-        console.log(`Firehose connection closed: ${event.code} ${event.reason}`)
+        console.log(`Jetstream connection closed: ${event.code} ${event.reason}`)
         this.connected = false
         this.ws = null
 
@@ -130,13 +167,13 @@ export class FirehoseConsumer extends DurableObject<Env> {
       })
 
       ws.addEventListener('error', (error) => {
-        console.error('Firehose WebSocket error:', error)
+        console.error('Jetstream WebSocket error:', error)
         this.errorCount++
       })
 
       this.ws = ws
     } catch (error) {
-      console.error('Failed to connect to firehose:', error)
+      console.error('Failed to connect to Jetstream:', error)
       this.errorCount++
 
       // Retry after delay
@@ -146,68 +183,42 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
   }
 
-  private async handleMessage(data: ArrayBuffer | string) {
-    // The firehose sends CBOR-encoded messages
-    // For now, we'll use a simplified approach - in production you'd use
-    // @atproto/repo or cbor libraries to properly decode
+  private async handleMessage(data: string) {
+    // Jetstream sends JSON - much simpler than CBOR!
+    const event = JSON.parse(data) as JetstreamEvent
 
-    // This is a placeholder - real implementation needs CBOR decoding
-    // The actual implementation would look like:
-    //
-    // import { decodeMultiple } from 'cbor-x'
-    // import { readCar } from '@atproto/repo'
-    //
-    // const frames = decodeMultiple(new Uint8Array(data as ArrayBuffer))
-    // for (const frame of frames) {
-    //   if (frame.$type === 'com.atproto.sync.subscribeRepos#commit') {
-    //     await this.handleCommit(frame)
-    //   }
-    // }
-
-    // For development, we'll process events from a simplified JSON format
-    // Real firehose uses CBOR + CAR files
-    if (typeof data === 'string') {
-      try {
-        const event = JSON.parse(data) as CommitEvent
-        await this.handleCommit(event)
-      } catch {
-        // Not JSON, skip
-      }
-    }
-  }
-
-  private async handleCommit(event: CommitEvent) {
-    const { did, seq, commit } = event
-
-    this.lastSeq = seq
-
-    for (const op of commit.ops) {
-      const [collection, rkey] = op.path.split('/')
-
-      // Only process blog entries
-      if (!BLOG_COLLECTIONS.includes(collection)) {
-        continue
-      }
-
-      const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
-      const uri = `at://${did}/${collection}/${rkey}`
-
-      if (op.action === 'delete') {
-        await this.deletePost(uri)
-      } else if (op.action === 'create' || op.action === 'update') {
-        // For create/update, we need to fetch the record content
-        // In a real implementation, the record is included in the commit CAR
-        await this.indexPost(uri, did, rkey, source, commit.record)
-      }
+    // Only process commit events
+    if (event.kind !== 'commit') {
+      return
     }
 
-    // Periodically save cursor
-    if (seq % 1000 === 0) {
-      this.cursor = seq
-      await this.ctx.storage.put('cursor', seq)
+    const commit = event as JetstreamCommit
+    const { did, commit: { operation, collection, rkey, record } } = commit
+
+    // Double-check collection is one we care about
+    if (!BLOG_COLLECTIONS.includes(collection)) {
+      return
     }
 
+    const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
+    const uri = `at://${did}/${collection}/${rkey}`
+
+    console.log(`Processing ${operation} for ${source} post: ${uri}`)
+
+    if (operation === 'delete') {
+      await this.deletePost(uri)
+    } else if (operation === 'create' || operation === 'update') {
+      await this.indexPost(uri, did, rkey, source, record)
+    }
+
+    this.lastTimeUs = commit.time_us
     this.processedCount++
+
+    // Periodically save cursor (every 100 events)
+    if (this.processedCount % 100 === 0) {
+      this.cursor = commit.time_us
+      await this.ctx.storage.put('cursor', commit.time_us)
+    }
   }
 
   private async indexPost(
@@ -268,6 +279,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
         WHERE did = ?
       `).bind(did, did).run()
 
+      // Invalidate cache for recent posts
+      await this.env.CACHE.delete('recent_posts:12:')
+
       console.log(`Indexed ${source} post: ${uri}`)
     } catch (error) {
       console.error(`Failed to index post ${uri}:`, error)
@@ -293,6 +307,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
           WHERE did = ?
         `).bind(post.author_did, post.author_did).run()
       }
+
+      // Invalidate cache for recent posts
+      await this.env.CACHE.delete('recent_posts:12:')
 
       console.log(`Deleted post: ${uri}`)
     } catch (error) {
