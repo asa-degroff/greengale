@@ -7,7 +7,15 @@ import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeReact from 'rehype-react'
-import { createElement, Fragment, type ReactNode } from 'react'
+import * as prod from 'react/jsx-runtime'
+import { type ReactNode } from 'react'
+
+// Production JSX runtime for rehype-react v8+
+const production = {
+  Fragment: prod.Fragment,
+  jsx: prod.jsx,
+  jsxs: prod.jsxs,
+}
 
 // Extended sanitization schema to allow KaTeX and code highlighting
 const sanitizeSchema = {
@@ -73,34 +81,8 @@ export async function renderMarkdown(
   processor = processor
     .use(rehypeHighlight, { detect: true })
     .use(rehypeSanitize, sanitizeSchema)
-    .use(rehypeReact, {
-      createElement,
-      Fragment,
-      components: {
-        // Custom components can be added here
-        a: ({ href, children, ...props }: { href?: string; children?: ReactNode }) => {
-          // External links open in new tab
-          const isExternal = href?.startsWith('http')
-          return createElement(
-            'a',
-            {
-              href,
-              ...props,
-              ...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {}),
-            },
-            children
-          )
-        },
-        img: ({ src, alt, ...props }: { src?: string; alt?: string }) => {
-          return createElement('img', {
-            src,
-            alt,
-            loading: 'lazy',
-            ...props,
-          })
-        },
-      },
-    })
+    // @ts-expect-error: rehype-react types are complex
+    .use(rehypeReact, production)
 
   const file = await processor.process(content)
   return file.result as ReactNode
