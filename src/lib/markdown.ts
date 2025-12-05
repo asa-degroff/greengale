@@ -81,7 +81,6 @@ export async function renderMarkdown(
   processor = processor
     .use(rehypeHighlight, { detect: true })
     .use(rehypeSanitize, sanitizeSchema)
-    // @ts-expect-error: rehype-react types are complex
     .use(rehypeReact, production)
 
   const file = await processor.process(content)

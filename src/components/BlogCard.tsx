@@ -22,10 +22,10 @@ export function BlogCard({ entry, author }: BlogCardProps) {
   const authorHandle = author?.handle || entry.authorDid
 
   return (
-    <article className="border border-[var(--theme-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--theme-bg)]">
+    <article className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]">
       <Link to={`/${authorHandle}/${entry.rkey}`} className="block">
         {thumbnail && (
-          <div className="aspect-video overflow-hidden bg-[var(--theme-code-bg)]">
+          <div className="aspect-video overflow-hidden bg-[var(--site-bg-secondary)]">
             <img
               src={thumbnail}
               alt=""
@@ -35,18 +35,18 @@ export function BlogCard({ entry, author }: BlogCardProps) {
           </div>
         )}
         <div className="p-4">
-          <h2 className="text-lg font-semibold mb-2 text-[var(--theme-text)] line-clamp-2">
+          <h2 className="text-lg font-bold mb-2 text-[var(--site-text)] line-clamp-2">
             {entry.title || 'Untitled'}
           </h2>
           {entry.subtitle && (
-            <p className="text-sm text-[var(--theme-text-secondary)] mb-2 line-clamp-1">
+            <p className="text-sm text-[var(--site-text-secondary)] mb-2 line-clamp-1">
               {entry.subtitle}
             </p>
           )}
-          <p className="text-sm text-[var(--theme-text-secondary)] line-clamp-3 mb-3">
+          <p className="text-sm text-[var(--site-text-secondary)] line-clamp-3 mb-3">
             {preview}
           </p>
-          <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
+          <div className="flex items-center justify-between text-xs text-[var(--site-text-secondary)]">
             <div className="flex items-center gap-2">
               {author?.avatar && (
                 <img
@@ -59,7 +59,7 @@ export function BlogCard({ entry, author }: BlogCardProps) {
             </div>
             <div className="flex items-center gap-2">
               {formattedDate && <time dateTime={entry.createdAt}>{formattedDate}</time>}
-              <span className="px-1.5 py-0.5 rounded bg-[var(--theme-code-bg)]">
+              <span className="px-1.5 py-0.5 rounded bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]">
                 {entry.source === 'whitewind' ? 'WW' : 'GG'}
               </span>
             </div>

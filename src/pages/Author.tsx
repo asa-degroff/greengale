@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Header } from '@/components/Header'
 import { BlogCard } from '@/components/BlogCard'
 import {
   getAuthorProfile,
@@ -43,54 +42,51 @@ export function AuthorPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--theme-bg)]">
-        <Header />
-        <main className="max-w-5xl mx-auto px-4 py-12">
+      <div className="min-h-screen bg-[var(--site-bg)]">
+        <div className="max-w-4xl mx-auto px-4 py-12">
           <div className="animate-pulse">
             <div className="flex items-center gap-4 mb-8">
-              <div className="w-16 h-16 rounded-full bg-gray-200"></div>
+              <div className="w-16 h-16 rounded-full bg-[var(--site-border)]"></div>
               <div>
-                <div className="h-6 bg-gray-200 rounded w-48 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-32"></div>
+                <div className="h-6 bg-[var(--site-border)] rounded w-48 mb-2"></div>
+                <div className="h-4 bg-[var(--site-border)] rounded w-32"></div>
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-6">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-48 bg-gray-200 rounded-lg"></div>
+                <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg"></div>
               ))}
             </div>
           </div>
-        </main>
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[var(--theme-bg)]">
-        <Header />
-        <main className="max-w-5xl mx-auto px-4 py-12">
+      <div className="min-h-screen bg-[var(--site-bg)]">
+        <div className="max-w-4xl mx-auto px-4 py-12">
           <div className="text-center">
-            <h1 className="text-2xl font-bold mb-4 text-[var(--theme-text)]">
+            <h1 className="text-2xl font-bold mb-4 text-[var(--site-text)]">
               Error Loading Author
             </h1>
-            <p className="text-[var(--theme-text-secondary)] mb-6">{error}</p>
+            <p className="text-[var(--site-text-secondary)] mb-6">{error}</p>
             <Link
               to="/"
-              className="text-[var(--theme-accent)] hover:underline"
+              className="text-[var(--site-accent)] hover:underline"
             >
               Back to Home
             </Link>
           </div>
-        </main>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[var(--theme-bg)]">
-      <Header />
-      <main className="max-w-5xl mx-auto px-4 py-12">
+    <div className="min-h-screen bg-[var(--site-bg)]">
+      <div className="max-w-4xl mx-auto px-4 py-12">
         {/* Author Header */}
         {author && (
           <div className="mb-12">
@@ -102,21 +98,21 @@ export function AuthorPage() {
                   className="w-16 h-16 rounded-full object-cover"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-white text-2xl font-medium">
+                <div className="w-16 h-16 rounded-full bg-[var(--site-accent)] flex items-center justify-center text-white text-2xl font-bold">
                   {(author.displayName || author.handle).charAt(0).toUpperCase()}
                 </div>
               )}
               <div>
-                <h1 className="text-2xl font-bold text-[var(--theme-text)]">
+                <h1 className="text-2xl font-bold text-[var(--site-text)]">
                   {author.displayName || author.handle}
                 </h1>
-                <p className="text-[var(--theme-text-secondary)]">
+                <p className="text-[var(--site-text-secondary)]">
                   @{author.handle}
                 </p>
               </div>
             </div>
             {author.description && (
-              <p className="text-[var(--theme-text-secondary)] max-w-2xl">
+              <p className="text-[var(--site-text-secondary)] max-w-2xl">
                 {author.description}
               </p>
             )}
@@ -125,9 +121,9 @@ export function AuthorPage() {
                 href={`https://bsky.app/profile/${author.handle}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm text-[var(--theme-accent)] hover:underline"
+                className="text-sm text-[var(--site-accent)] hover:underline"
               >
-                View on Bluesky
+                View on Bluesky →
               </a>
             </div>
           </div>
@@ -136,13 +132,13 @@ export function AuthorPage() {
         {/* Blog Entries */}
         {entries.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-[var(--theme-text-secondary)]">
+            <p className="text-[var(--site-text-secondary)]">
               No blog posts found for this author.
             </p>
           </div>
         ) : (
           <>
-            <h2 className="text-xl font-semibold mb-6 text-[var(--theme-text)]">
+            <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
               Blog Posts ({entries.length})
             </h2>
             <div className="grid md:grid-cols-2 gap-6">
@@ -152,7 +148,7 @@ export function AuthorPage() {
             </div>
           </>
         )}
-      </main>
+      </div>
     </div>
   )
 }

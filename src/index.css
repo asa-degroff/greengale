@@ -6,19 +6,77 @@
 /* Highlight.js github theme */
 @import "highlight.js/styles/github.css";
 
+/* iA Writer Quattro Font */
+@font-face {
+  font-family: 'iA Writer Quattro';
+  src: url('/fonts/iAWriterQuattroS-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'iA Writer Quattro';
+  src: url('/fonts/iAWriterQuattroS-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'iA Writer Quattro';
+  src: url('/fonts/iAWriterQuattroS-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'iA Writer Quattro';
+  src: url('/fonts/iAWriterQuattroS-BoldItalic.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 /* Base styles */
 :root {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
   line-height: 1.6;
   font-weight: 400;
-  color-scheme: light dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Theme CSS variables */
+/* Site-wide Light Mode (default) */
+:root {
+  --site-bg: #ffffff;
+  --site-bg-secondary: #f6f8fa;
+  --site-text: #24292f;
+  --site-text-secondary: #57606a;
+  --site-border: #d0d7de;
+  --site-accent: #22c55e;
+  --site-accent-hover: #16a34a;
+  --sidebar-bg: #f6f8fa;
+  --sidebar-border: #e5e7eb;
+}
+
+/* Site-wide Dark Mode */
+[data-site-theme="dark"] {
+  --site-bg: #0d1117;
+  --site-bg-secondary: #161b22;
+  --site-text: #c9d1d9;
+  --site-text-secondary: #8b949e;
+  --site-border: #30363d;
+  --site-accent: #22c55e;
+  --site-accent-hover: #4ade80;
+  --sidebar-bg: #161b22;
+  --sidebar-border: #30363d;
+}
+
+/* Blog theme variables - Light variants */
 :root {
   /* github-light (default) */
   --theme-bg: #ffffff;
@@ -121,12 +179,34 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: var(--theme-bg);
-  color: var(--theme-text);
+  background-color: var(--site-bg);
+  color: var(--site-text);
+}
+
+/* Sidebar styles */
+.sidebar {
+  background-color: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+}
+
+.sidebar-link {
+  color: var(--site-text-secondary);
+  transition: color 0.15s ease;
+}
+
+.sidebar-link:hover {
+  color: var(--site-accent);
+}
+
+/* Mobile drawer overlay */
+.drawer-overlay {
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
 }
 
 /* Markdown content styles */
 .markdown-body {
+  font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
   font-size: 16px;
   line-height: 1.8;
   color: var(--theme-text);
@@ -141,11 +221,11 @@ body {
 .markdown-body h6 {
   margin-top: 1.5em;
   margin-bottom: 0.5em;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.25;
 }
 
-.markdown-body h1 { font-size: 2em; border-bottom: 1px solid var(--theme-border); padding-bottom: 0.3em; }
+.markdown-body h1 { font-size: 1.75em; border-bottom: 1px solid var(--theme-border); padding-bottom: 0.3em; }
 .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid var(--theme-border); padding-bottom: 0.3em; }
 .markdown-body h3 { font-size: 1.25em; }
 .markdown-body h4 { font-size: 1em; }
@@ -170,8 +250,8 @@ body {
   margin: 0;
   font-size: 85%;
   background-color: var(--theme-code-bg);
-  border-radius: 6px;
-  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  border-radius: 4px;
+  font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
 }
 
 .markdown-body pre {
@@ -228,7 +308,7 @@ body {
 }
 
 .markdown-body th {
-  font-weight: 600;
+  font-weight: 700;
   background-color: var(--theme-code-bg);
 }
 
@@ -249,4 +329,38 @@ body {
 .markdown-body .math-display {
   overflow-x: auto;
   margin: 1em 0;
+}
+
+/* Dark mode toggle button */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--site-border);
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--site-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--site-accent);
+  border-color: var(--site-accent);
+}
+
+/* Scrollbar styling for sidebar */
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background-color: var(--site-border);
+  border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--site-text-secondary);
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Header } from '@/components/Header'
 import { BlogViewer } from '@/components/BlogViewer'
 import {
   getBlogEntry,
@@ -57,66 +56,63 @@ export function PostPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--theme-bg)]">
-        <Header />
-        <main className="max-w-3xl mx-auto px-4 py-12">
+      <div className="min-h-screen bg-[var(--site-bg)]">
+        <div className="max-w-3xl mx-auto px-4 py-12">
           <div className="animate-pulse">
-            <div className="h-10 bg-gray-200 rounded w-3/4 mb-4"></div>
-            <div className="h-6 bg-gray-200 rounded w-1/2 mb-8"></div>
+            <div className="h-10 bg-[var(--site-border)] rounded w-3/4 mb-4"></div>
+            <div className="h-6 bg-[var(--site-border)] rounded w-1/2 mb-8"></div>
             <div className="space-y-4">
-              <div className="h-4 bg-gray-200 rounded w-full"></div>
-              <div className="h-4 bg-gray-200 rounded w-full"></div>
-              <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-              <div className="h-4 bg-gray-200 rounded w-full"></div>
-              <div className="h-4 bg-gray-200 rounded w-4/5"></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-full"></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-full"></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-5/6"></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-full"></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-4/5"></div>
             </div>
           </div>
-        </main>
+        </div>
       </div>
     )
   }
 
   if (error || !entry) {
     return (
-      <div className="min-h-screen bg-[var(--theme-bg)]">
-        <Header />
-        <main className="max-w-3xl mx-auto px-4 py-12">
+      <div className="min-h-screen bg-[var(--site-bg)]">
+        <div className="max-w-3xl mx-auto px-4 py-12">
           <div className="text-center">
-            <h1 className="text-2xl font-bold mb-4 text-[var(--theme-text)]">
+            <h1 className="text-2xl font-bold mb-4 text-[var(--site-text)]">
               {error || 'Post Not Found'}
             </h1>
-            <p className="text-[var(--theme-text-secondary)] mb-6">
+            <p className="text-[var(--site-text-secondary)] mb-6">
               The blog post you're looking for doesn't exist or couldn't be loaded.
             </p>
             <div className="flex gap-4 justify-center">
               {handle && (
                 <Link
                   to={`/${handle}`}
-                  className="text-[var(--theme-accent)] hover:underline"
+                  className="text-[var(--site-accent)] hover:underline"
                 >
                   View Author's Posts
                 </Link>
               )}
               <Link
                 to="/"
-                className="text-[var(--theme-accent)] hover:underline"
+                className="text-[var(--site-accent)] hover:underline"
               >
                 Back to Home
               </Link>
             </div>
           </div>
-        </main>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[var(--theme-bg)]">
-      <Header />
+    <div className="min-h-screen bg-[var(--site-bg)]">
       <nav className="max-w-3xl mx-auto px-4 py-4">
         <Link
           to={`/${handle}`}
-          className="text-sm text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)]"
+          className="text-sm text-[var(--site-text-secondary)] hover:text-[var(--site-accent)]"
         >
           ← Back to {author?.displayName || handle}'s posts
         </Link>
