@@ -233,27 +233,25 @@ export async function getBlogEntry(
  */
 export async function listBlogEntries(
   identifier: string,
-  options: { limit?: number; cursor?: string; viewerDid?: string } = {}
-): Promise<{ entries: BlogEntry[]; cursor?: string }> {
+  options: { limit?: number; viewerDid?: string } = {}
+): Promise<{ entries: BlogEntry[] }> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
   const agent = new AtpAgent({ service: pdsEndpoint })
 
   const entries: BlogEntry[] = []
-  let cursor = options.cursor
 
   // Check if viewer is the author (can see all posts)
   const isOwnProfile = options.viewerDid && options.viewerDid === did
 
-  // Fetch from both collections
+  // Fetch from both collections independently (cursors are collection-specific)
   for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
     try {
       const response = await agent.com.atproto.repo.listRecords({
         repo: did,
         collection,
-        limit: options.limit || 50,
-        cursor,
+        limit: options.limit || 100,
       })
 
       for (const item of response.data.records) {
@@ -282,8 +280,6 @@ export async function listBlogEntries(
           blobs: record.blobs as BlogEntry['blobs'],
         })
       }
-
-      cursor = response.data.cursor
     } catch {
       // Collection might not exist for this user
     }
@@ -296,7 +292,7 @@ export async function listBlogEntries(
     return dateB - dateA
   })
 
-  return { entries, cursor }
+  return { entries }
 }
 
 /**
