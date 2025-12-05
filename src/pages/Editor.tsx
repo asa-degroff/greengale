@@ -324,7 +324,7 @@ export function EditorPage() {
                       onChange={(e) => setEnableLatex(e.target.checked)}
                       className="w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
                     />
-                    <span className="text-[var(--site-text)]">Enable LaTeX</span>
+                    <span className="text-[var(--site-text)]">Enable KaTeX</span>
                   </label>
                 </div>
               </div>
