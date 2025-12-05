@@ -27,6 +27,7 @@ app.get('/xrpc/_health', (c) => {
 })
 
 // Get recent posts across all authors
+// Note: Recent posts feed only shows public posts (no viewer parameter needed)
 app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
@@ -69,6 +70,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
 })
 
 // Get posts by author
+// Optional viewer parameter: if viewer DID matches author DID, includes private posts
 app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
   const author = c.req.query('author')
   if (!author) {
@@ -77,6 +79,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
 
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
+  const viewer = c.req.query('viewer') // Optional: viewer's DID for visibility filtering
 
   try {
     // First resolve handle to DID if needed
@@ -92,6 +95,17 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       authorDid = authorRow.did as string
     }
 
+    // Determine visibility filter based on whether viewer is the author
+    const isOwnProfile = viewer && viewer === authorDid
+    let visibilityFilter: string
+    if (isOwnProfile) {
+      // Author viewing own profile: show all posts (public, unlisted, private)
+      visibilityFilter = `p.visibility IN ('public', 'url', 'author')`
+    } else {
+      // Others viewing profile: show only public posts
+      visibilityFilter = `p.visibility = 'public'`
+    }
+
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -99,7 +113,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
         a.handle, a.display_name, a.avatar_url
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
-      WHERE p.author_did = ? AND p.visibility = 'public'
+      WHERE p.author_did = ? AND ${visibilityFilter}
     `
 
     const params: (string | number)[] = [authorDid]
@@ -129,9 +143,11 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
 })
 
 // Get a single post by author and rkey
+// Optional viewer parameter: required to view private posts (author-only)
 app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
   const author = c.req.query('author')
   const rkey = c.req.query('rkey')
+  const viewer = c.req.query('viewer') // Optional: viewer's DID for visibility check
 
   if (!author || !rkey) {
     return c.json({ error: 'Missing author or rkey parameter' }, 400)
@@ -163,6 +179,16 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
     if (!post) {
       return c.json({ error: 'Post not found' }, 404)
     }
+
+    // Check visibility permissions
+    const visibility = post.visibility as string
+    const isAuthor = viewer && viewer === authorDid
+
+    if (visibility === 'author' && !isAuthor) {
+      // Private post - only the author can view
+      return c.json({ error: 'Post not found' }, 404)
+    }
+    // 'url' visibility allows anyone with the link, 'public' is open to all
 
     return c.json({ post: formatPost(post) })
   } catch (error) {

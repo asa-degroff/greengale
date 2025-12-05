@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
+import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
   listBlogEntries,
@@ -10,6 +11,7 @@ import {
 
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
+  const { session } = useAuth()
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [entries, setEntries] = useState<BlogEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,7 +27,7 @@ export function AuthorPage() {
       try {
         const [profileResult, entriesResult] = await Promise.all([
           getAuthorProfile(handle!),
-          listBlogEntries(handle!),
+          listBlogEntries(handle!, { viewerDid: session?.did }),
         ])
 
         setAuthor(profileResult)
@@ -38,7 +40,7 @@ export function AuthorPage() {
     }
 
     load()
-  }, [handle])
+  }, [handle, session?.did])
 
   if (loading) {
     return (

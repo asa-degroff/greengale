@@ -83,14 +83,17 @@ export async function getRecentPosts(
 
 /**
  * Get posts by a specific author
+ * @param viewer Optional viewer DID - if matches author, includes private posts
  */
 export async function getAuthorPosts(
   author: string,
   limit = 50,
-  cursor?: string
+  cursor?: string,
+  viewer?: string
 ): Promise<AuthorPostsResponse> {
   const params = new URLSearchParams({ author, limit: String(limit) })
   if (cursor) params.set('cursor', cursor)
+  if (viewer) params.set('viewer', viewer)
 
   const response = await fetch(
     `${API_BASE}/xrpc/app.greengale.feed.getAuthorPosts?${params}`
@@ -105,12 +108,15 @@ export async function getAuthorPosts(
 
 /**
  * Get a single post by author and rkey
+ * @param viewer Optional viewer DID - required to view private (author-only) posts
  */
 export async function getPost(
   author: string,
-  rkey: string
+  rkey: string,
+  viewer?: string
 ): Promise<AppViewPost | null> {
   const params = new URLSearchParams({ author, rkey })
+  if (viewer) params.set('viewer', viewer)
 
   const response = await fetch(
     `${API_BASE}/xrpc/app.greengale.feed.getPost?${params}`

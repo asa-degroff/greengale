@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { BlogViewer } from '@/components/BlogViewer'
+import { useAuth } from '@/lib/auth'
 import {
   getBlogEntry,
   getAuthorProfile,
@@ -12,6 +13,7 @@ import { getEffectiveTheme } from '@/lib/themes'
 
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
+  const { session } = useAuth()
   const [entry, setEntry] = useState<BlogEntry | null>(null)
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -27,7 +29,7 @@ export function PostPage() {
 
       try {
         const [entryResult, authorResult] = await Promise.all([
-          getBlogEntry(handle!, rkey!),
+          getBlogEntry(handle!, rkey!, session?.did),
           getAuthorProfile(handle!),
         ])
 
@@ -60,7 +62,7 @@ export function PostPage() {
       document.title = 'GreenGale'
       setActivePostTheme(null) // Reset theme when leaving post
     }
-  }, [handle, rkey, setActivePostTheme])
+  }, [handle, rkey, session?.did, setActivePostTheme])
 
   if (loading) {
     return (

@@ -170,11 +170,13 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
 }
 
 /**
- * Fetch a single blog entry by rkey
+ * Get a single blog entry by author and rkey
+ * @param viewerDid Optional viewer's DID - required to view private (author-only) posts
  */
 export async function getBlogEntry(
   identifier: string,
-  rkey: string
+  rkey: string,
+  viewerDid?: string
 ): Promise<BlogEntry | null> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
@@ -191,6 +193,16 @@ export async function getBlogEntry(
       })
 
       const record = response.data.value as Record<string, unknown>
+      const visibility = (record.visibility as string | undefined) || 'public'
+
+      // Check visibility permissions
+      const isAuthor = viewerDid && viewerDid === did
+
+      if (visibility === 'author' && !isAuthor) {
+        // Private post - only the author can view
+        return null
+      }
+      // 'url' visibility allows anyone with the link, 'public' is open to all
 
       return {
         uri: response.data.uri,
@@ -203,7 +215,7 @@ export async function getBlogEntry(
         subtitle: record.subtitle as string | undefined,
         createdAt: record.createdAt as string | undefined,
         theme: parseTheme(record.theme),
-        visibility: record.visibility as BlogEntry['visibility'],
+        visibility: visibility as BlogEntry['visibility'],
         latex: record.latex as boolean | undefined,
         blobs: record.blobs as BlogEntry['blobs'],
       }
@@ -217,10 +229,11 @@ export async function getBlogEntry(
 
 /**
  * List blog entries for an author
+ * @param viewerDid Optional viewer's DID - if matches author, includes private posts
  */
 export async function listBlogEntries(
   identifier: string,
-  options: { limit?: number; cursor?: string } = {}
+  options: { limit?: number; cursor?: string; viewerDid?: string } = {}
 ): Promise<{ entries: BlogEntry[]; cursor?: string }> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
@@ -229,6 +242,9 @@ export async function listBlogEntries(
 
   const entries: BlogEntry[] = []
   let cursor = options.cursor
+
+  // Check if viewer is the author (can see all posts)
+  const isOwnProfile = options.viewerDid && options.viewerDid === did
 
   // Fetch from both collections
   for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
@@ -242,10 +258,11 @@ export async function listBlogEntries(
 
       for (const item of response.data.records) {
         const record = item.value as Record<string, unknown>
-        const visibility = record.visibility as string | undefined
+        const visibility = (record.visibility as string | undefined) || 'public'
 
-        // Skip non-public entries
-        if (visibility && visibility !== 'public') {
+        // Filter by visibility
+        if (!isOwnProfile && visibility !== 'public') {
+          // Non-owners can only see public posts
           continue
         }
 
@@ -260,7 +277,7 @@ export async function listBlogEntries(
           subtitle: record.subtitle as string | undefined,
           createdAt: record.createdAt as string | undefined,
           theme: parseTheme(record.theme),
-          visibility: 'public',
+          visibility: visibility as 'public' | 'url' | 'author',
           latex: record.latex as boolean | undefined,
           blobs: record.blobs as BlogEntry['blobs'],
         })
