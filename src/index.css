@@ -183,6 +183,45 @@ body {
   color: var(--site-text);
 }
 
+/* Grid and vignette colors for light mode */
+:root {
+  --grid-color: rgba(0, 0, 0, 0.04);
+  --vignette-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Grid and vignette colors for dark mode */
+[data-site-theme="dark"] {
+  --grid-color: rgba(255, 255, 255, 0.03);
+  --vignette-color: rgba(0, 0, 0, 0.4);
+}
+
+/* Graph paper grid background */
+.grid-background {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-color: var(--site-bg);
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Vignette overlay */
+.vignette-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    transparent 50%,
+    var(--vignette-color) 100%
+  );
+}
+
 /* Sidebar styles */
 .sidebar {
   background-color: var(--sidebar-bg);

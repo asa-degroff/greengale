@@ -56,7 +56,7 @@ export function PostPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--site-bg)]">
+      <div className="min-h-screen">
         <div className="max-w-3xl mx-auto px-4 py-12">
           <div className="animate-pulse">
             <div className="h-10 bg-[var(--site-border)] rounded w-3/4 mb-4"></div>
@@ -76,7 +76,7 @@ export function PostPage() {
 
   if (error || !entry) {
     return (
-      <div className="min-h-screen bg-[var(--site-bg)]">
+      <div className="min-h-screen">
         <div className="max-w-3xl mx-auto px-4 py-12">
           <div className="text-center">
             <h1 className="text-2xl font-bold mb-4 text-[var(--site-text)]">
@@ -108,7 +108,7 @@ export function PostPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--site-bg)]">
+    <div className="min-h-screen">
       <nav className="max-w-3xl mx-auto px-4 py-4">
         <Link
           to={`/${handle}`}

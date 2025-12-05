@@ -157,21 +157,14 @@ export function Sidebar({ children }: SidebarProps) {
   )
 
   return (
-    <div className="min-h-screen bg-[var(--site-bg)]">
+    <div className="min-h-screen">
+      {/* Background effects */}
+      <div className="grid-background" aria-hidden="true" />
+      <div className="vignette-overlay" aria-hidden="true" />
+
       {/* Mobile Header */}
-      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 h-14 px-4 flex items-center justify-between bg-[var(--site-bg)] border-b border-[var(--site-border)]">
-        <Link to="/" className="flex items-center gap-2">
-          <Logo className="w-7 h-7" />
-          <span className="font-bold text-[var(--site-text)]">GreenGale</span>
-        </Link>
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-40 h-14 px-4 flex items-center justify-between bg-[var(--site-bg)]/95 backdrop-blur-sm border-b border-[var(--site-border)]">
         <div className="flex items-center gap-2">
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
-          </button>
           <button
             onClick={() => setMobileOpen(true)}
             className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
@@ -179,7 +172,18 @@ export function Sidebar({ children }: SidebarProps) {
           >
             <MenuIcon className="w-6 h-6" />
           </button>
+          <Link to="/" className="flex items-center gap-2">
+            <Logo className="w-7 h-7" />
+            <span className="font-bold text-[var(--site-text)]">GreenGale</span>
+          </Link>
         </div>
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+        </button>
       </header>
 
       {/* Mobile Drawer Overlay */}
@@ -207,12 +211,12 @@ export function Sidebar({ children }: SidebarProps) {
       </aside>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-64 sidebar">
+      <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-64 z-30 sidebar">
         <SidebarContent />
       </aside>
 
       {/* Main Content */}
-      <main className="lg:ml-64 pt-14 lg:pt-0 min-h-screen">
+      <main className="lg:ml-64 pt-14 lg:pt-0 min-h-screen relative z-10">
         {children}
       </main>
     </div>
