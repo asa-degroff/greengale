@@ -1,0 +1,88 @@
+{
+  "lexicon": 1,
+  "id": "app.greengale.blog.defs",
+  "defs": {
+    "theme": {
+      "type": "object",
+      "description": "Theme configuration for a blog entry",
+      "properties": {
+        "preset": {
+          "type": "string",
+          "enum": [
+            "github-light",
+            "github-dark",
+            "dracula",
+            "nord",
+            "solarized-light",
+            "solarized-dark",
+            "monokai"
+          ],
+          "description": "Predefined color theme"
+        },
+        "custom": {
+          "type": "ref",
+          "ref": "#customColors",
+          "description": "Custom color overrides"
+        }
+      }
+    },
+    "customColors": {
+      "type": "object",
+      "description": "Custom color values (CSS color strings)",
+      "properties": {
+        "background": {
+          "type": "string",
+          "description": "Background color"
+        },
+        "text": {
+          "type": "string",
+          "description": "Primary text color"
+        },
+        "accent": {
+          "type": "string",
+          "description": "Accent/link color"
+        },
+        "codeBackground": {
+          "type": "string",
+          "description": "Code block background color"
+        }
+      }
+    },
+    "ogp": {
+      "type": "object",
+      "description": "Open Graph Protocol metadata for social sharing",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the OGP image"
+        },
+        "width": {
+          "type": "integer",
+          "description": "Image width in pixels"
+        },
+        "height": {
+          "type": "integer",
+          "description": "Image height in pixels"
+        }
+      }
+    },
+    "blobMetadata": {
+      "type": "object",
+      "description": "Metadata for uploaded binary content",
+      "required": ["blobref"],
+      "properties": {
+        "blobref": {
+          "type": "blob",
+          "accept": ["*/*"],
+          "description": "Reference to the blob"
+        },
+        "name": {
+          "type": "string",
+          "description": "Original filename"
+        }
+      }
+    }
+  }
+}

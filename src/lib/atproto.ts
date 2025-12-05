@@ -1,0 +1,306 @@
+import { AtpAgent } from '@atproto/api'
+import { isValidHandle } from '@atproto/syntax'
+import type { Theme, ThemePreset, CustomColors } from './themes'
+
+// Simple DID validation
+function isValidDid(did: string): boolean {
+  return did.startsWith('did:plc:') || did.startsWith('did:web:')
+}
+
+// WhiteWind lexicon namespace
+const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
+// GreenGale lexicon namespace
+const GREENGALE_COLLECTION = 'app.greengale.blog.entry'
+
+// Theme presets for validation
+const VALID_PRESETS = new Set<ThemePreset>([
+  'github-light',
+  'github-dark',
+  'dracula',
+  'nord',
+  'solarized-light',
+  'solarized-dark',
+  'monokai',
+])
+
+export interface BlogEntry {
+  uri: string
+  cid: string
+  authorDid: string
+  rkey: string
+  source: 'whitewind' | 'greengale'
+  content: string
+  title?: string
+  subtitle?: string
+  createdAt?: string
+  theme?: Theme
+  visibility?: 'public' | 'url' | 'author'
+  latex?: boolean
+  blobs?: Array<{
+    blobref: unknown
+    name?: string
+  }>
+}
+
+function parseTheme(rawTheme: unknown): Theme | undefined {
+  if (!rawTheme || typeof rawTheme !== 'object') return undefined
+
+  const theme = rawTheme as Record<string, unknown>
+  const result: Theme = {}
+
+  // WhiteWind uses simple string for theme (e.g., "github-light")
+  if (typeof theme === 'string') {
+    if (VALID_PRESETS.has(theme as ThemePreset)) {
+      return { preset: theme as ThemePreset }
+    }
+    return undefined
+  }
+
+  // GreenGale uses object with preset and/or custom
+  if (typeof theme.preset === 'string' && VALID_PRESETS.has(theme.preset as ThemePreset)) {
+    result.preset = theme.preset as ThemePreset
+  }
+
+  if (theme.custom && typeof theme.custom === 'object') {
+    const custom = theme.custom as Record<string, unknown>
+    const customColors: CustomColors = {}
+    if (typeof custom.background === 'string') customColors.background = custom.background
+    if (typeof custom.text === 'string') customColors.text = custom.text
+    if (typeof custom.accent === 'string') customColors.accent = custom.accent
+    if (typeof custom.codeBackground === 'string') customColors.codeBackground = custom.codeBackground
+    if (Object.keys(customColors).length > 0) {
+      result.custom = customColors
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+export interface AuthorProfile {
+  did: string
+  handle: string
+  displayName?: string
+  avatar?: string
+  description?: string
+}
+
+/**
+ * Resolve a handle or DID to a DID
+ */
+export async function resolveIdentity(identifier: string): Promise<string> {
+  if (isValidDid(identifier)) {
+    return identifier
+  }
+
+  if (!isValidHandle(identifier)) {
+    throw new Error(`Invalid identifier: ${identifier}`)
+  }
+
+  // Use Bluesky's public API to resolve handle
+  const agent = new AtpAgent({ service: 'https://public.api.bsky.app' })
+  const response = await agent.resolveHandle({ handle: identifier })
+  return response.data.did
+}
+
+/**
+ * Get the PDS endpoint for a DID
+ */
+export async function getPdsEndpoint(did: string): Promise<string> {
+  // Fetch DID document
+  let didDoc: { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
+
+  if (did.startsWith('did:plc:')) {
+    const response = await fetch(`https://plc.directory/${did}`)
+    if (!response.ok) {
+      throw new Error(`Failed to resolve DID: ${did}`)
+    }
+    didDoc = await response.json()
+  } else if (did.startsWith('did:web:')) {
+    const domain = did.replace('did:web:', '').replace(/%3A/g, ':')
+    const response = await fetch(`https://${domain}/.well-known/did.json`)
+    if (!response.ok) {
+      throw new Error(`Failed to resolve DID: ${did}`)
+    }
+    didDoc = await response.json()
+  } else {
+    throw new Error(`Unsupported DID method: ${did}`)
+  }
+
+  // Find atproto_pds service
+  const pdsService = didDoc.service?.find(
+    (s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+  )
+
+  if (!pdsService) {
+    throw new Error(`No PDS service found for DID: ${did}`)
+  }
+
+  return pdsService.serviceEndpoint
+}
+
+/**
+ * Fetch an author's profile from their PDS
+ */
+export async function getAuthorProfile(identifier: string): Promise<AuthorProfile> {
+  const did = await resolveIdentity(identifier)
+  const pdsEndpoint = await getPdsEndpoint(did)
+
+  const agent = new AtpAgent({ service: pdsEndpoint })
+
+  // Get profile record
+  try {
+    const response = await agent.com.atproto.repo.getRecord({
+      repo: did,
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+    })
+
+    const profile = response.data.value as {
+      displayName?: string
+      avatar?: { ref: { $link: string } }
+      description?: string
+    }
+
+    // Resolve handle from DID
+    const handleResponse = await fetch(`https://plc.directory/${did}`)
+    const didDoc = await handleResponse.json()
+    const handle = didDoc.alsoKnownAs?.[0]?.replace('at://', '') || did
+
+    return {
+      did,
+      handle,
+      displayName: profile.displayName,
+      avatar: profile.avatar
+        ? `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${did}&cid=${profile.avatar.ref.$link}`
+        : undefined,
+      description: profile.description,
+    }
+  } catch {
+    // Return minimal profile if fetch fails
+    return { did, handle: identifier }
+  }
+}
+
+/**
+ * Fetch a single blog entry by rkey
+ */
+export async function getBlogEntry(
+  identifier: string,
+  rkey: string
+): Promise<BlogEntry | null> {
+  const did = await resolveIdentity(identifier)
+  const pdsEndpoint = await getPdsEndpoint(did)
+
+  const agent = new AtpAgent({ service: pdsEndpoint })
+
+  // Try GreenGale first, then WhiteWind
+  for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
+    try {
+      const response = await agent.com.atproto.repo.getRecord({
+        repo: did,
+        collection,
+        rkey,
+      })
+
+      const record = response.data.value as Record<string, unknown>
+
+      return {
+        uri: response.data.uri,
+        cid: response.data.cid || '',
+        authorDid: did,
+        rkey,
+        source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
+        content: (record.content as string) || '',
+        title: record.title as string | undefined,
+        subtitle: record.subtitle as string | undefined,
+        createdAt: record.createdAt as string | undefined,
+        theme: parseTheme(record.theme),
+        visibility: record.visibility as BlogEntry['visibility'],
+        latex: record.latex as boolean | undefined,
+        blobs: record.blobs as BlogEntry['blobs'],
+      }
+    } catch {
+      // Continue to next collection
+    }
+  }
+
+  return null
+}
+
+/**
+ * List blog entries for an author
+ */
+export async function listBlogEntries(
+  identifier: string,
+  options: { limit?: number; cursor?: string } = {}
+): Promise<{ entries: BlogEntry[]; cursor?: string }> {
+  const did = await resolveIdentity(identifier)
+  const pdsEndpoint = await getPdsEndpoint(did)
+
+  const agent = new AtpAgent({ service: pdsEndpoint })
+
+  const entries: BlogEntry[] = []
+  let cursor = options.cursor
+
+  // Fetch from both collections
+  for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
+    try {
+      const response = await agent.com.atproto.repo.listRecords({
+        repo: did,
+        collection,
+        limit: options.limit || 50,
+        cursor,
+      })
+
+      for (const item of response.data.records) {
+        const record = item.value as Record<string, unknown>
+        const visibility = record.visibility as string | undefined
+
+        // Skip non-public entries
+        if (visibility && visibility !== 'public') {
+          continue
+        }
+
+        entries.push({
+          uri: item.uri,
+          cid: item.cid,
+          authorDid: did,
+          rkey: item.uri.split('/').pop() || '',
+          source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
+          content: (record.content as string) || '',
+          title: record.title as string | undefined,
+          subtitle: record.subtitle as string | undefined,
+          createdAt: record.createdAt as string | undefined,
+          theme: parseTheme(record.theme),
+          visibility: 'public',
+          latex: record.latex as boolean | undefined,
+          blobs: record.blobs as BlogEntry['blobs'],
+        })
+      }
+
+      cursor = response.data.cursor
+    } catch {
+      // Collection might not exist for this user
+    }
+  }
+
+  // Sort by createdAt descending
+  entries.sort((a, b) => {
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    return dateB - dateA
+  })
+
+  return { entries, cursor }
+}
+
+/**
+ * Generate a URL slug from a title
+ */
+export function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 100)
+}
