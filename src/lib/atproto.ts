@@ -143,41 +143,29 @@ export async function getPdsEndpoint(did: string): Promise<string> {
  */
 export async function getAuthorProfile(identifier: string): Promise<AuthorProfile> {
   const did = await resolveIdentity(identifier)
-  const pdsEndpoint = await getPdsEndpoint(did)
 
-  const agent = new AtpAgent({ service: pdsEndpoint })
-
-  // Get profile record
+  // Use Bluesky's public API to get profile with resolved avatar URL
   try {
-    const response = await agent.com.atproto.repo.getRecord({
-      repo: did,
-      collection: 'app.bsky.actor.profile',
-      rkey: 'self',
-    })
-
-    const profile = response.data.value as {
-      displayName?: string
-      avatar?: { ref: { $link: string } }
-      description?: string
-    }
-
-    // Resolve handle from DID
-    const handleResponse = await fetch(`https://plc.directory/${did}`)
-    const didDoc = await handleResponse.json()
-    const handle = didDoc.alsoKnownAs?.[0]?.replace('at://', '') || did
+    const agent = new AtpAgent({ service: 'https://public.api.bsky.app' })
+    const response = await agent.app.bsky.actor.getProfile({ actor: did })
 
     return {
       did,
-      handle,
-      displayName: profile.displayName,
-      avatar: profile.avatar
-        ? `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${did}&cid=${profile.avatar.ref.$link}`
-        : undefined,
-      description: profile.description,
+      handle: response.data.handle,
+      displayName: response.data.displayName,
+      avatar: response.data.avatar,
+      description: response.data.description,
     }
   } catch {
-    // Return minimal profile if fetch fails
-    return { did, handle: identifier }
+    // Fallback: try to get handle from DID document
+    try {
+      const handleResponse = await fetch(`https://plc.directory/${did}`)
+      const didDoc = await handleResponse.json()
+      const handle = didDoc.alsoKnownAs?.[0]?.replace('at://', '') || did
+      return { did, handle }
+    } catch {
+      return { did, handle: identifier }
+    }
   }
 }
 
