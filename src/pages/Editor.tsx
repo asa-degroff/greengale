@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
+import { useThemePreference } from '@/lib/useThemePreference'
 
 const VISIBILITY_OPTIONS = [
   { value: 'public', label: 'Public', description: 'Anyone can see this post' },
@@ -24,6 +25,7 @@ export function EditorPage() {
   const [showPreview, setShowPreview] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const { setActivePostTheme } = useThemePreference()
 
   const isEditing = !!rkey
 
@@ -40,6 +42,14 @@ export function EditorPage() {
       loadPost()
     }
   }, [isEditing, session, handle])
+
+  // Apply theme dynamically while composing
+  useEffect(() => {
+    setActivePostTheme(theme)
+    return () => {
+      setActivePostTheme(null)
+    }
+  }, [theme, setActivePostTheme])
 
   async function loadPost() {
     // TODO: Implement loading existing post for editing
@@ -144,10 +154,7 @@ export function EditorPage() {
         {showPreview ? (
           /* Preview Mode */
           <div className="rounded-lg border border-[var(--site-border)] overflow-hidden">
-            <div
-              data-theme={theme}
-              className="p-8 bg-[var(--theme-bg)] text-[var(--theme-text)]"
-            >
+            <div className="p-8 text-[var(--theme-text)]">
               {title && (
                 <h1 className="text-3xl font-bold mb-2">{title}</h1>
               )}
