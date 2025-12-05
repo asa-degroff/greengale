@@ -338,7 +338,7 @@ export function Sidebar({ children }: SidebarProps) {
                 <select
                   value={preferredTheme}
                   onChange={(e) => setPreferredTheme(e.target.value as ThemePreset)}
-                  className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                  className="w-full mt-1 px-2 py-1.5 text-base rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
                 >
                   {THEME_PRESETS.map((preset) => (
                     <option key={preset} value={preset}>
@@ -405,7 +405,7 @@ export function Sidebar({ children }: SidebarProps) {
                 <select
                   value={preferredTheme}
                   onChange={(e) => setPreferredTheme(e.target.value as ThemePreset)}
-                  className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                  className="w-full mt-1 px-2 py-1.5 text-base rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
                 >
                   {THEME_PRESETS.map((preset) => (
                     <option key={preset} value={preset}>
