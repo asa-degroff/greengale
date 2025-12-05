@@ -132,21 +132,20 @@ function BlueskyIcon({ className = '' }: { className?: string }) {
 
 function Logo({ className = '' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" fill="none" className={className}>
-      <circle cx="16" cy="16" r="14" className="fill-[var(--site-accent)]" />
-      <path
-        d="M16 8c-4.4 0-8 3.6-8 8s3.6 8 8 8 8-3.6 8-8-3.6-8-8-8zm0 14c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6z"
-        fill="white"
-        fillOpacity="0.3"
-      />
-      <path
-        d="M16 10v8M12 14l4-4 4 4"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    <div
+      className={`${className} rounded-md`}
+      style={{
+        backgroundColor: 'var(--site-accent)',
+        WebkitMaskImage: 'url(/grey-logo.avif)',
+        maskImage: 'url(/grey-logo.avif)',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain',
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+      }}
+    />
   )
 }
 
