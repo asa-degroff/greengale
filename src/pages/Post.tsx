@@ -117,15 +117,25 @@ export function PostPage() {
     )
   }
 
+  const isAuthor = session?.did && entry.authorDid === session.did
+
   return (
     <div className="min-h-screen">
-      <nav className="max-w-3xl mx-auto px-4 py-4">
+      <nav className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
         <Link
           to={`/${handle}`}
           className="text-sm text-[var(--site-text-secondary)] hover:text-[var(--site-accent)]"
         >
           ← Back to {author?.displayName || handle}'s posts
         </Link>
+        {isAuthor && (
+          <Link
+            to={`/edit/${rkey}`}
+            className="px-4 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
+          >
+            Edit Post
+          </Link>
+        )}
       </nav>
       <BlogViewer
         content={entry.content}

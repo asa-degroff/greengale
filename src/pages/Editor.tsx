@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
+import { getBlogEntry } from '@/lib/atproto'
 
 const VISIBILITY_OPTIONS = [
   { value: 'public', label: 'Public', description: 'Anyone can see this post' },
@@ -32,7 +33,10 @@ export function EditorPage() {
   const [enableLatex, setEnableLatex] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [loadingPost, setLoadingPost] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null)
   const { setActivePostTheme } = useThemePreference()
 
   const isWhiteWind = lexicon === 'whitewind'
@@ -74,7 +78,45 @@ export function EditorPage() {
   }, [isWhiteWind])
 
   async function loadPost() {
-    // TODO: Implement loading existing post for editing
+    if (!handle || !rkey || !session) return
+
+    setLoadingPost(true)
+    setError(null)
+
+    try {
+      const entry = await getBlogEntry(handle, rkey, session.did)
+
+      if (!entry) {
+        setError('Post not found')
+        return
+      }
+
+      // Check if user owns this post
+      if (entry.authorDid !== session.did) {
+        setError('You can only edit your own posts')
+        navigate('/', { replace: true })
+        return
+      }
+
+      // Populate form with existing data
+      setTitle(entry.title || '')
+      setSubtitle(entry.subtitle || '')
+      setContent(entry.content)
+      setLexicon(entry.source)
+      setVisibility(entry.visibility || 'public')
+      setOriginalCreatedAt(entry.createdAt || null)
+
+      // GreenGale-specific fields
+      if (entry.source === 'greengale') {
+        setTheme(entry.theme?.preset || 'default')
+        setEnableLatex(entry.latex || false)
+      }
+    } catch (err) {
+      console.error('Failed to load post:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load post')
+    } finally {
+      setLoadingPost(false)
+    }
   }
 
   async function handlePublish() {
@@ -95,6 +137,9 @@ export function EditorPage() {
       // Build the record based on selected lexicon
       const collection = isWhiteWind ? 'com.whtwnd.blog.entry' : 'app.greengale.blog.entry'
 
+      // Use original createdAt when editing, new timestamp when creating
+      const createdAt = isEditing && originalCreatedAt ? originalCreatedAt : new Date().toISOString()
+
       const record = isWhiteWind
         ? {
             // WhiteWind format - simpler schema
@@ -102,7 +147,7 @@ export function EditorPage() {
             content: content,
             title: title || undefined,
             subtitle: subtitle || undefined,
-            createdAt: new Date().toISOString(),
+            createdAt,
             visibility: visibility,
           }
         : {
@@ -111,42 +156,102 @@ export function EditorPage() {
             content: content,
             title: title || undefined,
             subtitle: subtitle || undefined,
-            createdAt: new Date().toISOString(),
+            createdAt,
             theme: theme !== 'default' ? { preset: theme } : undefined,
             visibility: visibility,
             latex: enableLatex || undefined,
           }
 
-      // Use the session's fetchHandler to make authenticated requests
-      const response = await session.fetchHandler('/xrpc/com.atproto.repo.createRecord', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repo: session.did,
-          collection,
-          record,
-        }),
-      })
+      let response: Response
+      let resultRkey: string
+
+      if (isEditing && rkey) {
+        // Update existing record using putRecord
+        response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection,
+            rkey,
+            record,
+          }),
+        })
+        resultRkey = rkey
+      } else {
+        // Create new record
+        response = await session.fetchHandler('/xrpc/com.atproto.repo.createRecord', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection,
+            record,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.message || 'Failed to publish post')
+        }
+
+        const result = await response.json()
+        resultRkey = result.uri.split('/').pop()
+      }
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.message || 'Failed to publish post')
+        throw new Error(errorData.message || 'Failed to save post')
       }
 
-      const result = await response.json()
-      const newRkey = result.uri.split('/').pop()
-
-      // Navigate to the new post
-      navigate(`/${handle}/${newRkey}`, { replace: true })
+      // Navigate to the post
+      navigate(`/${handle}/${resultRkey}`, { replace: true })
     } catch (err) {
       console.error('Publish error:', err)
-      setError(err instanceof Error ? err.message : 'Failed to publish post')
+      setError(err instanceof Error ? err.message : 'Failed to save post')
     } finally {
       setPublishing(false)
     }
   }
 
-  if (isLoading) {
+  async function handleDelete() {
+    if (!session || !rkey) return
+
+    const confirmed = window.confirm('Are you sure you want to delete this post? This action cannot be undone.')
+    if (!confirmed) return
+
+    setDeleting(true)
+    setError(null)
+
+    try {
+      const collection = isWhiteWind ? 'com.whtwnd.blog.entry' : 'app.greengale.blog.entry'
+
+      const response = await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: session.did,
+          collection,
+          rkey,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to delete post')
+      }
+
+      // Navigate to author page after deletion
+      navigate(`/${handle}`, { replace: true })
+    } catch (err) {
+      console.error('Delete error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to delete post')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  if (isLoading || loadingPost) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-4 border-[var(--site-accent)] border-t-transparent rounded-full" />
@@ -166,7 +271,16 @@ export function EditorPage() {
           <h1 className="text-2xl font-bold text-[var(--site-text)]">
             {isEditing ? 'Edit Post' : 'New Post'}
           </h1>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4">
+            {isEditing && (
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-4 py-2 text-sm rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            )}
             <button
               onClick={() => setShowPreview(!showPreview)}
               className="px-4 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
@@ -178,7 +292,7 @@ export function EditorPage() {
               disabled={publishing || !content.trim()}
               className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {publishing ? 'Publishing...' : isEditing ? 'Update' : 'Publish'}
+              {publishing ? 'Saving...' : isEditing ? 'Update' : 'Publish'}
             </button>
           </div>
         </div>
