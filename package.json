@@ -12,12 +12,15 @@
     "worker:deploy": "wrangler deploy",
     "worker:tail": "wrangler tail",
     "db:create": "wrangler d1 create greengale",
-    "db:migrate": "wrangler d1 execute greengale --file=./workers/schema.sql",
-    "db:migrate:local": "wrangler d1 execute greengale --local --file=./workers/schema.sql"
+    "db:migrate": "wrangler d1 execute greengale --remote --file=./workers/schema.sql",
+    "db:migrate:local": "wrangler d1 execute greengale --local --file=./workers/schema.sql",
+    "pages:deploy": "wrangler pages deploy dist --project-name greengale-app",
+    "deploy": "npm run build && npm run worker:deploy && npm run pages:deploy"
   },
   "dependencies": {
     "@atproto/api": "^0.18.4",
     "@atproto/identity": "^0.4.10",
+    "@atproto/oauth-client-browser": "^0.3.36",
     "@atproto/syntax": "^0.4.2",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.25",

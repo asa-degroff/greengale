@@ -9,15 +9,16 @@ type Bindings = {
   CACHE: KVNamespace
   FIREHOSE: DurableObjectNamespace
   RELAY_URL: string
+  ADMIN_SECRET?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Enable CORS for frontend
 app.use('/*', cors({
-  origin: ['http://localhost:5173', 'https://greengale.app'],
+  origin: ['http://localhost:5173', 'https://greengale.app', 'https://greengale-app.pages.dev'],
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type'],
+  allowHeaders: ['Content-Type', 'Authorization'],
 }))
 
 // Health check
@@ -202,8 +203,27 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
   }
 })
 
+// Admin authentication middleware
+function requireAdmin(c: { env: Bindings; req: { header: (name: string) => string | undefined } }) {
+  const adminSecret = c.env.ADMIN_SECRET
+  if (!adminSecret) {
+    return { error: 'Admin endpoints not configured', status: 503 as const }
+  }
+
+  const providedSecret = c.req.header('X-Admin-Secret')
+  if (!providedSecret || providedSecret !== adminSecret) {
+    return { error: 'Unauthorized', status: 401 as const }
+  }
+
+  return null
+}
+
 // Trigger firehose connection (admin endpoint)
 app.post('/xrpc/app.greengale.admin.startFirehose', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
   const id = c.env.FIREHOSE.idFromName('main')
   const stub = c.env.FIREHOSE.get(id)
 
@@ -214,11 +234,110 @@ app.post('/xrpc/app.greengale.admin.startFirehose', async (c) => {
 
 // Get firehose status
 app.get('/xrpc/app.greengale.admin.firehoseStatus', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
   const id = c.env.FIREHOSE.idFromName('main')
   const stub = c.env.FIREHOSE.get(id)
 
   const response = await stub.fetch(new Request('http://internal/status'))
   return response
+})
+
+// Check if a user is on the beta whitelist
+app.get('/xrpc/app.greengale.auth.checkWhitelist', async (c) => {
+  const did = c.req.query('did')
+  if (!did) {
+    return c.json({ error: 'Missing did parameter' }, 400)
+  }
+
+  try {
+    const row = await c.env.DB.prepare(
+      'SELECT did, handle FROM whitelist WHERE did = ?'
+    ).bind(did).first()
+
+    return c.json({
+      whitelisted: !!row,
+      did: row?.did,
+      handle: row?.handle,
+    })
+  } catch (error) {
+    console.error('Error checking whitelist:', error)
+    return c.json({ error: 'Failed to check whitelist' }, 500)
+  }
+})
+
+// Add user to whitelist (admin only)
+app.post('/xrpc/app.greengale.admin.addToWhitelist', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const body = await c.req.json() as { did: string; handle?: string; notes?: string }
+    const { did, handle, notes } = body
+
+    if (!did) {
+      return c.json({ error: 'Missing did parameter' }, 400)
+    }
+
+    await c.env.DB.prepare(`
+      INSERT INTO whitelist (did, handle, notes)
+      VALUES (?, ?, ?)
+      ON CONFLICT(did) DO UPDATE SET handle = excluded.handle, notes = excluded.notes
+    `).bind(did, handle || null, notes || null).run()
+
+    return c.json({ success: true, did, handle })
+  } catch (error) {
+    console.error('Error adding to whitelist:', error)
+    return c.json({ error: 'Failed to add to whitelist' }, 500)
+  }
+})
+
+// Remove user from whitelist (admin only)
+app.post('/xrpc/app.greengale.admin.removeFromWhitelist', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const body = await c.req.json() as { did: string }
+    const { did } = body
+
+    if (!did) {
+      return c.json({ error: 'Missing did parameter' }, 400)
+    }
+
+    await c.env.DB.prepare('DELETE FROM whitelist WHERE did = ?').bind(did).run()
+
+    return c.json({ success: true, did })
+  } catch (error) {
+    console.error('Error removing from whitelist:', error)
+    return c.json({ error: 'Failed to remove from whitelist' }, 500)
+  }
+})
+
+// List all whitelisted users (admin only)
+app.get('/xrpc/app.greengale.admin.listWhitelist', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const result = await c.env.DB.prepare(
+      'SELECT did, handle, added_at, notes FROM whitelist ORDER BY added_at DESC'
+    ).all()
+
+    return c.json({ users: result.results || [] })
+  } catch (error) {
+    console.error('Error listing whitelist:', error)
+    return c.json({ error: 'Failed to list whitelist' }, 500)
+  }
 })
 
 // Format post from DB row to API response

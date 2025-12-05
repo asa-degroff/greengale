@@ -7,6 +7,7 @@ import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 function toBlogEntry(post: AppViewPost): BlogEntry {
   return {
     uri: post.uri,
+    cid: '', // AppView doesn't return CID
     authorDid: post.authorDid,
     rkey: post.rkey,
     title: post.title || undefined,

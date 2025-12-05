@@ -51,3 +51,15 @@ CREATE TABLE IF NOT EXISTS sync_state (
 -- Insert default sync state
 INSERT OR IGNORE INTO sync_state (key, value) VALUES ('cursor', '0');
 INSERT OR IGNORE INTO sync_state (key, value) VALUES ('last_seq', '0');
+
+-- Beta whitelist: users allowed to create posts
+CREATE TABLE IF NOT EXISTS whitelist (
+  did TEXT PRIMARY KEY,
+  handle TEXT,
+  added_at TEXT DEFAULT (datetime('now')),
+  added_by TEXT,
+  notes TEXT
+);
+
+-- Index for handle lookups on whitelist
+CREATE INDEX IF NOT EXISTS idx_whitelist_handle ON whitelist(handle);

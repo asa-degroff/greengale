@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '@/lib/useDarkMode'
+import { useAuth } from '@/lib/auth'
 
 // Icons as inline SVGs
 function MenuIcon({ className = '' }: { className?: string }) {
@@ -45,6 +46,34 @@ function HomeIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function PencilIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  )
+}
+
+function UserIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  )
+}
+
+function LogoutIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline strokeLinecap="round" strokeLinejoin="round" points="16 17 21 12 16 7" />
+      <line strokeLinecap="round" x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
 function ExternalLinkIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -73,14 +102,70 @@ function Logo({ className = '' }: { className?: string }) {
   )
 }
 
+// Login form as a separate component to prevent re-renders from affecting input focus
+function LoginForm({
+  onLogin,
+  onCancel,
+  isLoading,
+  error,
+}: {
+  onLogin: (handle: string) => Promise<void>
+  onCancel: () => void
+  isLoading: boolean
+  error: string | null
+}) {
+  const [loginHandle, setLoginHandle] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (loginHandle.trim()) {
+      await onLogin(loginHandle.trim().replace('@', ''))
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-2">
+      <input
+        type="text"
+        value={loginHandle}
+        onChange={(e) => setLoginHandle(e.target.value)}
+        placeholder="handle.bsky.social"
+        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+        autoFocus
+      />
+      {error && (
+        <p className="text-xs text-red-500 px-1">{error}</p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="flex-1 px-3 py-2 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors disabled:opacity-50"
+        >
+          Sign In
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 interface SidebarProps {
   children: React.ReactNode
 }
 
 export function Sidebar({ children }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [showLoginForm, setShowLoginForm] = useState(false)
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
+  const { isAuthenticated, isWhitelisted, isLoading, handle, login, logout, error } = useAuth()
 
   const navLinks = [
     { to: '/', label: 'Home', icon: HomeIcon },
@@ -91,7 +176,7 @@ export function Sidebar({ children }: SidebarProps) {
     { href: 'https://atproto.com', label: 'AT Protocol' },
   ]
 
-  const SidebarContent = () => (
+  const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="p-4 border-b border-[var(--sidebar-border)]">
@@ -123,6 +208,22 @@ export function Sidebar({ children }: SidebarProps) {
           )
         })}
 
+        {/* New Post - only for whitelisted users */}
+        {isAuthenticated && isWhitelisted && (
+          <Link
+            to="/new"
+            onClick={() => setMobileOpen(false)}
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+              location.pathname === '/new'
+                ? 'bg-[var(--site-accent)] text-white'
+                : 'sidebar-link hover:bg-[var(--site-bg-secondary)]'
+            }`}
+          >
+            <PencilIcon className="w-5 h-5" />
+            <span>New Post</span>
+          </Link>
+        )}
+
         <div className="pt-4 mt-4 border-t border-[var(--sidebar-border)]">
           <p className="px-3 mb-2 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
             Links
@@ -142,8 +243,54 @@ export function Sidebar({ children }: SidebarProps) {
         </div>
       </nav>
 
-      {/* Theme Toggle */}
-      <div className="p-4 border-t border-[var(--sidebar-border)]">
+      {/* User Section */}
+      <div className="p-4 border-t border-[var(--sidebar-border)] space-y-2">
+        {isLoading ? (
+          <div className="flex items-center gap-3 px-3 py-2 text-[var(--site-text-secondary)]">
+            <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            <span>Loading...</span>
+          </div>
+        ) : isAuthenticated ? (
+          <>
+            <div className="flex items-center gap-3 px-3 py-2">
+              <UserIcon className="w-5 h-5 text-[var(--site-text-secondary)]" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-[var(--site-text)] truncate">
+                  @{handle}
+                </p>
+                {isWhitelisted ? (
+                  <p className="text-xs text-[var(--site-accent)]">Beta Access</p>
+                ) : (
+                  <p className="text-xs text-[var(--site-text-secondary)]">Read Only</p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={logout}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+            >
+              <LogoutIcon className="w-5 h-5" />
+              <span>Sign Out</span>
+            </button>
+          </>
+        ) : showLoginForm ? (
+          <LoginForm
+            onLogin={login}
+            onCancel={() => setShowLoginForm(false)}
+            isLoading={isLoading}
+            error={error}
+          />
+        ) : (
+          <button
+            onClick={() => setShowLoginForm(true)}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+          >
+            <UserIcon className="w-5 h-5" />
+            <span>Sign In</span>
+          </button>
+        )}
+
+        {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
           className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
@@ -207,12 +354,12 @@ export function Sidebar({ children }: SidebarProps) {
         >
           <CloseIcon className="w-5 h-5" />
         </button>
-        <SidebarContent />
+        {sidebarContent}
       </aside>
 
       {/* Desktop Sidebar */}
       <aside className="hidden lg:block fixed top-0 left-0 bottom-0 w-64 z-30 sidebar">
-        <SidebarContent />
+        {sidebarContent}
       </aside>
 
       {/* Main Content */}

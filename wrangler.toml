@@ -6,12 +6,12 @@ main = "workers/api/index.ts"
 [[d1_databases]]
 binding = "DB"
 database_name = "greengale"
-database_id = "placeholder-will-be-replaced-after-creation"
+database_id = "81ee3700-f80c-45fc-ac0b-37b6cdcd23e3"
 
 # KV Namespace for caching
 [[kv_namespaces]]
 binding = "CACHE"
-id = "placeholder-will-be-replaced-after-creation"
+id = "fffa62967ac248d59085cc895ddd7044"
 
 # Durable Objects for firehose consumer
 [[durable_objects.bindings]]
@@ -20,11 +20,8 @@ class_name = "FirehoseConsumer"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["FirehoseConsumer"]
+new_sqlite_classes = ["FirehoseConsumer"]
 
 # Environment variables
 [vars]
 RELAY_URL = "wss://bsky.network"
-
-# Note: Routes are configured in Cloudflare dashboard for production
-# For local development, the worker runs on localhost:8787

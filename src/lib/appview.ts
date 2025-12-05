@@ -7,7 +7,7 @@
  */
 
 const API_BASE = import.meta.env.VITE_APPVIEW_URL ||
-  (import.meta.env.DEV ? 'http://localhost:8787' : 'https://greengale.app')
+  (import.meta.env.DEV ? 'http://localhost:8787' : 'https://greengale.asadegroff.workers.dev')
 
 export interface AppViewPost {
   uri: string
