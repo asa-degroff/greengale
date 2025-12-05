@@ -57,9 +57,10 @@ export function HomePage() {
           <h1 className="text-4xl md:text-5xl font-bold mb-4 text-[var(--site-text)]">
             GreenGale
           </h1>
+          <h2><i>Closed Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             A markdown blog platform built on AT Protocol. Compatible with WhiteWind
-            and powered by your Bluesky identity.
+            and powered by your Internet handle.
           </p>
         </div>
 
@@ -68,7 +69,7 @@ export function HomePage() {
             View a Blog
           </h2>
           <p className="text-[var(--site-text-secondary)] mb-4">
-            Enter a Bluesky handle to view their blog posts:
+            Enter an @ handle to view their blog posts:
           </p>
           <form
             onSubmit={(e) => {
@@ -149,7 +150,7 @@ export function HomePage() {
             </div>
             <h3 className="font-bold mb-2 text-[var(--site-text)]">Custom Themes</h3>
             <p className="text-sm text-[var(--site-text-secondary)]">
-              Choose from preset themes or customize colors to match your style.
+              Choose from preset themes to match your style. Themes are applied per post.
             </p>
           </div>
 
