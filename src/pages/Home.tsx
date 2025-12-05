@@ -138,7 +138,7 @@ export function HomePage() {
             </div>
             <h3 className="font-bold mb-2 text-[var(--site-text)]">WhiteWind Compatible</h3>
             <p className="text-sm text-[var(--site-text-secondary)]">
-              View existing WhiteWind blog posts without any migration needed.
+              View and create WhiteWind blog posts without any migration needed.
             </p>
           </div>
 
@@ -148,7 +148,7 @@ export function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
               </svg>
             </div>
-            <h3 className="font-bold mb-2 text-[var(--site-text)]">Custom Themes</h3>
+            <h3 className="font-bold mb-2 text-[var(--site-text)]">Theme Selection</h3>
             <p className="text-sm text-[var(--site-text-secondary)]">
               Choose from preset themes to match your style. Themes are applied per post.
             </p>

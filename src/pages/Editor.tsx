@@ -11,6 +11,13 @@ const VISIBILITY_OPTIONS = [
   { value: 'author', label: 'Private', description: 'Only you can see this post' },
 ] as const
 
+type LexiconType = 'greengale' | 'whitewind'
+
+const LEXICON_OPTIONS = [
+  { value: 'greengale', label: 'GreenGale', description: 'Extended features: themes, LaTeX' },
+  { value: 'whitewind', label: 'WhiteWind', description: 'Compatible with whtwnd.com' },
+] as const
+
 export function EditorPage() {
   const { rkey } = useParams<{ rkey?: string }>()
   const navigate = useNavigate()
@@ -19,6 +26,7 @@ export function EditorPage() {
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
   const [content, setContent] = useState('')
+  const [lexicon, setLexicon] = useState<LexiconType>('greengale')
   const [theme, setTheme] = useState<ThemePreset>('default')
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [enableLatex, setEnableLatex] = useState(false)
@@ -26,6 +34,8 @@ export function EditorPage() {
   const [publishing, setPublishing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { setActivePostTheme } = useThemePreference()
+
+  const isWhiteWind = lexicon === 'whitewind'
 
   const isEditing = !!rkey
 
@@ -43,13 +53,25 @@ export function EditorPage() {
     }
   }, [isEditing, session, handle])
 
-  // Apply theme dynamically while composing
+  // Apply theme dynamically while composing (only for GreenGale)
   useEffect(() => {
-    setActivePostTheme(theme)
+    if (isWhiteWind) {
+      setActivePostTheme(null)
+    } else {
+      setActivePostTheme(theme)
+    }
     return () => {
       setActivePostTheme(null)
     }
-  }, [theme, setActivePostTheme])
+  }, [theme, isWhiteWind, setActivePostTheme])
+
+  // Reset GreenGale-specific options when switching to WhiteWind
+  useEffect(() => {
+    if (isWhiteWind) {
+      setTheme('default')
+      setEnableLatex(false)
+    }
+  }, [isWhiteWind])
 
   async function loadPost() {
     // TODO: Implement loading existing post for editing
@@ -70,23 +92,39 @@ export function EditorPage() {
     setError(null)
 
     try {
+      // Build the record based on selected lexicon
+      const collection = isWhiteWind ? 'com.whtwnd.blog.entry' : 'app.greengale.blog.entry'
+
+      const record = isWhiteWind
+        ? {
+            // WhiteWind format - simpler schema
+            $type: 'com.whtwnd.blog.entry',
+            content: content,
+            title: title || undefined,
+            subtitle: subtitle || undefined,
+            createdAt: new Date().toISOString(),
+            visibility: visibility,
+          }
+        : {
+            // GreenGale format - extended features
+            $type: 'app.greengale.blog.entry',
+            content: content,
+            title: title || undefined,
+            subtitle: subtitle || undefined,
+            createdAt: new Date().toISOString(),
+            theme: theme !== 'default' ? { preset: theme } : undefined,
+            visibility: visibility,
+            latex: enableLatex || undefined,
+          }
+
       // Use the session's fetchHandler to make authenticated requests
       const response = await session.fetchHandler('/xrpc/com.atproto.repo.createRecord', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repo: session.did,
-          collection: 'app.greengale.blog.entry',
-          record: {
-            $type: 'app.greengale.blog.entry',
-            content: content,
-            title: title || undefined,
-            subtitle: subtitle || undefined,
-            createdAt: new Date().toISOString(),
-            theme: { preset: theme },
-            visibility: visibility,
-            latex: enableLatex || undefined,
-          },
+          collection,
+          record,
         }),
       })
 
@@ -212,23 +250,26 @@ export function EditorPage() {
             </div>
 
             {/* Options */}
-            <div className="grid md:grid-cols-3 gap-6">
-              {/* Theme */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Lexicon */}
               <div>
                 <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                  Theme
+                  Post Format
                 </label>
                 <select
-                  value={theme}
-                  onChange={(e) => setTheme(e.target.value as ThemePreset)}
+                  value={lexicon}
+                  onChange={(e) => setLexicon(e.target.value as LexiconType)}
                   className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
                 >
-                  {THEME_PRESETS.map((preset) => (
-                    <option key={preset} value={preset}>
-                      {THEME_LABELS[preset]}
+                  {LEXICON_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-xs text-[var(--site-text-secondary)]">
+                  {LEXICON_OPTIONS.find(o => o.value === lexicon)?.description}
+                </p>
               </div>
 
               {/* Visibility */}
@@ -248,23 +289,46 @@ export function EditorPage() {
                   ))}
                 </select>
               </div>
-
-              {/* LaTeX */}
-              <div>
-                <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                  Options
-                </label>
-                <label className="flex items-center gap-3 px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={enableLatex}
-                    onChange={(e) => setEnableLatex(e.target.checked)}
-                    className="w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
-                  />
-                  <span className="text-[var(--site-text)]">Enable LaTeX</span>
-                </label>
-              </div>
             </div>
+
+            {/* GreenGale-specific options */}
+            {!isWhiteWind && (
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Theme */}
+                <div>
+                  <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
+                    Theme
+                  </label>
+                  <select
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value as ThemePreset)}
+                    className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                  >
+                    {THEME_PRESETS.map((preset) => (
+                      <option key={preset} value={preset}>
+                        {THEME_LABELS[preset]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* LaTeX */}
+                <div>
+                  <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
+                    Options
+                  </label>
+                  <label className="flex items-center gap-3 px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={enableLatex}
+                      onChange={(e) => setEnableLatex(e.target.checked)}
+                      className="w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+                    />
+                    <span className="text-[var(--site-text)]">Enable LaTeX</span>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
