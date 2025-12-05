@@ -381,6 +381,12 @@ export function EditorPage() {
             {isEditing ? 'Edit Post' : 'New Post'}
           </h1>
           <div className="flex items-center gap-2 md:gap-4">
+            <button
+              onClick={() => navigate(-1)}
+              className="px-4 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
+            >
+              Cancel
+            </button>
             {isEditing && (
               <button
                 onClick={handleDelete}
