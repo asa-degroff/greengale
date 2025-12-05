@@ -64,11 +64,12 @@
   --color-tin-10: oklch(84% 0.072 155);  /* Big Spender */
   --color-tin-11: oklch(90% 0.068 155);  /* Mint-o-licious */
   --color-tin-12: oklch(97% 0.063 155);  /* Mint Coffee */
+  --color-tin-13: oklch(99% 0.06 155);   /* Mint Creme */
 }
 
 /* Site-wide Light Mode (default) */
 :root {
-  --site-bg: var(--color-tin-12);
+  --site-bg: var(--color-tin-13);
   --site-bg-secondary: var(--color-tin-11);
   --site-text: var(--color-tin-2);
   --site-text-secondary: var(--color-tin-5);
