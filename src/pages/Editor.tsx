@@ -389,7 +389,25 @@ export function EditorPage() {
               {/* Visibility */}
               <div>
                 <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                  Visibility
+                  <span className="inline-flex items-center gap-1.5">
+                    Visibility
+                    <span className="group relative">
+                      <svg
+                        className="w-4 h-4 text-[var(--site-text-secondary)] cursor-help"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 16v-4" />
+                        <path d="M12 8h.01" />
+                      </svg>
+                      <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 text-xs font-normal text-[var(--site-text)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-64 text-left z-10">
+                        This setting controls visibility on GreenGale only. All data stored on your PDS is publicly accessible.
+                      </span>
+                    </span>
+                  </span>
                 </label>
                 <select
                   value={visibility}
