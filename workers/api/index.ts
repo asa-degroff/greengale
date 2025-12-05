@@ -26,13 +26,26 @@ app.get('/xrpc/_health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0' })
 })
 
+// Cache TTL for recent posts (30 minutes)
+const RECENT_POSTS_CACHE_TTL = 30 * 60
+
 // Get recent posts across all authors
 // Note: Recent posts feed only shows public posts (no viewer parameter needed)
 app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
+  // Build cache key
+  const cacheKey = `recent_posts:${limit}:${cursor || ''}`
+
   try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    // Cache miss - query database
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -59,10 +72,17 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     const hasMore = posts.length > limit
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
 
-    return c.json({
+    const response = {
       posts: returnPosts.map(formatPost),
       cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+    }
+
+    // Store in cache with TTL
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: RECENT_POSTS_CACHE_TTL,
     })
+
+    return c.json(response)
   } catch (error) {
     console.error('Error fetching recent posts:', error)
     return c.json({ error: 'Failed to fetch posts' }, 500)
