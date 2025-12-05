@@ -1,0 +1,30 @@
+name = "greengale"
+compatibility_date = "2024-12-01"
+main = "workers/api/index.ts"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "greengale"
+database_id = "placeholder-will-be-replaced-after-creation"
+
+# KV Namespace for caching
+[[kv_namespaces]]
+binding = "CACHE"
+id = "placeholder-will-be-replaced-after-creation"
+
+# Durable Objects for firehose consumer
+[[durable_objects.bindings]]
+name = "FIREHOSE"
+class_name = "FirehoseConsumer"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["FirehoseConsumer"]
+
+# Environment variables
+[vars]
+RELAY_URL = "wss://bsky.network"
+
+# Note: Routes are configured in Cloudflare dashboard for production
+# For local development, the worker runs on localhost:8787

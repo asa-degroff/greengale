@@ -1,4 +1,54 @@
+import { useEffect, useState } from 'react'
+import { BlogCard } from '@/components/BlogCard'
+import { getRecentPosts, type AppViewPost } from '@/lib/appview'
+import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
+
+// Convert AppView post to BlogEntry format for BlogCard
+function toBlogEntry(post: AppViewPost): BlogEntry {
+  return {
+    uri: post.uri,
+    authorDid: post.authorDid,
+    rkey: post.rkey,
+    title: post.title || undefined,
+    subtitle: post.subtitle || undefined,
+    content: '', // AppView doesn't return full content
+    createdAt: post.createdAt || undefined,
+    source: post.source,
+  }
+}
+
+function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
+  if (!post.author) return undefined
+  return {
+    did: post.author.did,
+    handle: post.author.handle,
+    displayName: post.author.displayName || undefined,
+    avatar: post.author.avatar || undefined,
+  }
+}
+
 export function HomePage() {
+  const [recentPosts, setRecentPosts] = useState<AppViewPost[]>([])
+  const [loading, setLoading] = useState(true)
+  const [appViewAvailable, setAppViewAvailable] = useState(false)
+
+  useEffect(() => {
+    async function loadRecentPosts() {
+      try {
+        const { posts } = await getRecentPosts(12)
+        setRecentPosts(posts)
+        setAppViewAvailable(true)
+      } catch {
+        // AppView not available, that's fine
+        setAppViewAvailable(false)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadRecentPosts()
+  }, [])
+
   return (
     <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -46,10 +96,41 @@ export function HomePage() {
           </form>
         </div>
 
+        {/* Recent Posts Section */}
+        {appViewAvailable && recentPosts.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
+              Recent Posts
+            </h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              {recentPosts.map((post) => (
+                <BlogCard
+                  key={post.uri}
+                  entry={toBlogEntry(post)}
+                  author={toAuthorProfile(post)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="mb-12">
+            <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
+              Recent Posts
+            </h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg animate-pulse" />
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid md:grid-cols-3 gap-8">
           <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-green-500/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[var(--site-accent)]/10 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[var(--site-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -60,8 +141,8 @@ export function HomePage() {
           </div>
 
           <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-blue-500/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[var(--site-accent)]/10 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[var(--site-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
               </svg>
             </div>
@@ -72,8 +153,8 @@ export function HomePage() {
           </div>
 
           <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-purple-500/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[var(--site-accent)]/10 flex items-center justify-center">
+              <svg className="w-6 h-6 text-[var(--site-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
             </div>
