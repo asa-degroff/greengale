@@ -1,13 +1,13 @@
 {
-  "client_id": "https://greengale-app.pages.dev/client-metadata.json",
+  "client_id": "https://greengale.app/client-metadata.json",
   "client_name": "GreenGale",
-  "client_uri": "https://greengale-app.pages.dev",
-  "logo_uri": "https://greengale-app.pages.dev/logo.png",
-  "tos_uri": "https://greengale-app.pages.dev/terms",
-  "policy_uri": "https://greengale-app.pages.dev/privacy",
+  "client_uri": "https://greengale.app",
+  "logo_uri": "https://greengale.app/logo.png",
+  "tos_uri": "https://greengale.app/terms",
+  "policy_uri": "https://greengale.app/privacy",
   "redirect_uris": [
-    "https://greengale-app.pages.dev/auth/callback",
-    "https://greengale.app/auth/callback"
+    "https://greengale.app/auth/callback",
+    "https://greengale-app.pages.dev/auth/callback"
   ],
   "scope": "atproto transition:generic",
   "grant_types": ["authorization_code", "refresh_token"],

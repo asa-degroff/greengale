@@ -12,7 +12,7 @@ import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
 // For production, use the deployed client metadata
 const CLIENT_ID = import.meta.env.DEV
   ? `http://localhost?redirect_uri=${encodeURIComponent('http://localhost:5173/auth/callback')}&scope=${encodeURIComponent('atproto transition:generic')}`
-  : `https://greengale-app.pages.dev/client-metadata.json`
+  : `https://greengale.app/client-metadata.json`
 
 const API_BASE = import.meta.env.DEV
   ? 'http://localhost:8787'
