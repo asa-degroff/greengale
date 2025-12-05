@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
+import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
 
 // Icons as inline SVGs
 function MenuIcon({ className = '' }: { className?: string }) {
@@ -104,6 +105,23 @@ function PaletteIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function SettingsIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
+function ChevronDownIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
 function BlueskyIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 568 501" fill="currentColor">
@@ -193,10 +211,11 @@ interface SidebarProps {
 export function Sidebar({ children }: SidebarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [showLoginForm, setShowLoginForm] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isWhitelisted, isLoading, handle, login, logout, error } = useAuth()
-  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme } = useThemePreference()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme } = useThemePreference()
 
   const navLinks = [
     { to: '/', label: 'Home', icon: HomeIcon },
@@ -292,9 +311,12 @@ export function Sidebar({ children }: SidebarProps) {
           </div>
         ) : isAuthenticated ? (
           <>
-            <div className="flex items-center gap-3 px-3 py-2">
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center gap-3 px-3 py-2 w-full rounded-lg hover:bg-[var(--site-bg-secondary)] transition-colors"
+            >
               <UserIcon className="w-5 h-5 text-[var(--site-text-secondary)]" />
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 text-left">
                 <p className="text-sm font-medium text-[var(--site-text)] truncate">
                   @{handle}
                 </p>
@@ -304,7 +326,32 @@ export function Sidebar({ children }: SidebarProps) {
                   <p className="text-xs text-[var(--site-text-secondary)]">Read Only</p>
                 )}
               </div>
-            </div>
+              <ChevronDownIcon className={`w-4 h-4 text-[var(--site-text-secondary)] transition-transform ${showSettings ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Settings Dropdown */}
+            {showSettings && (
+              <div className="mt-1 mx-2 p-2 rounded-lg bg-[var(--site-bg-secondary)] border border-[var(--site-border)]">
+                <p className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
+                  Preferred Theme
+                </p>
+                <select
+                  value={preferredTheme}
+                  onChange={(e) => setPreferredTheme(e.target.value as ThemePreset)}
+                  className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                >
+                  {THEME_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {THEME_LABELS[preset]}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 px-2 text-xs text-[var(--site-text-secondary)]">
+                  Applies to home and posts with default theme
+                </p>
+              </div>
+            )}
+
             {handle && (
               <Link
                 to={`/${handle}`}
@@ -331,13 +378,47 @@ export function Sidebar({ children }: SidebarProps) {
             error={error}
           />
         ) : (
-          <button
-            onClick={() => setShowLoginForm(true)}
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
-          >
-            <UserIcon className="w-5 h-5" />
-            <span>Sign In</span>
-          </button>
+          <>
+            <button
+              onClick={() => setShowLoginForm(true)}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+            >
+              <UserIcon className="w-5 h-5" />
+              <span>Sign In</span>
+            </button>
+
+            {/* Settings for non-authenticated users */}
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+            >
+              <SettingsIcon className="w-5 h-5" />
+              <span>Settings</span>
+              <ChevronDownIcon className={`w-4 h-4 ml-auto text-[var(--site-text-secondary)] transition-transform ${showSettings ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showSettings && (
+              <div className="mt-1 mx-2 p-2 rounded-lg bg-[var(--site-bg-secondary)] border border-[var(--site-border)]">
+                <p className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
+                  Preferred Theme
+                </p>
+                <select
+                  value={preferredTheme}
+                  onChange={(e) => setPreferredTheme(e.target.value as ThemePreset)}
+                  className="w-full mt-1 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                >
+                  {THEME_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {THEME_LABELS[preset]}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 px-2 text-xs text-[var(--site-text-secondary)]">
+                  Applies to home and posts with default theme. Overrides light/dark mode.
+                </p>
+              </div>
+            )}
+          </>
         )}
 
         {/* Theme Toggle */}
