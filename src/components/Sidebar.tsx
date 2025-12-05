@@ -95,6 +95,14 @@ function PaletteIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function BlueskyIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 568 501" fill="currentColor">
+      <path d="M123.121 33.6637C188.241 82.5526 258.281 181.681 284 234.873C309.719 181.681 379.759 82.5526 444.879 33.6637C491.866 -1.61183 568 -28.9064 568 57.9464C568 75.2916 558.055 203.659 552.222 224.501C531.947 296.954 458.067 315.434 392.347 304.249C507.222 323.8 536.444 388.56 473.333 453.32C353.473 576.312 301.061 422.461 287.631 383.039C285.169 391.291 284.017 395.095 284 394.018C283.983 395.095 282.831 391.291 280.369 383.039C266.939 422.461 214.527 576.312 94.6667 453.32C31.5556 388.56 60.7778 323.8 175.653 304.249C109.933 315.434 36.0535 296.954 15.7778 224.501C9.94525 203.659 0 75.2916 0 57.9464C0 -28.9064 76.1345 -1.61183 123.121 33.6637Z" />
+    </svg>
+  )
+}
+
 function Logo({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" fill="none" className={className}>
@@ -242,6 +250,15 @@ export function Sidebar({ children }: SidebarProps) {
           <p className="px-3 mb-2 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
             Links
           </p>
+          <a
+            href="https://bsky.app/profile/greengale.app"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)]"
+          >
+            <BlueskyIcon className="w-4 h-4" />
+            <span>@greengale.app</span>
+          </a>
           {externalLinks.map((link) => (
             <a
               key={link.href}
