@@ -209,7 +209,9 @@
   --theme-link-hover: var(--site-accent-hover);
 }
 
-[data-active-theme="github-light"] {
+/* Non-default themes override site light/dark mode completely */
+/* Using :root prefix for higher specificity to override [data-site-theme="dark"] */
+:root[data-active-theme="github-light"] {
   --site-bg: #ffffff;
   --site-bg-secondary: #f6f8fa;
   --site-text: #24292f;
@@ -234,7 +236,7 @@
   --theme-link-hover: #0550ae;
 }
 
-[data-active-theme="github-dark"] {
+:root[data-active-theme="github-dark"] {
   --site-bg: #0d1117;
   --site-bg-secondary: #161b22;
   --site-text: #c9d1d9;
@@ -259,7 +261,7 @@
   --theme-link-hover: #79c0ff;
 }
 
-[data-active-theme="dracula"] {
+:root[data-active-theme="dracula"] {
   --site-bg: #282a36;
   --site-bg-secondary: #1e1f29;
   --site-text: #f8f8f2;
@@ -284,7 +286,7 @@
   --theme-link-hover: #ff79c6;
 }
 
-[data-active-theme="nord"] {
+:root[data-active-theme="nord"] {
   --site-bg: #2e3440;
   --site-bg-secondary: #3b4252;
   --site-text: #eceff4;
@@ -309,7 +311,7 @@
   --theme-link-hover: #8fbcbb;
 }
 
-[data-active-theme="solarized-light"] {
+:root[data-active-theme="solarized-light"] {
   --site-bg: #fdf6e3;
   --site-bg-secondary: #eee8d5;
   --site-text: #657b83;
@@ -334,7 +336,7 @@
   --theme-link-hover: #2aa198;
 }
 
-[data-active-theme="solarized-dark"] {
+:root[data-active-theme="solarized-dark"] {
   --site-bg: #002b36;
   --site-bg-secondary: #073642;
   --site-text: #839496;
@@ -359,7 +361,7 @@
   --theme-link-hover: #2aa198;
 }
 
-[data-active-theme="monokai"] {
+:root[data-active-theme="monokai"] {
   --site-bg: #272822;
   --site-bg-secondary: #1e1f1c;
   --site-text: #f8f8f2;
