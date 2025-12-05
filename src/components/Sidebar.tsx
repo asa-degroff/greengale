@@ -347,7 +347,7 @@ export function Sidebar({ children }: SidebarProps) {
                   ))}
                 </select>
                 <p className="mt-1 px-2 text-xs text-[var(--site-text-secondary)]">
-                  Applies to home and posts with default theme
+                  Applies to home and posts with default theme. Overrides light/dark mode.
                 </p>
               </div>
             )}

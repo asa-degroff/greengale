@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Outlet } from 'react-router-dom'
 import { AuthProvider } from '@/lib/auth'
 import { ThemePreferenceProvider } from '@/lib/useThemePreference'
 import { Sidebar } from '@/components/Sidebar'
@@ -8,25 +8,36 @@ import { PostPage } from '@/pages/Post'
 import { AuthCallbackPage } from '@/pages/AuthCallback'
 import { EditorPage } from '@/pages/Editor'
 
-function App() {
+// Layout component that wraps all routes with providers and sidebar
+function RootLayout() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <ThemePreferenceProvider>
-          <Sidebar>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
-            <Route path="/new" element={<EditorPage />} />
-            <Route path="/edit/:rkey" element={<EditorPage />} />
-            <Route path="/:handle" element={<AuthorPage />} />
-            <Route path="/:handle/:rkey" element={<PostPage />} />
-          </Routes>
-          </Sidebar>
-        </ThemePreferenceProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <AuthProvider>
+      <ThemePreferenceProvider>
+        <Sidebar>
+          <Outlet />
+        </Sidebar>
+      </ThemePreferenceProvider>
+    </AuthProvider>
   )
+}
+
+// Create router with data router API to support useBlocker
+const router = createBrowserRouter([
+  {
+    element: <RootLayout />,
+    children: [
+      { path: '/', element: <HomePage /> },
+      { path: '/auth/callback', element: <AuthCallbackPage /> },
+      { path: '/new', element: <EditorPage /> },
+      { path: '/edit/:rkey', element: <EditorPage /> },
+      { path: '/:handle', element: <AuthorPage /> },
+      { path: '/:handle/:rkey', element: <PostPage /> },
+    ],
+  },
+])
+
+function App() {
+  return <RouterProvider router={router} />
 }
 
 export default App

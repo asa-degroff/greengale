@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
@@ -37,7 +37,20 @@ export function EditorPage() {
   const [loadingPost, setLoadingPost] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
   const { setActivePostTheme } = useThemePreference()
+
+  // Track initial values to detect changes
+  const initialValues = useRef<{
+    title: string
+    subtitle: string
+    content: string
+    lexicon: LexiconType
+    theme: ThemePreset
+    visibility: 'public' | 'url' | 'author'
+    enableLatex: boolean
+  } | null>(null)
 
   const isWhiteWind = lexicon === 'whitewind'
 
@@ -77,6 +90,58 @@ export function EditorPage() {
     }
   }, [isWhiteWind])
 
+  // Set initial values for new posts
+  useEffect(() => {
+    if (!isEditing && !loadingPost && initialValues.current === null) {
+      initialValues.current = {
+        title: '',
+        subtitle: '',
+        content: '',
+        lexicon: 'greengale',
+        theme: 'default',
+        visibility: 'public',
+        enableLatex: false,
+      }
+    }
+  }, [isEditing, loadingPost])
+
+  // Detect unsaved changes
+  useEffect(() => {
+    if (!initialValues.current) return
+
+    const hasChanges =
+      title !== initialValues.current.title ||
+      subtitle !== initialValues.current.subtitle ||
+      content !== initialValues.current.content ||
+      lexicon !== initialValues.current.lexicon ||
+      theme !== initialValues.current.theme ||
+      visibility !== initialValues.current.visibility ||
+      enableLatex !== initialValues.current.enableLatex
+
+    setHasUnsavedChanges(hasChanges)
+  }, [title, subtitle, content, lexicon, theme, visibility, enableLatex])
+
+  // Block navigation when there are unsaved changes
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      hasUnsavedChanges &&
+      !justSaved &&
+      currentLocation.pathname !== nextLocation.pathname
+  )
+
+  // Handle browser beforeunload event
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges && !justSaved) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasUnsavedChanges, justSaved])
+
   async function loadPost() {
     if (!handle || !rkey || !session) return
 
@@ -111,6 +176,17 @@ export function EditorPage() {
         setTheme(entry.theme?.preset || 'default')
         setEnableLatex(entry.latex || false)
       }
+
+      // Set initial values for change detection
+      initialValues.current = {
+        title: entry.title || '',
+        subtitle: entry.subtitle || '',
+        content: entry.content,
+        lexicon: entry.source,
+        theme: entry.source === 'greengale' ? (entry.theme?.preset || 'default') : 'default',
+        visibility: entry.visibility || 'public',
+        enableLatex: entry.source === 'greengale' ? (entry.latex || false) : false,
+      }
     } catch (err) {
       console.error('Failed to load post:', err)
       setError(err instanceof Error ? err.message : 'Failed to load post')
@@ -119,19 +195,19 @@ export function EditorPage() {
     }
   }
 
-  async function handlePublish() {
+  // Core save function that can be reused
+  const savePost = useCallback(async (overrideVisibility?: 'public' | 'url' | 'author'): Promise<string | null> => {
     if (!session) {
       setError('Not authenticated')
-      return
+      return null
     }
 
     if (!content.trim()) {
       setError('Content is required')
-      return
+      return null
     }
 
-    setPublishing(true)
-    setError(null)
+    const visibilityToUse = overrideVisibility || visibility
 
     try {
       // Build the record based on selected lexicon
@@ -148,7 +224,7 @@ export function EditorPage() {
             title: title || undefined,
             subtitle: subtitle || undefined,
             createdAt,
-            visibility: visibility,
+            visibility: visibilityToUse,
           }
         : {
             // GreenGale format - extended features
@@ -158,7 +234,7 @@ export function EditorPage() {
             subtitle: subtitle || undefined,
             createdAt,
             theme: theme !== 'default' ? { preset: theme } : undefined,
-            visibility: visibility,
+            visibility: visibilityToUse,
             latex: enableLatex || undefined,
           }
 
@@ -204,15 +280,48 @@ export function EditorPage() {
         throw new Error(errorData.message || 'Failed to save post')
       }
 
+      return resultRkey
+    } catch (err) {
+      console.error('Save error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to save post')
+      return null
+    }
+  }, [session, content, visibility, isWhiteWind, isEditing, originalCreatedAt, title, subtitle, theme, enableLatex, rkey])
+
+  async function handlePublish() {
+    setPublishing(true)
+    setError(null)
+
+    const resultRkey = await savePost()
+
+    if (resultRkey) {
+      setJustSaved(true)
       // Navigate to the post
       navigate(`/${handle}/${resultRkey}`, { replace: true })
-    } catch (err) {
-      console.error('Publish error:', err)
-      setError(err instanceof Error ? err.message : 'Failed to save post')
-    } finally {
-      setPublishing(false)
     }
+
+    setPublishing(false)
   }
+
+  // Save as private and proceed with navigation (for blocker dialog)
+  const handleSaveAsPrivateAndProceed = useCallback(async () => {
+    if (!blocker.location) return
+
+    setPublishing(true)
+    setError(null)
+
+    const resultRkey = await savePost('author')
+
+    if (resultRkey) {
+      setJustSaved(true)
+      blocker.proceed?.()
+    } else {
+      // If save failed, reset blocker to show dialog again
+      blocker.reset?.()
+    }
+
+    setPublishing(false)
+  }, [blocker, savePost])
 
   async function handleDelete() {
     if (!session || !rkey) return
@@ -477,6 +586,54 @@ export function EditorPage() {
           </div>
         )}
       </div>
+
+      {/* Unsaved Changes Confirmation Dialog */}
+      {blocker.state === 'blocked' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => blocker.reset?.()}
+          />
+          {/* Dialog */}
+          <div className="relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h2 className="text-xl font-bold text-[var(--site-text)] mb-2">
+              Unsaved Changes
+            </h2>
+            <p className="text-[var(--site-text-secondary)] mb-6">
+              You have unsaved changes that will be lost if you leave this page.
+            </p>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => blocker.reset?.()}
+                className="w-full px-4 py-2.5 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors"
+              >
+                Stay Here
+              </button>
+              <button
+                onClick={handleSaveAsPrivateAndProceed}
+                disabled={publishing || !content.trim()}
+                className="w-full px-4 py-2.5 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {publishing ? 'Saving...' : 'Save as Private & Exit'}
+              </button>
+              <button
+                onClick={() => blocker.proceed?.()}
+                className="w-full px-4 py-2.5 text-sm rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+              >
+                Discard & Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
