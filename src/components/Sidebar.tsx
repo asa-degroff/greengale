@@ -421,15 +421,17 @@ export function Sidebar({ children }: SidebarProps) {
           </>
         )}
 
-        {/* Theme Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
-          <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
-        </button>
+        {/* Theme Toggle - only show when using default theme preference */}
+        {preferredTheme === 'default' && (
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+            <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
+          </button>
+        )}
 
         {/* Theme Override Toggle - show when viewing a post with non-default theme */}
         {activePostTheme && activePostTheme !== 'default' && (
@@ -471,13 +473,16 @@ export function Sidebar({ children }: SidebarProps) {
             <span className="font-bold text-[var(--site-text)]">GreenGale</span>
           </Link>
         </div>
-        <button
-          onClick={toggleTheme}
-          className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
-        </button>
+        {/* Only show theme toggle when using default theme preference */}
+        {preferredTheme === 'default' && (
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
+          </button>
+        )}
       </header>
 
       {/* Mobile Drawer Overlay */}
