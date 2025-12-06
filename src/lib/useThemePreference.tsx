@@ -8,6 +8,36 @@ import {
 } from 'react'
 import type { ThemePreset } from './themes'
 
+// Background colors for each theme preset (used for theme-color meta tag)
+// For 'default', we check the site theme (light/dark) separately
+const THEME_BG_COLORS: Record<ThemePreset, string> = {
+  'default': '#f0fff4', // Light mode default - will be overridden dynamically
+  'github-light': '#ffffff',
+  'github-dark': '#0d1117',
+  'dracula': '#282a36',
+  'nord': '#2e3440',
+  'solarized-light': '#fdf6e3',
+  'solarized-dark': '#002b36',
+  'monokai': '#272822',
+}
+
+// Dark mode background for default theme
+const DEFAULT_DARK_BG = '#0a0a0a'
+const DEFAULT_LIGHT_BG = '#f0fff4'
+
+function updateThemeColor(theme: ThemePreset) {
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (!meta) return
+
+  if (theme === 'default') {
+    // Check if site is in dark mode
+    const isDark = document.documentElement.getAttribute('data-site-theme') === 'dark'
+    meta.setAttribute('content', isDark ? DEFAULT_DARK_BG : DEFAULT_LIGHT_BG)
+  } else {
+    meta.setAttribute('content', THEME_BG_COLORS[theme])
+  }
+}
+
 interface ThemePreferenceState {
   /** User's preferred theme for the site and posts with default theme */
   preferredTheme: ThemePreset
@@ -72,9 +102,32 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     return activePostTheme
   })()
 
-  // Apply theme to document
+  // Apply theme to document and update theme-color meta tag
   useEffect(() => {
     document.documentElement.setAttribute('data-active-theme', effectiveTheme)
+    updateThemeColor(effectiveTheme)
+
+    // If using default theme, watch for site theme (light/dark) changes
+    if (effectiveTheme === 'default') {
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.attributeName === 'data-site-theme') {
+            updateThemeColor('default')
+          }
+        }
+      })
+
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-site-theme'],
+      })
+
+      return () => {
+        observer.disconnect()
+        // Reset to default when unmounting (shouldn't happen, but safety)
+        document.documentElement.setAttribute('data-active-theme', 'default')
+      }
+    }
 
     return () => {
       // Reset to default when unmounting (shouldn't happen, but safety)
