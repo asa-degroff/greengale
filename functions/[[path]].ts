@@ -11,7 +11,7 @@ interface Env {
 
 // Bot detection patterns - match common bots and AI agents
 const BOT_PATTERNS = [
-  // AI/LLM agents
+  // AI/LLM agents and their tools
   /letta/i,
   /claude/i,
   /chatgpt/i,
@@ -20,6 +20,8 @@ const BOT_PATTERNS = [
   /anthropic/i,
   /perplexity/i,
   /cohere/i,
+  /exa/i,           // Exa API (used by Letta)
+  /trafilatura/i,   // Trafilatura (used by Letta as fallback)
 
   // Search engine crawlers
   /googlebot/i,
@@ -49,17 +51,46 @@ const BOT_PATTERNS = [
   /curl/i,
   /wget/i,
   /python-requests/i,
+  /python\//i,      // Generic Python UA
   /httpx/i,
   /axios/i,
   /node-fetch/i,
   /got\//i,
+  /libwww/i,
+  /java\//i,
+  /okhttp/i,
+  /go-http-client/i,
+  /ruby/i,
+  /perl/i,
+  /php\//i,
+]
+
+// Patterns that indicate a real browser (not a bot)
+const BROWSER_PATTERNS = [
+  /mozilla\/.*gecko/i,   // Firefox
+  /chrome\/.*safari/i,   // Chrome
+  /safari\/.*version/i,  // Safari
+  /edg\//i,              // Edge
+  /opr\//i,              // Opera
 ]
 
 function isBot(userAgent: string | null): boolean {
   // No User-Agent is suspicious - likely a simple HTTP client
   if (!userAgent) return true
 
-  return BOT_PATTERNS.some((pattern) => pattern.test(userAgent))
+  // If it matches a known bot pattern, it's a bot
+  if (BOT_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+    return true
+  }
+
+  // If it looks like a real browser, it's not a bot
+  if (BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+    return false
+  }
+
+  // Unknown User-Agent - treat as bot to be safe
+  // This catches cases where the UA doesn't match known patterns
+  return true
 }
 
 // Parse post routes: /:handle/:rkey
@@ -90,7 +121,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
-  if (!isBot(userAgent)) {
+  const isBotRequest = isBot(userAgent)
+
+  // Log for debugging (visible in Cloudflare dashboard -> Pages -> Functions -> Logs)
+  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | Bot: ${isBotRequest}`)
+
+  if (!isBotRequest) {
     return next()
   }
 
