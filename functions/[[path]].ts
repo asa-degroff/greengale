@@ -39,6 +39,8 @@ const BOT_PATTERNS = [
   /telegrambot/i,
   /slackbot/i,
   /whatsapp/i,
+  /bluesky/i,          // Bluesky link preview (Cardyb)
+  /cardyb/i,           // Bluesky Cardyb bot
 
   // Generic bot patterns
   /bot\b/i,

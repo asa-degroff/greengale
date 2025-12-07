@@ -277,9 +277,19 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const createdAt = (record?.createdAt as string) || null
       const content = (record?.content as string) || ''
       const hasLatex = source === 'greengale' && (record?.latex === true)
-      const themePreset = typeof record?.theme === 'object' && record.theme !== null
-        ? (record.theme as Record<string, unknown>).preset as string
-        : (record?.theme as string) || null
+
+      // Store theme data - either preset name or JSON for custom themes
+      let themePreset: string | null = null
+      if (record?.theme) {
+        const themeData = record.theme as Record<string, unknown>
+        if (themeData.custom) {
+          // Custom theme - store as JSON
+          themePreset = JSON.stringify(themeData.custom)
+        } else if (themeData.preset) {
+          // Preset theme - store the preset name
+          themePreset = themeData.preset as string
+        }
+      }
 
       // Create content preview (first 300 chars, strip markdown)
       const contentPreview = content

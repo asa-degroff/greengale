@@ -32,6 +32,7 @@ const OG_IMAGE_CACHE_TTL = 7 * 24 * 60 * 60
 
 // Test endpoint for OG image generation (no database required)
 // Usage: /og/test?title=Hello&subtitle=World&author=Test&theme=default
+// Custom colors: /og/test?title=Hello&bg=%23282a36&text=%23f8f8f2&accent=%23bd93f9
 app.get('/og/test', async (c) => {
   const title = c.req.query('title') || 'Test Post Title'
   const subtitle = c.req.query('subtitle') || null
@@ -39,6 +40,12 @@ app.get('/og/test', async (c) => {
   const authorHandle = c.req.query('handle') || 'test.bsky.social'
   const authorAvatar = c.req.query('avatar') || null
   const themePreset = c.req.query('theme') || null
+
+  // Support custom colors via query params
+  const bg = c.req.query('bg')
+  const text = c.req.query('text')
+  const accent = c.req.query('accent')
+  const customColors = bg && text && accent ? { background: bg, text, accent } : null
 
   try {
     const imageResponse = await generateOGImage({
@@ -48,6 +55,7 @@ app.get('/og/test', async (c) => {
       authorHandle,
       authorAvatar,
       themePreset,
+      customColors,
     })
 
     return new Response(await imageResponse.arrayBuffer(), {
@@ -114,6 +122,25 @@ app.get('/og/:handle/:filename', async (c) => {
       return c.json({ error: 'Post not found' }, 404)
     }
 
+    // Parse theme data - could be preset name or JSON custom colors
+    let themePreset: string | null = null
+    let customColors: { background?: string; text?: string; accent?: string } | null = null
+
+    const themeData = post.theme_preset as string | null
+    if (themeData) {
+      if (themeData.startsWith('{')) {
+        // JSON custom colors
+        try {
+          customColors = JSON.parse(themeData)
+        } catch {
+          // Invalid JSON, ignore
+        }
+      } else {
+        // Preset name
+        themePreset = themeData
+      }
+    }
+
     // Generate OG image
     const imageResponse = await generateOGImage({
       title: (post.title as string) || 'Untitled',
@@ -121,7 +148,8 @@ app.get('/og/:handle/:filename', async (c) => {
       authorName: (post.display_name as string) || (post.handle as string) || handle,
       authorHandle: (post.handle as string) || handle,
       authorAvatar: post.avatar_url as string | null,
-      themePreset: post.theme_preset as string | null,
+      themePreset,
+      customColors,
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()

@@ -9,6 +9,7 @@ export interface OGImageData {
   authorHandle: string
   authorAvatar?: string | null
   themePreset?: string | null
+  customColors?: { background?: string; text?: string; accent?: string } | null
 }
 
 // Font URLs (TTF format required by Satori)
@@ -40,10 +41,10 @@ async function loadFonts(): Promise<{ regular: ArrayBuffer; bold: ArrayBuffer }>
  * Returns a PNG image response (1200x630)
  */
 export async function generateOGImage(data: OGImageData): Promise<Response> {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset } = data
+  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors } = data
 
-  // Resolve theme colors
-  const colors = resolveThemeColors(themePreset)
+  // Resolve theme colors (supports both presets and custom colors)
+  const colors = resolveThemeColors(themePreset, customColors)
   const isDark = isDarkTheme(colors)
 
   // Load fonts
@@ -143,8 +144,8 @@ function buildImageHtml(options: BuildHtmlOptions): string {
   const displayTitle = title.length > 100 ? title.slice(0, 97) + '...' : title
   const displaySubtitle = subtitle && subtitle.length > 150 ? subtitle.slice(0, 147) + '...' : subtitle
 
-  // Calculate title font size based on length
-  const titleFontSize = displayTitle.length > 60 ? 42 : displayTitle.length > 40 ? 48 : 56
+  // Calculate title font size based on length (increased sizes)
+  const titleFontSize = displayTitle.length > 60 ? 52 : displayTitle.length > 40 ? 58 : 66
 
   // Author initial for fallback avatar
   const authorInitial = (authorName || authorHandle).charAt(0).toUpperCase()
@@ -152,14 +153,14 @@ function buildImageHtml(options: BuildHtmlOptions): string {
   // Font family - use iA Writer Quattro
   const fontFamily = "'iA Writer Quattro', sans-serif"
 
-  // Build avatar element
+  // Build avatar element (72px size)
   const avatarHtml = authorAvatar
-    ? `<img src="${escapeHtml(authorAvatar)}" width="56" height="56" style="border-radius: 28px; margin-right: 16px;" />`
-    : `<div style="display: flex; width: 56px; height: 56px; border-radius: 28px; margin-right: 16px; background: ${colors.accent}; align-items: center; justify-content: center; color: ${isDark ? colors.background : '#ffffff'}; font-size: 24px; font-weight: 700; font-family: ${fontFamily};">${authorInitial}</div>`
+    ? `<img src="${escapeHtml(authorAvatar)}" width="72" height="72" style="border-radius: 36px; margin-right: 20px;" />`
+    : `<div style="display: flex; width: 72px; height: 72px; border-radius: 36px; margin-right: 20px; background: ${colors.accent}; align-items: center; justify-content: center; color: ${isDark ? colors.background : '#ffffff'}; font-size: 30px; font-weight: 700; font-family: ${fontFamily};">${authorInitial}</div>`
 
-  // Build subtitle element
+  // Build subtitle element (increased font size)
   const subtitleHtml = displaySubtitle
-    ? `<div style="display: flex; font-size: 28px; color: ${colors.textSecondary}; line-height: 1.4; font-family: ${fontFamily};">${escapeHtml(displaySubtitle)}</div>`
+    ? `<div style="display: flex; font-size: 32px; color: ${colors.textSecondary}; line-height: 1.4; font-family: ${fontFamily};">${escapeHtml(displaySubtitle)}</div>`
     : ''
 
   // Build grid pattern using repeating linear gradients (more compatible with Satori)
@@ -171,25 +172,23 @@ function buildImageHtml(options: BuildHtmlOptions): string {
   return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; padding: 60px; font-family: ${fontFamily}; position: relative;">
     ${gridPatternHtml}
     ${vignetteHtml}
-    <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 6px; background: ${colors.accent};"></div>
-    <div style="display: flex; flex-direction: column; flex: 1; justify-content: center; position: relative;">
+    <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
+    <div style="display: flex; flex-direction: column; justify-content: center; position: absolute; top: 60px; left: 60px; right: 60px; bottom: 160px;">
       <div style="display: flex; font-size: ${titleFontSize}px; font-weight: 700; color: ${colors.text}; line-height: 1.2; margin-bottom: ${subtitle ? '16px' : '0'}; font-family: ${fontFamily};">${escapeHtml(displayTitle)}</div>
       ${subtitleHtml}
     </div>
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 40px; position: relative;">
-      <div style="display: flex; align-items: center;">
-        ${avatarHtml}
-        <div style="display: flex; flex-direction: column;">
-          <div style="display: flex; font-size: 22px; font-weight: 600; color: ${colors.text}; font-family: ${fontFamily};">${escapeHtml(authorName)}</div>
-          <div style="display: flex; font-size: 18px; color: ${colors.textSecondary}; font-family: ${fontFamily};">@${escapeHtml(authorHandle)}</div>
-        </div>
+    <div style="display: flex; align-items: center; position: absolute; bottom: 60px; left: 60px;">
+      ${avatarHtml}
+      <div style="display: flex; flex-direction: column;">
+        <div style="display: flex; font-size: 32px; font-weight: 600; color: ${colors.text}; font-family: ${fontFamily};">${escapeHtml(authorName)}</div>
+        <div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily};">@${escapeHtml(authorHandle)}</div>
       </div>
-      <div style="display: flex; align-items: center; color: ${colors.accent};">
-        <svg width="32" height="32" viewBox="0 0 24 24" style="margin-right: 10px;">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
-        </svg>
-        <span style="font-size: 24px; font-weight: 600; font-family: ${fontFamily};">GreenGale</span>
-      </div>
+    </div>
+    <div style="display: flex; align-items: center; position: absolute; bottom: 60px; right: 60px; color: ${colors.accent};">
+      <svg width="38" height="38" viewBox="0 0 24 24" style="margin-right: 12px;">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+      </svg>
+      <span style="font-size: 32px; font-weight: 600; font-family: ${fontFamily};">GreenGale</span>
     </div>
   </div>`
 }
