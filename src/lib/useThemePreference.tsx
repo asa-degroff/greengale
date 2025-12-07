@@ -125,10 +125,15 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   })()
 
   // Determine which custom colors to use:
-  // - If viewing a post with custom theme, use activeCustomColors
+  // - If forceDefaultTheme is true and user's preferred theme is custom, use preferredCustomColors
+  // - If viewing a post with custom theme (and not forcing preferred), use activeCustomColors
   // - If user's preferred theme is custom (and not overridden by post), use preferredCustomColors
   const effectiveCustomColors = (() => {
     if (effectiveTheme !== 'custom') return null
+    // If user is forcing their preferred theme and it's custom, use their colors
+    if (forceDefaultTheme && preferredTheme === 'custom' && preferredCustomColors) {
+      return preferredCustomColors
+    }
     // If there's an active post with custom theme, use those colors
     if (activePostTheme === 'custom' && activeCustomColors) {
       return activeCustomColors
