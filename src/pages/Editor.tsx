@@ -10,6 +10,7 @@ import {
   getPresetColors,
   deriveThemeColors,
   getCustomColorStyles,
+  validateCustomColors,
 } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
@@ -70,6 +71,10 @@ export function EditorPage() {
   const isWhiteWind = lexicon === 'whitewind'
 
   const isEditing = !!rkey
+
+  // Check if custom colors have valid contrast
+  const customColorsValidation = theme === 'custom' ? validateCustomColors(customColors) : null
+  const hasContrastError = theme === 'custom' && customColorsValidation !== null && !customColorsValidation.isValid
 
   // Redirect if not authenticated or not whitelisted
   useEffect(() => {
@@ -492,8 +497,9 @@ export function EditorPage() {
             </button>
             <button
               onClick={handlePublish}
-              disabled={publishing || !content.trim()}
+              disabled={publishing || !content.trim() || hasContrastError}
               className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title={hasContrastError ? 'Fix contrast issues before publishing' : undefined}
             >
               {publishing ? 'Saving...' : isEditing ? 'Update' : 'Publish'}
             </button>
@@ -821,29 +827,60 @@ export function EditorPage() {
                       </div>
                     </div>
 
-                    {/* Preview */}
-                    {customColors.background && customColors.text && customColors.accent && (
-                      <div className="mt-4 pt-4 border-t border-[var(--site-border)]">
-                        <p className="text-xs text-[var(--site-text-secondary)] mb-2">Preview:</p>
-                        <div
-                          className="p-4 rounded-lg"
-                          style={{ backgroundColor: customColors.background }}
-                        >
-                          <p style={{ color: customColors.text }} className="text-sm mb-2">
-                            This is how your text will look. <a href="#" onClick={(e) => e.preventDefault()} style={{ color: customColors.accent }} className="underline">Links appear like this.</a>
-                          </p>
+                    {/* Preview and Contrast Validation */}
+                    {customColors.background && customColors.text && customColors.accent && (() => {
+                      const validation = validateCustomColors(customColors)
+                      return (
+                        <div className="mt-4 pt-4 border-t border-[var(--site-border)]">
+                          {/* Contrast warnings */}
+                          {!validation.isValid && (
+                            <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                              <p className="text-yellow-600 dark:text-yellow-400 text-sm font-medium mb-2">
+                                Low contrast warning
+                              </p>
+                              <ul className="text-xs text-yellow-600/80 dark:text-yellow-400/80 space-y-1">
+                                {validation.textContrast && !validation.textContrast.passes && (
+                                  <li>
+                                    Text contrast: {validation.textContrast.ratio.toFixed(1)}:1 (minimum 4.5:1 required)
+                                  </li>
+                                )}
+                                {validation.accentContrast && validation.accentContrast.ratio < 3 && (
+                                  <li>
+                                    Accent contrast: {validation.accentContrast.ratio.toFixed(1)}:1 (minimum 3:1 required)
+                                  </li>
+                                )}
+                              </ul>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs text-[var(--site-text-secondary)]">Preview:</p>
+                            {validation.isValid && (
+                              <span className="text-xs text-green-600 dark:text-green-400">
+                                ✓ Contrast OK ({validation.textContrast?.ratio.toFixed(1)}:1)
+                              </span>
+                            )}
+                          </div>
                           <div
-                            className="px-3 py-2 rounded text-sm font-mono"
-                            style={{
-                              backgroundColor: customColors.codeBackground || deriveThemeColors(customColors)?.codeBackground || customColors.background,
-                              color: customColors.text,
-                            }}
+                            className="p-4 rounded-lg"
+                            style={{ backgroundColor: customColors.background }}
                           >
-                            const code = "block"
+                            <p style={{ color: customColors.text }} className="text-sm mb-2">
+                              This is how your text will look. <a href="#" onClick={(e) => e.preventDefault()} style={{ color: customColors.accent }} className="underline">Links appear like this.</a>
+                            </p>
+                            <div
+                              className="px-3 py-2 rounded text-sm font-mono"
+                              style={{
+                                backgroundColor: customColors.codeBackground || deriveThemeColors(customColors)?.codeBackground || customColors.background,
+                                color: customColors.text,
+                              }}
+                            >
+                              const code = "block"
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )
+                    })()}
                   </div>
                 )}
               </>
@@ -884,8 +921,9 @@ export function EditorPage() {
               </button>
               <button
                 onClick={handleSaveAsPrivateAndProceed}
-                disabled={publishing || !content.trim()}
+                disabled={publishing || !content.trim() || hasContrastError}
                 className="w-full px-4 py-2.5 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={hasContrastError ? 'Fix contrast issues before saving' : undefined}
               >
                 {publishing ? 'Saving...' : 'Save as Private & Exit'}
               </button>

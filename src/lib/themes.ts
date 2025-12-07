@@ -1,4 +1,4 @@
-import { parse, formatHex, oklch, interpolate, type Oklch } from 'culori'
+import { parse, formatHex, oklch, interpolate, type Oklch, rgb } from 'culori'
 
 export type ThemePreset =
   | 'default'
@@ -16,6 +16,109 @@ export interface CustomColors {
   text?: string
   accent?: string
   codeBackground?: string
+}
+
+/**
+ * Contrast validation result
+ */
+export interface ContrastResult {
+  ratio: number
+  passes: boolean
+  level: 'fail' | 'AA-large' | 'AA' | 'AAA'
+}
+
+/**
+ * Calculate relative luminance of a color (WCAG 2.1 formula)
+ */
+function getRelativeLuminance(color: string): number | null {
+  const parsed = parse(color)
+  if (!parsed) return null
+
+  const rgbColor = rgb(parsed)
+  if (!rgbColor) return null
+
+  const r = rgbColor.r ?? 0
+  const g = rgbColor.g ?? 0
+  const b = rgbColor.b ?? 0
+
+  // Convert to sRGB and apply gamma correction
+  const toLinear = (c: number) => {
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+  }
+
+  const rLin = toLinear(r)
+  const gLin = toLinear(g)
+  const bLin = toLinear(b)
+
+  return 0.2126 * rLin + 0.7152 * gLin + 0.0722 * bLin
+}
+
+/**
+ * Calculate WCAG contrast ratio between two colors
+ * Returns a value between 1 and 21
+ */
+export function getContrastRatio(color1: string, color2: string): number | null {
+  const l1 = getRelativeLuminance(color1)
+  const l2 = getRelativeLuminance(color2)
+
+  if (l1 === null || l2 === null) return null
+
+  const lighter = Math.max(l1, l2)
+  const darker = Math.min(l1, l2)
+
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+/**
+ * Check if contrast ratio meets WCAG requirements
+ * - 3:1 minimum for large text (AA-large)
+ * - 4.5:1 minimum for normal text (AA)
+ * - 7:1 for enhanced contrast (AAA)
+ */
+export function checkContrast(color1: string, color2: string): ContrastResult | null {
+  const ratio = getContrastRatio(color1, color2)
+  if (ratio === null) return null
+
+  let level: ContrastResult['level'] = 'fail'
+  if (ratio >= 7) {
+    level = 'AAA'
+  } else if (ratio >= 4.5) {
+    level = 'AA'
+  } else if (ratio >= 3) {
+    level = 'AA-large'
+  }
+
+  return {
+    ratio,
+    passes: ratio >= 4.5, // We require AA level for normal text
+    level,
+  }
+}
+
+/**
+ * Validate custom colors for accessibility
+ * Returns an object with validation results for each color pair
+ */
+export function validateCustomColors(colors: CustomColors): {
+  textContrast: ContrastResult | null
+  accentContrast: ContrastResult | null
+  isValid: boolean
+} {
+  const { background, text, accent } = colors
+
+  const textContrast = background && text ? checkContrast(background, text) : null
+  const accentContrast = background && accent ? checkContrast(background, accent) : null
+
+  // Theme is valid if both text and accent meet minimum contrast (4.5:1 for text, 3:1 for accent)
+  const isValid =
+    (textContrast?.passes ?? false) &&
+    (accentContrast ? accentContrast.ratio >= 3 : false)
+
+  return {
+    textContrast,
+    accentContrast,
+    isValid,
+  }
 }
 
 export interface Theme {
@@ -264,9 +367,12 @@ export function deriveFullSiteColors(custom: CustomColors): FullSiteColors | nul
   const borderRgb = borderColor ? formatHex(borderColor) : themeColors.border
   const gridColor = `${borderRgb}40` // 25% opacity
 
-  // Vignette color: based on accent with very low opacity
+  // Vignette color: different approach for light vs dark themes
+  // Light themes: use accent color with very low opacity (subtle colored glow)
+  // Dark themes: use background color with higher opacity (darkening vignette)
   const accentHex = formatHex(accent) ?? custom.accent!
-  const vignetteColor = isDark ? `${accentHex}0d` : `${accentHex}08` // 5% or 3% opacity
+  const bgHex = formatHex(bg) ?? custom.background!
+  const vignetteColor = isDark ? `${bgHex}99` : `${accentHex}0d` // 60% bg for dark, 5% accent for light
 
   return {
     ...themeColors,
