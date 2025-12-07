@@ -375,13 +375,17 @@ export function EditorPage() {
   async function handlePublish() {
     setPublishing(true)
     setError(null)
+    // Set justSaved before the async operation to prevent blocker from triggering
+    setJustSaved(true)
 
     const resultRkey = await savePost()
 
     if (resultRkey) {
-      setJustSaved(true)
       // Navigate to the post
       navigate(`/${handle}/${resultRkey}`, { replace: true })
+    } else {
+      // Reset justSaved if save failed so blocker works again
+      setJustSaved(false)
     }
 
     setPublishing(false)
