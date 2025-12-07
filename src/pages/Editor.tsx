@@ -21,6 +21,47 @@ const VISIBILITY_OPTIONS = [
   { value: 'author', label: 'Private', description: 'Only you can see this post' },
 ] as const
 
+const RECENT_PALETTES_KEY = 'recent-custom-palettes'
+const MAX_RECENT_PALETTES = 5
+
+interface SavedPalette {
+  background: string
+  text: string
+  accent: string
+  codeBackground?: string
+}
+
+function getRecentPalettes(): SavedPalette[] {
+  try {
+    const stored = localStorage.getItem(RECENT_PALETTES_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function saveRecentPalette(palette: SavedPalette): void {
+  try {
+    const existing = getRecentPalettes()
+
+    // Check if this palette already exists (same colors)
+    const isDuplicate = existing.some(
+      (p) =>
+        p.background.toLowerCase() === palette.background.toLowerCase() &&
+        p.text.toLowerCase() === palette.text.toLowerCase() &&
+        p.accent.toLowerCase() === palette.accent.toLowerCase()
+    )
+
+    if (isDuplicate) return
+
+    // Add to front and limit to max
+    const updated = [palette, ...existing].slice(0, MAX_RECENT_PALETTES)
+    localStorage.setItem(RECENT_PALETTES_KEY, JSON.stringify(updated))
+  } catch {
+    // localStorage not available
+  }
+}
+
 type LexiconType = 'greengale' | 'whitewind'
 
 const LEXICON_OPTIONS = [
@@ -54,7 +95,13 @@ export function EditorPage() {
   const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
+  const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+
+  // Load recent palettes on mount
+  useEffect(() => {
+    setRecentPalettes(getRecentPalettes())
+  }, [])
 
   // Track initial values to detect changes
   const initialValues = useRef<{
@@ -386,6 +433,15 @@ export function EditorPage() {
     const resultRkey = await savePost()
 
     if (resultRkey) {
+      // Save custom palette to recent palettes if using custom theme
+      if (theme === 'custom' && customColors.background && customColors.text && customColors.accent) {
+        saveRecentPalette({
+          background: customColors.background,
+          text: customColors.text,
+          accent: customColors.accent,
+          codeBackground: customColors.codeBackground || undefined,
+        })
+      }
       // Navigate to the post
       navigate(`/${handle}/${resultRkey}`, { replace: true })
     } else {
@@ -732,6 +788,42 @@ export function EditorPage() {
                         </select>
                       </div>
                     </div>
+
+                    {/* Recent Palettes */}
+                    {recentPalettes.length > 0 && (
+                      <div className="mb-4">
+                        <p className="text-xs text-[var(--site-text-secondary)] mb-2">Recent palettes:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {recentPalettes.map((palette, index) => (
+                            <button
+                              key={index}
+                              type="button"
+                              onClick={() => setCustomColors({
+                                background: palette.background,
+                                text: palette.text,
+                                accent: palette.accent,
+                                codeBackground: palette.codeBackground || '',
+                              })}
+                              className="flex rounded overflow-hidden border border-[var(--site-border)] hover:border-[var(--site-accent)] transition-colors"
+                              title={`Background: ${palette.background}, Text: ${palette.text}, Accent: ${palette.accent}`}
+                            >
+                              <div
+                                className="w-6 h-6"
+                                style={{ backgroundColor: palette.background }}
+                              />
+                              <div
+                                className="w-6 h-6"
+                                style={{ backgroundColor: palette.text }}
+                              />
+                              <div
+                                className="w-6 h-6"
+                                style={{ backgroundColor: palette.accent }}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 overflow-hidden">
                       {/* Background */}
