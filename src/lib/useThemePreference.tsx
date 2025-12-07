@@ -46,6 +46,8 @@ function updateThemeColor(theme: ThemePreset, customBg?: string) {
 interface ThemePreferenceState {
   /** User's preferred theme for the site and posts with default theme */
   preferredTheme: ThemePreset
+  /** User's custom colors when preferredTheme is 'custom' */
+  preferredCustomColors: CustomColors | null
   /** User preference to force default theme on all posts */
   forceDefaultTheme: boolean
   /** The current post's theme (null when not viewing a post) */
@@ -58,6 +60,7 @@ interface ThemePreferenceState {
 
 interface ThemePreferenceContextValue extends ThemePreferenceState {
   setPreferredTheme: (theme: ThemePreset) => void
+  setPreferredCustomColors: (colors: CustomColors | null) => void
   setForceDefaultTheme: (force: boolean) => void
   setActivePostTheme: (theme: ThemePreset | null) => void
   setActiveCustomColors: (colors: CustomColors | null) => void
@@ -67,6 +70,7 @@ const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>
 
 const FORCE_DEFAULT_KEY = 'force-default-theme'
 const PREFERRED_THEME_KEY = 'preferred-theme'
+const PREFERRED_CUSTOM_COLORS_KEY = 'preferred-custom-colors'
 
 export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   const [preferredTheme, setPreferredThemeState] = useState<ThemePreset>(() => {
@@ -83,6 +87,15 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       return localStorage.getItem(FORCE_DEFAULT_KEY) === 'true'
     } catch {
       return false
+    }
+  })
+
+  const [preferredCustomColors, setPreferredCustomColorsState] = useState<CustomColors | null>(() => {
+    try {
+      const stored = localStorage.getItem(PREFERRED_CUSTOM_COLORS_KEY)
+      return stored ? JSON.parse(stored) : null
+    } catch {
+      return null
     }
   })
 
@@ -111,14 +124,30 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     return activePostTheme
   })()
 
+  // Determine which custom colors to use:
+  // - If viewing a post with custom theme, use activeCustomColors
+  // - If user's preferred theme is custom (and not overridden by post), use preferredCustomColors
+  const effectiveCustomColors = (() => {
+    if (effectiveTheme !== 'custom') return null
+    // If there's an active post with custom theme, use those colors
+    if (activePostTheme === 'custom' && activeCustomColors) {
+      return activeCustomColors
+    }
+    // Otherwise, if preferred theme is custom, use preferred colors
+    if (preferredTheme === 'custom' && preferredCustomColors) {
+      return preferredCustomColors
+    }
+    return null
+  })()
+
   // Apply theme to document and update theme-color meta tag
   useEffect(() => {
     document.documentElement.setAttribute('data-active-theme', effectiveTheme)
 
-    // Apply custom theme colors to document root when viewing custom-themed post
+    // Apply custom theme colors to document root
     const customColorProps: string[] = []
-    if (effectiveTheme === 'custom' && activeCustomColors) {
-      const colors = deriveFullSiteColors(activeCustomColors)
+    if (effectiveTheme === 'custom' && effectiveCustomColors) {
+      const colors = deriveFullSiteColors(effectiveCustomColors)
       if (colors) {
         const style = document.documentElement.style
         // Site-wide variables
@@ -195,7 +224,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       // Reset to default when unmounting (shouldn't happen, but safety)
       document.documentElement.setAttribute('data-active-theme', 'default')
     }
-  }, [effectiveTheme, activeCustomColors])
+  }, [effectiveTheme, effectiveCustomColors])
 
   const setPreferredTheme = useCallback((theme: ThemePreset) => {
     setPreferredThemeState(theme)
@@ -204,6 +233,19 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem(PREFERRED_THEME_KEY)
       } else {
         localStorage.setItem(PREFERRED_THEME_KEY, theme)
+      }
+    } catch {
+      // localStorage not available
+    }
+  }, [])
+
+  const setPreferredCustomColors = useCallback((colors: CustomColors | null) => {
+    setPreferredCustomColorsState(colors)
+    try {
+      if (colors) {
+        localStorage.setItem(PREFERRED_CUSTOM_COLORS_KEY, JSON.stringify(colors))
+      } else {
+        localStorage.removeItem(PREFERRED_CUSTOM_COLORS_KEY)
       }
     } catch {
       // localStorage not available
@@ -227,11 +269,13 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     <ThemePreferenceContext.Provider
       value={{
         preferredTheme,
+        preferredCustomColors,
         forceDefaultTheme,
         activePostTheme,
         activeCustomColors,
         effectiveTheme,
         setPreferredTheme,
+        setPreferredCustomColors,
         setForceDefaultTheme,
         setActivePostTheme,
         setActiveCustomColors,

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
-import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
+import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
 import logoImage from '/grey-logo.avif?url'
 
 // Icons as inline SVGs
@@ -215,7 +215,21 @@ export function Sidebar({ children }: SidebarProps) {
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isWhitelisted, isLoading, handle, login, logout, error } = useAuth()
-  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme } = useThemePreference()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors } = useThemePreference()
+
+  // Local state for custom color inputs
+  const [customColors, setCustomColors] = useState<CustomColors>(() => {
+    if (preferredCustomColors) {
+      return preferredCustomColors
+    }
+    // Default to GitHub Light colors
+    const defaults = getPresetColors('github-light')
+    return {
+      background: defaults.background,
+      text: defaults.text,
+      accent: defaults.accent,
+    }
+  })
 
   const navLinks = [
     { to: '/', label: 'Home', icon: HomeIcon },
@@ -349,6 +363,54 @@ export function Sidebar({ children }: SidebarProps) {
                 <p className="mt-1 px-2 text-xs text-[var(--site-text-secondary)]">
                   Applies to home and posts with default theme. Overrides light/dark mode.
                 </p>
+                {preferredTheme === 'custom' && (
+                  <div className="mt-3 pt-3 border-t border-[var(--site-border)]">
+                    <p className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
+                      Custom Colors
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center gap-2 px-2">
+                        <input
+                          type="color"
+                          value={customColors.background || '#ffffff'}
+                          onChange={(e) => {
+                            const updated = { ...customColors, background: e.target.value }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="w-8 h-8 shrink-0 rounded cursor-pointer appearance-none border border-[var(--site-border)] [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+                        />
+                        <span className="text-sm text-[var(--site-text)]">Background</span>
+                      </div>
+                      <div className="flex items-center gap-2 px-2">
+                        <input
+                          type="color"
+                          value={customColors.text || '#24292f'}
+                          onChange={(e) => {
+                            const updated = { ...customColors, text: e.target.value }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="w-8 h-8 shrink-0 rounded cursor-pointer appearance-none border border-[var(--site-border)] [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+                        />
+                        <span className="text-sm text-[var(--site-text)]">Text</span>
+                      </div>
+                      <div className="flex items-center gap-2 px-2">
+                        <input
+                          type="color"
+                          value={customColors.accent || '#0969da'}
+                          onChange={(e) => {
+                            const updated = { ...customColors, accent: e.target.value }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="w-8 h-8 shrink-0 rounded cursor-pointer appearance-none border border-[var(--site-border)] [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+                        />
+                        <span className="text-sm text-[var(--site-text)]">Accent</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -416,6 +478,54 @@ export function Sidebar({ children }: SidebarProps) {
                 <p className="mt-1 px-2 text-xs text-[var(--site-text-secondary)]">
                   Applies to home and posts with default theme. Overrides light/dark mode.
                 </p>
+                {preferredTheme === 'custom' && (
+                  <div className="mt-3 pt-3 border-t border-[var(--site-border)]">
+                    <p className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
+                      Custom Colors
+                    </p>
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center gap-2 px-2">
+                        <input
+                          type="color"
+                          value={customColors.background || '#ffffff'}
+                          onChange={(e) => {
+                            const updated = { ...customColors, background: e.target.value }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="w-8 h-8 shrink-0 rounded cursor-pointer appearance-none border border-[var(--site-border)] [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+                        />
+                        <span className="text-sm text-[var(--site-text)]">Background</span>
+                      </div>
+                      <div className="flex items-center gap-2 px-2">
+                        <input
+                          type="color"
+                          value={customColors.text || '#24292f'}
+                          onChange={(e) => {
+                            const updated = { ...customColors, text: e.target.value }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="w-8 h-8 shrink-0 rounded cursor-pointer appearance-none border border-[var(--site-border)] [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+                        />
+                        <span className="text-sm text-[var(--site-text)]">Text</span>
+                      </div>
+                      <div className="flex items-center gap-2 px-2">
+                        <input
+                          type="color"
+                          value={customColors.accent || '#0969da'}
+                          onChange={(e) => {
+                            const updated = { ...customColors, accent: e.target.value }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="w-8 h-8 shrink-0 rounded cursor-pointer appearance-none border border-[var(--site-border)] [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-0 [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-0"
+                        />
+                        <span className="text-sm text-[var(--site-text)]">Accent</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
