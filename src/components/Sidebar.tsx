@@ -442,10 +442,10 @@ export function Sidebar({ children }: SidebarProps) {
                 ? 'bg-[var(--site-accent)] text-white'
                 : 'sidebar-link hover:bg-[var(--site-bg-secondary)]'
             }`}
-            aria-label={forceDefaultTheme ? 'Use post themes' : 'Use default styling'}
+            aria-label={forceDefaultTheme ? 'Use post theme' : 'Use preferred theme'}
           >
             <PaletteIcon className="w-5 h-5" />
-            <span>{forceDefaultTheme ? 'Using Default' : 'Use Default Style'}</span>
+            <span>{forceDefaultTheme ? 'Use Post Style' : 'Use Preferred Style'}</span>
           </button>
         )}
       </div>
