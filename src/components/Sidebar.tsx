@@ -4,6 +4,7 @@ import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
+import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import logoImage from '/grey-logo.avif?url'
 
 // Icons as inline SVGs
@@ -139,6 +140,15 @@ function GitHubIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function ClockIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  )
+}
+
 function Logo({ className = '' }: { className?: string }) {
   return (
     <div
@@ -221,10 +231,12 @@ export function Sidebar({ children }: SidebarProps) {
   const [showLoginForm, setShowLoginForm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showLinks, setShowLinks] = useState(false)
+  const [showRecents, setShowRecents] = useState(false)
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isWhitelisted, isLoading, handle, login, logout, error } = useAuth()
   const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors } = useThemePreference()
+  const { recentAuthors } = useRecentAuthors()
 
   // Local state for custom color inputs
   const [customColors, setCustomColors] = useState<CustomColors>(() => {
@@ -327,6 +339,45 @@ export function Sidebar({ children }: SidebarProps) {
             </div>
           )}
         </div>
+
+        {/* Recents Section - only show if there are recent authors */}
+        {recentAuthors.length > 0 && (
+          <div className="pt-2">
+            <button
+              onClick={() => setShowRecents(!showRecents)}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
+            >
+              <ClockIcon className="w-5 h-5" />
+              <span>Recents</span>
+              <ChevronDownIcon className={`w-4 h-4 ml-auto text-[var(--site-text-secondary)] transition-transform ${showRecents ? 'rotate-180' : ''}`} />
+            </button>
+            {showRecents && (
+              <div className="mt-1 space-y-1">
+                {recentAuthors.map((author) => (
+                  <Link
+                    key={author.handle}
+                    to={`/${author.handle}`}
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 pl-11 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)]"
+                  >
+                    {author.avatarUrl ? (
+                      <img
+                        src={author.avatarUrl}
+                        alt=""
+                        className="w-5 h-5 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-[var(--site-border)] flex items-center justify-center">
+                        <UserIcon className="w-3 h-3 text-[var(--site-text-secondary)]" />
+                      </div>
+                    )}
+                    <span className="truncate">{author.displayName || `@${author.handle}`}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* User Section */}

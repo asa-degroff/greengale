@@ -10,6 +10,7 @@ import {
 } from '@/lib/atproto'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast } from '@/lib/themes'
+import { useRecentAuthors } from '@/lib/useRecentAuthors'
 
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
@@ -20,6 +21,7 @@ export function PostPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+  const { addRecentAuthor } = useRecentAuthors()
 
   useEffect(() => {
     if (!handle || !rkey) return
@@ -47,6 +49,13 @@ export function PostPage() {
 
         setEntry(entryResult)
         setAuthor(authorResult)
+
+        // Track this author as recently viewed
+        addRecentAuthor({
+          handle: authorResult.handle,
+          displayName: authorResult.displayName,
+          avatarUrl: authorResult.avatar,
+        })
 
         // Set active theme from post
         // Apply contrast correction for externally-created posts with low contrast
@@ -77,7 +86,7 @@ export function PostPage() {
       setActivePostTheme(null) // Reset theme when leaving post
       setActiveCustomColors(null)
     }
-  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors])
+  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor])
 
   if (loading) {
     return (

@@ -8,6 +8,7 @@ import {
   type BlogEntry,
   type AuthorProfile,
 } from '@/lib/atproto'
+import { useRecentAuthors } from '@/lib/useRecentAuthors'
 
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
@@ -17,6 +18,7 @@ export function AuthorPage() {
   const [entries, setEntries] = useState<BlogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const { addRecentAuthor } = useRecentAuthors()
 
   useEffect(() => {
     if (!handle) return
@@ -39,6 +41,13 @@ export function AuthorPage() {
 
         setAuthor(profileResult)
         setEntries(entriesResult.entries)
+
+        // Track this author as recently viewed
+        addRecentAuthor({
+          handle: profileResult.handle,
+          displayName: profileResult.displayName,
+          avatarUrl: profileResult.avatar,
+        })
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load author')
       } finally {
@@ -47,7 +56,7 @@ export function AuthorPage() {
     }
 
     load()
-  }, [handle, session?.did])
+  }, [handle, session?.did, addRecentAuthor, navigate])
 
   if (loading) {
     return (
