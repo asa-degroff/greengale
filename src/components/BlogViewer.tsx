@@ -1,6 +1,7 @@
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
 import { getCustomColorStyles, type Theme } from '@/lib/themes'
+import { useThemePreference } from '@/lib/useThemePreference'
 import type { AuthorProfile } from '@/lib/atproto'
 
 interface BlogViewerProps {
@@ -24,8 +25,11 @@ export function BlogViewer({
   author,
   source,
 }: BlogViewerProps) {
+  const { forceDefaultTheme } = useThemePreference()
+
   // Custom color overrides (inline styles) - theme preset is now applied globally via data-active-theme
-  const customStyles = getCustomColorStyles(theme?.custom)
+  // Don't apply custom styles if user has "Use Default Style" enabled
+  const customStyles = forceDefaultTheme ? {} : getCustomColorStyles(theme?.custom)
 
   const formattedDate = createdAt
     ? new Date(createdAt).toLocaleDateString('en-US', {
