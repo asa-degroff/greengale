@@ -99,6 +99,43 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
+/**
+ * Build vignette as multiple stacked layers to reduce banding artifacts
+ * Dark themes use pure black to avoid colored banding artifacts
+ */
+function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
+  // Parse rgba color to extract RGB and alpha
+  const rgbaMatch = vignetteColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
+
+  let r: string, g: string, b: string, maxAlpha: number
+
+  if (!rgbaMatch) {
+    // Fallback
+    r = '0'; g = '0'; b = '0'; maxAlpha = 0.3
+  } else if (isDark) {
+    // For dark themes, use pure black to avoid colored banding
+    r = '0'; g = '0'; b = '0'
+    maxAlpha = 0.25
+  } else {
+    // Light themes can use the theme color
+    r = rgbaMatch[1]
+    g = rgbaMatch[2]
+    b = rgbaMatch[3]
+    maxAlpha = parseFloat(rgbaMatch[4] || '1')
+  }
+
+  // Create multiple stacked layers, each with a simple gradient
+  const layers = [
+    { alpha: maxAlpha * 0.175, start: '55%', end: '100%' },
+    { alpha: maxAlpha * 0.15, start: '45%', end: '95%' },
+    { alpha: maxAlpha * 0.1, start: '35%', end: '90%' },
+  ]
+
+  return layers.map(layer =>
+    `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background: radial-gradient(ellipse at center, transparent ${layer.start}, rgba(${r}, ${g}, ${b}, ${layer.alpha.toFixed(3)}) ${layer.end});"></div>`
+  ).join('\n    ')
+}
+
 function buildImageHtml(options: BuildHtmlOptions): string {
   const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark } = options
 
@@ -128,8 +165,8 @@ function buildImageHtml(options: BuildHtmlOptions): string {
   // Build grid pattern using repeating linear gradients (more compatible with Satori)
   const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
 
-  // Vignette overlay
-  const vignetteHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background: radial-gradient(ellipse at center, transparent 0%, transparent 50%, ${colors.vignetteColor} 100%);"></div>`
+  // Vignette overlay - use multiple stacked layers for smoother rendering
+  const vignetteHtml = buildVignetteLayers(colors.vignetteColor, isDark)
 
   return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; padding: 60px; font-family: ${fontFamily}; position: relative;">
     ${gridPatternHtml}
