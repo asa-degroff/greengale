@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { FirehoseConsumer } from '../firehose'
+import { generateOGImage } from '../lib/og-image'
 
 export { FirehoseConsumer }
 
@@ -24,6 +25,123 @@ app.use('/*', cors({
 // Health check
 app.get('/xrpc/_health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0' })
+})
+
+// OG image cache TTL (7 days)
+const OG_IMAGE_CACHE_TTL = 7 * 24 * 60 * 60
+
+// Test endpoint for OG image generation (no database required)
+// Usage: /og/test?title=Hello&subtitle=World&author=Test&theme=default
+app.get('/og/test', async (c) => {
+  const title = c.req.query('title') || 'Test Post Title'
+  const subtitle = c.req.query('subtitle') || null
+  const authorName = c.req.query('author') || 'Test Author'
+  const authorHandle = c.req.query('handle') || 'test.bsky.social'
+  const authorAvatar = c.req.query('avatar') || null
+  const themePreset = c.req.query('theme') || null
+
+  try {
+    const imageResponse = await generateOGImage({
+      title,
+      subtitle,
+      authorName,
+      authorHandle,
+      authorAvatar,
+      themePreset,
+    })
+
+    return new Response(await imageResponse.arrayBuffer(), {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'no-cache',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating test OG image:', error)
+    return c.json({ error: 'Failed to generate image', details: String(error) }, 500)
+  }
+})
+
+// Generate OpenGraph image for a post
+app.get('/og/:handle/:filename', async (c) => {
+  const handle = c.req.param('handle')
+  const filename = c.req.param('filename')
+
+  // Validate filename format (rkey.png)
+  if (!filename || !filename.endsWith('.png')) {
+    return c.json({ error: 'Invalid image format' }, 400)
+  }
+  const rkey = filename.slice(0, -4) // Remove .png extension
+
+  const cacheKey = `og:${handle}:${rkey}`
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'arrayBuffer')
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    // Resolve handle to DID
+    let authorDid = handle
+    if (!handle.startsWith('did:')) {
+      const authorRow = await c.env.DB.prepare(
+        'SELECT did FROM authors WHERE handle = ?'
+      ).bind(handle).first()
+
+      if (!authorRow) {
+        return c.json({ error: 'Author not found' }, 404)
+      }
+      authorDid = authorRow.did as string
+    }
+
+    // Fetch post + author data from D1
+    const post = await c.env.DB.prepare(`
+      SELECT p.title, p.subtitle, p.theme_preset,
+             a.handle, a.display_name, a.avatar_url
+      FROM posts p
+      LEFT JOIN authors a ON p.author_did = a.did
+      WHERE p.author_did = ? AND p.rkey = ?
+    `).bind(authorDid, rkey).first()
+
+    if (!post) {
+      return c.json({ error: 'Post not found' }, 404)
+    }
+
+    // Generate OG image
+    const imageResponse = await generateOGImage({
+      title: (post.title as string) || 'Untitled',
+      subtitle: post.subtitle as string | null,
+      authorName: (post.display_name as string) || (post.handle as string) || handle,
+      authorHandle: (post.handle as string) || handle,
+      authorAvatar: post.avatar_url as string | null,
+      themePreset: post.theme_preset as string | null,
+    })
+
+    const imageBuffer = await imageResponse.arrayBuffer()
+
+    // Cache for 7 days
+    await c.env.CACHE.put(cacheKey, imageBuffer, {
+      expirationTtl: OG_IMAGE_CACHE_TTL,
+    })
+
+    return new Response(imageBuffer, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating OG image:', error)
+    return c.json({ error: 'Failed to generate image' }, 500)
+  }
 })
 
 // Cache TTL for recent posts (30 minutes)

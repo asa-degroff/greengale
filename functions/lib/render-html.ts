@@ -40,6 +40,7 @@ export async function renderPostHtml(options: RenderOptions): Promise<string> {
   const displayName = author.displayName || author.handle
   const canonicalUrl = `https://greengale.app/${handle}/${rkey}`
   const formattedDate = formatDate(entry.createdAt)
+  const ogImageUrl = `https://greengale.asadegroff.workers.dev/og/${handle}/${rkey}.png`
 
   // Render markdown content to HTML
   const htmlContent = await renderMarkdownToHtml(entry.content)
@@ -85,14 +86,18 @@ export async function renderPostHtml(options: RenderOptions): Promise<string> {
   <meta property="og:title" content="${escapeHtml(title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:site_name" content="GreenGale">
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta property="article:author" content="${escapeHtml(displayName)}">
   ${entry.createdAt ? `<meta property="article:published_time" content="${escapeHtml(entry.createdAt)}">` : ''}
 
   <!-- Twitter -->
-  <meta property="twitter:card" content="summary">
+  <meta name="twitter:card" content="summary_large_image">
   <meta property="twitter:url" content="${escapeHtml(canonicalUrl)}">
   <meta property="twitter:title" content="${escapeHtml(title)}">
   <meta property="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
 
   <!-- Canonical URL -->
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">

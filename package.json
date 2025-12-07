@@ -39,7 +39,8 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "workers-og": "^0.0.27"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251205.0",

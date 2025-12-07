@@ -323,6 +323,14 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Invalidate cache for recent posts
       await this.env.CACHE.delete('recent_posts:12:')
 
+      // Invalidate OG image cache for this post
+      const authorRow = await this.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(did).first()
+      if (authorRow?.handle) {
+        await this.env.CACHE.delete(`og:${authorRow.handle}:${rkey}`)
+      }
+
       console.log(`Indexed ${source} post: ${uri}`)
     } catch (error) {
       console.error(`Failed to index post ${uri}:`, error)
@@ -332,9 +340,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
   private async deletePost(uri: string) {
     try {
-      // Get author DID before deleting
+      // Get post data before deleting (for cache invalidation)
       const post = await this.env.DB.prepare(
-        'SELECT author_did FROM posts WHERE uri = ?'
+        'SELECT author_did, rkey FROM posts WHERE uri = ?'
       ).bind(uri).first()
 
       await this.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri).run()
@@ -347,6 +355,14 @@ export class FirehoseConsumer extends DurableObject<Env> {
           ), updated_at = datetime('now')
           WHERE did = ?
         `).bind(post.author_did, post.author_did).run()
+
+        // Invalidate OG image cache for this post
+        const authorRow = await this.env.DB.prepare(
+          'SELECT handle FROM authors WHERE did = ?'
+        ).bind(post.author_did).first()
+        if (authorRow?.handle && post.rkey) {
+          await this.env.CACHE.delete(`og:${authorRow.handle}:${post.rkey}`)
+        }
       }
 
       // Invalidate cache for recent posts
