@@ -1,6 +1,6 @@
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
-import { getCustomColorStyles, type Theme } from '@/lib/themes'
+import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import type { AuthorProfile } from '@/lib/atproto'
 
@@ -29,7 +29,9 @@ export function BlogViewer({
 
   // Custom color overrides (inline styles) - theme preset is now applied globally via data-active-theme
   // Don't apply custom styles if user has "Use Default Style" enabled
-  const customStyles = forceDefaultTheme ? {} : getCustomColorStyles(theme?.custom)
+  // Apply contrast correction to ensure readability for externally-created posts
+  const correctedColors = theme?.custom ? correctCustomColorsContrast(theme.custom) : undefined
+  const customStyles = forceDefaultTheme ? {} : getCustomColorStyles(correctedColors)
 
   const formattedDate = createdAt
     ? new Date(createdAt).toLocaleDateString('en-US', {

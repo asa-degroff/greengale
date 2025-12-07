@@ -121,6 +121,110 @@ export function validateCustomColors(colors: CustomColors): {
   }
 }
 
+/**
+ * Adjust a foreground color's luminance to meet minimum contrast against a background
+ * Preserves hue and chroma as much as possible, only adjusting lightness
+ * Returns the adjusted color or original if already meets contrast
+ */
+function adjustColorForContrast(
+  foreground: string,
+  background: string,
+  minContrast: number
+): string {
+  const currentContrast = getContrastRatio(foreground, background)
+  if (currentContrast !== null && currentContrast >= minContrast) {
+    return foreground // Already meets contrast
+  }
+
+  const fgParsed = parse(foreground)
+  const bgParsed = parse(background)
+  if (!fgParsed || !bgParsed) return foreground
+
+  const fgOklch = oklch(fgParsed) as Oklch
+  const bgOklch = oklch(bgParsed) as Oklch
+  if (!fgOklch || !bgOklch) return foreground
+
+  const bgLightness = bgOklch.l ?? 0
+  const isDarkBg = bgLightness < 0.5
+
+  // Binary search for the right lightness value
+  let minL = 0
+  let maxL = 1
+  let bestColor = foreground
+
+  // Determine search direction: if dark bg, we want lighter fg and vice versa
+  if (isDarkBg) {
+    minL = bgLightness + 0.1 // Start above background
+    maxL = 1
+  } else {
+    minL = 0
+    maxL = bgLightness - 0.1 // Stay below background
+  }
+
+  // Binary search for minimum lightness change that meets contrast
+  for (let i = 0; i < 20; i++) {
+    const midL = (minL + maxL) / 2
+    const testColor: Oklch = {
+      mode: 'oklch',
+      l: midL,
+      c: fgOklch.c ?? 0,
+      h: fgOklch.h,
+    }
+    const testHex = formatHex(testColor)
+    if (!testHex) break
+
+    const testContrast = getContrastRatio(testHex, background)
+    if (testContrast === null) break
+
+    if (testContrast >= minContrast) {
+      bestColor = testHex
+      // Try to find a value closer to original lightness
+      if (isDarkBg) {
+        maxL = midL // Try darker (closer to original if fg was dark)
+      } else {
+        minL = midL // Try lighter (closer to original if fg was light)
+      }
+    } else {
+      // Need more contrast
+      if (isDarkBg) {
+        minL = midL // Need lighter
+      } else {
+        maxL = midL // Need darker
+      }
+    }
+  }
+
+  return bestColor
+}
+
+/**
+ * Correct custom colors to ensure minimum contrast requirements are met
+ * Adjusts text to 4.5:1 and accent to 3:1 against background
+ * Preserves hue and saturation, only adjusting luminance as needed
+ */
+export function correctCustomColorsContrast(colors: CustomColors): CustomColors {
+  const { background, text, accent, codeBackground } = colors
+
+  if (!background) return colors
+
+  const corrected: CustomColors = {
+    background,
+    codeBackground,
+  }
+
+  // Correct text color (4.5:1 minimum for AA)
+  if (text) {
+    corrected.text = adjustColorForContrast(text, background, 4.5)
+  }
+
+  // Correct accent color (3:1 minimum for UI components)
+  if (accent) {
+    corrected.accent = adjustColorForContrast(accent, background, 3)
+  }
+
+  return corrected
+}
+
 export interface Theme {
   preset?: ThemePreset
   custom?: CustomColors

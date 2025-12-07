@@ -9,7 +9,7 @@ import {
   type AuthorProfile,
 } from '@/lib/atproto'
 import { useThemePreference } from '@/lib/useThemePreference'
-import { getEffectiveTheme } from '@/lib/themes'
+import { getEffectiveTheme, correctCustomColorsContrast } from '@/lib/themes'
 
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
@@ -49,9 +49,10 @@ export function PostPage() {
         setAuthor(authorResult)
 
         // Set active theme from post
+        // Apply contrast correction for externally-created posts with low contrast
         if (entryResult.theme?.custom) {
           setActivePostTheme('custom')
-          setActiveCustomColors(entryResult.theme.custom)
+          setActiveCustomColors(correctCustomColorsContrast(entryResult.theme.custom))
         } else {
           const postTheme = getEffectiveTheme(entryResult.theme)
           setActivePostTheme(postTheme)
