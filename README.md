@@ -8,6 +8,7 @@ A markdown blog platform built on [AT Protocol](https://atproto.com). Compatible
 
 - **WhiteWind Compatible** - View and create WhiteWind blog posts without any migration needed
 - **Theme Selection** - Choose from preset themes (GitHub Light/Dark, Dracula, Nord, Solarized, Monokai) applied per-post
+- **Custom Color Themes** - Create your own color scheme with automatic contrast validation and derived colors
 - **KaTeX Support** - Write mathematical equations with full LaTeX rendering
 - **Dual Lexicon Support** - Create posts in either GreenGale (`app.greengale.blog.entry`) or WhiteWind (`com.whtwnd.blog.entry`) format
 - **Visibility Controls** - Public, unlisted (URL only), or private (author only) posts
@@ -93,14 +94,34 @@ greengale/
 
 ## Lexicons
 
-### GreenGale (`app.greengale.blog.entry`)
+GreenGale uses AT Protocol lexicons to define blog post records. The lexicon files are located in `lexicons/app/greengale/blog/`.
 
-Extended blog entry format with additional features:
+### GreenGale Entry (`app.greengale.blog.entry`)
+
+Extended blog entry format with theme and LaTeX support.
+
+**Record Key**: `tid` (timestamp identifier)
+
+#### Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `content` | string | ✓ | Markdown content (max 100,000 chars) |
+| `title` | string | | Post title (max 1,000 chars) |
+| `subtitle` | string | | Post subtitle (max 1,000 chars) |
+| `createdAt` | datetime | | ISO 8601 timestamp |
+| `visibility` | enum | | `"public"`, `"url"` (unlisted), or `"author"` (private). Default: `"public"` |
+| `theme` | object | | Theme configuration (see below) |
+| `latex` | boolean | | Enable KaTeX math rendering. Default: `false` |
+| `ogp` | object | | Open Graph image metadata |
+| `blobs` | array | | Uploaded file references |
+
+#### Example: Preset Theme
 
 ```json
 {
   "$type": "app.greengale.blog.entry",
-  "content": "# Hello World\n\nMarkdown content...",
+  "content": "# Hello World\n\nMarkdown content with **formatting**...",
   "title": "My Post",
   "subtitle": "A subtitle",
   "createdAt": "2024-01-01T00:00:00.000Z",
@@ -110,9 +131,86 @@ Extended blog entry format with additional features:
 }
 ```
 
-### WhiteWind (`com.whtwnd.blog.entry`)
+#### Example: Custom Color Theme
 
-Compatible with whtwnd.com:
+```json
+{
+  "$type": "app.greengale.blog.entry",
+  "content": "# Custom Themed Post\n\nThis post uses custom colors.",
+  "title": "My Custom Theme",
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "theme": {
+    "custom": {
+      "background": "#1a1a2e",
+      "text": "#eaeaea",
+      "accent": "#e94560"
+    }
+  }
+}
+```
+
+### Theme Configuration (`app.greengale.blog.defs#theme`)
+
+The `theme` object supports either a preset theme or custom colors.
+
+#### Preset Themes
+
+Set `theme.preset` to one of:
+
+| Preset | Description |
+|--------|-------------|
+| `github-light` | GitHub light theme |
+| `github-dark` | GitHub dark theme |
+| `dracula` | Dracula dark theme |
+| `nord` | Nord dark theme |
+| `solarized-light` | Solarized light |
+| `solarized-dark` | Solarized dark |
+| `monokai` | Monokai dark theme |
+
+If `theme` is omitted or empty, the post follows the user's preferred theme (or site light/dark mode).
+
+#### Custom Colors (`app.greengale.blog.defs#customColors`)
+
+Set `theme.custom` to define your own color scheme:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `background` | string | Background color (CSS color value) |
+| `text` | string | Primary text color |
+| `accent` | string | Accent/link color |
+| `codeBackground` | string | Code block background (optional, auto-derived if omitted) |
+
+**Color Derivation**: GreenGale automatically derives additional colors from these 3-4 base colors:
+- Secondary text (40% blend toward background)
+- Borders (lightness-adjusted background)
+- Link hover states (lightness-adjusted accent)
+- Blockquote styling
+- Code text color
+
+**Contrast Correction**: If custom colors don't meet WCAG accessibility guidelines (4.5:1 for text, 3:1 for UI), GreenGale automatically adjusts them when rendering to ensure readability.
+
+### OGP Metadata (`app.greengale.blog.defs#ogp`)
+
+Open Graph Protocol image for social sharing previews.
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `url` | string (URI) | ✓ | URL of the OGP image |
+| `width` | integer | | Image width in pixels |
+| `height` | integer | | Image height in pixels |
+
+### Blob Metadata (`app.greengale.blog.defs#blobMetadata`)
+
+References to uploaded binary content (images, files).
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `blobref` | blob | ✓ | AT Protocol blob reference |
+| `name` | string | | Original filename |
+
+### WhiteWind Compatibility (`com.whtwnd.blog.entry`)
+
+GreenGale reads and displays WhiteWind posts. The WhiteWind format is simpler:
 
 ```json
 {
@@ -123,6 +221,8 @@ Compatible with whtwnd.com:
   "visibility": "public"
 }
 ```
+
+WhiteWind posts are displayed with default theming.
 
 ## Development
 
@@ -178,11 +278,19 @@ npx wrangler pages deploy dist --project-name greengale-app
 
 ## Theme System
 
-Posts can specify a theme preset that applies to the entire page when viewing:
+GreenGale has a two-level theme system:
+
+### Site Theme (Light/Dark Mode)
+
+The site respects system preferences for light/dark mode, togglable via the sidebar.
+
+### Post Themes
+
+Posts can specify a theme that applies to the entire page when viewing:
 
 | Preset | Description |
 |--------|-------------|
-| `default` | Follows site light/dark mode |
+| `default` | Follows user's preferred theme |
 | `github-light` | GitHub light theme |
 | `github-dark` | GitHub dark theme |
 | `dracula` | Dracula dark theme |
@@ -190,8 +298,30 @@ Posts can specify a theme preset that applies to the entire page when viewing:
 | `solarized-light` | Solarized light |
 | `solarized-dark` | Solarized dark |
 | `monokai` | Monokai dark theme |
+| `custom` | Author-defined custom colors |
 
-Users can override post themes via the sidebar toggle.
+### Custom Color Themes
+
+Authors can create custom color themes by specifying 3-4 base colors:
+
+- **Background** - Page background color
+- **Text** - Primary text color
+- **Accent** - Links and interactive elements
+- **Code Background** - Optional, auto-derived if omitted
+
+GreenGale uses the [OKLCH color space](https://oklch.com/) to derive a full palette of 11+ CSS variables from these base colors, ensuring perceptually uniform color relationships.
+
+**Accessibility**: The editor validates contrast ratios against WCAG guidelines and prevents publishing themes with insufficient contrast. When viewing posts created via API with low contrast, colors are automatically adjusted.
+
+### User Preferences
+
+Users can set their preferred theme in the sidebar settings:
+
+- **Preset themes**: Apply to the home page and posts with default theme
+- **Custom theme**: Users can define their own preferred color scheme
+- **Override toggle**: "Use Preferred Style" button overrides post themes with user preference
+
+Theme preferences are stored in localStorage and persist across sessions.
 
 ## License
 
