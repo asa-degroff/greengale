@@ -549,7 +549,7 @@ export function EditorPage() {
               onClick={() => setShowPreview(!showPreview)}
               className="px-4 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
             >
-              {showPreview ? 'Edit' : 'Preview'}
+              {showPreview ? 'Back to Editor' : 'Preview'}
             </button>
             <button
               onClick={handlePublish}
