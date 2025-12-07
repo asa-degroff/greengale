@@ -19,7 +19,7 @@ export function PostPage() {
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { setActivePostTheme } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
   useEffect(() => {
     if (!handle || !rkey) return
@@ -49,8 +49,14 @@ export function PostPage() {
         setAuthor(authorResult)
 
         // Set active theme from post
-        const postTheme = getEffectiveTheme(entryResult.theme)
-        setActivePostTheme(postTheme)
+        if (entryResult.theme?.custom) {
+          setActivePostTheme('custom')
+          setActiveCustomColors(entryResult.theme.custom)
+        } else {
+          const postTheme = getEffectiveTheme(entryResult.theme)
+          setActivePostTheme(postTheme)
+          setActiveCustomColors(null)
+        }
 
         // Update page title
         if (entryResult.title) {
@@ -68,8 +74,9 @@ export function PostPage() {
     return () => {
       document.title = 'GreenGale'
       setActivePostTheme(null) // Reset theme when leaving post
+      setActiveCustomColors(null)
     }
-  }, [handle, rkey, session?.did, setActivePostTheme])
+  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors])
 
   if (loading) {
     return (

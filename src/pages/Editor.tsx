@@ -2,7 +2,15 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
-import { THEME_PRESETS, THEME_LABELS, type ThemePreset } from '@/lib/themes'
+import {
+  THEME_PRESETS,
+  THEME_LABELS,
+  type ThemePreset,
+  type CustomColors,
+  getPresetColors,
+  deriveThemeColors,
+  getCustomColorStyles,
+} from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
 
@@ -29,6 +37,12 @@ export function EditorPage() {
   const [content, setContent] = useState('')
   const [lexicon, setLexicon] = useState<LexiconType>('greengale')
   const [theme, setTheme] = useState<ThemePreset>('default')
+  const [customColors, setCustomColors] = useState<CustomColors>({
+    background: '#ffffff',
+    text: '#24292f',
+    accent: '#0969da',
+    codeBackground: '',
+  })
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [enableLatex, setEnableLatex] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
@@ -39,7 +53,7 @@ export function EditorPage() {
   const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
-  const { setActivePostTheme } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
   // Track initial values to detect changes
   const initialValues = useRef<{
@@ -48,6 +62,7 @@ export function EditorPage() {
     content: string
     lexicon: LexiconType
     theme: ThemePreset
+    customColors: CustomColors
     visibility: 'public' | 'url' | 'author'
     enableLatex: boolean
   } | null>(null)
@@ -74,13 +89,19 @@ export function EditorPage() {
   useEffect(() => {
     if (isWhiteWind) {
       setActivePostTheme(null)
+      setActiveCustomColors(null)
+    } else if (theme === 'custom') {
+      setActivePostTheme('custom')
+      setActiveCustomColors(customColors)
     } else {
       setActivePostTheme(theme)
+      setActiveCustomColors(null)
     }
     return () => {
       setActivePostTheme(null)
+      setActiveCustomColors(null)
     }
-  }, [theme, isWhiteWind, setActivePostTheme])
+  }, [theme, customColors, isWhiteWind, setActivePostTheme, setActiveCustomColors])
 
   // Reset GreenGale-specific options when switching to WhiteWind
   useEffect(() => {
@@ -99,6 +120,12 @@ export function EditorPage() {
         content: '',
         lexicon: 'greengale',
         theme: 'default',
+        customColors: {
+          background: '#ffffff',
+          text: '#24292f',
+          accent: '#0969da',
+          codeBackground: '',
+        },
         visibility: 'public',
         enableLatex: false,
       }
@@ -109,17 +136,25 @@ export function EditorPage() {
   useEffect(() => {
     if (!initialValues.current) return
 
+    const customColorsChanged = theme === 'custom' && (
+      customColors.background !== initialValues.current.customColors.background ||
+      customColors.text !== initialValues.current.customColors.text ||
+      customColors.accent !== initialValues.current.customColors.accent ||
+      customColors.codeBackground !== initialValues.current.customColors.codeBackground
+    )
+
     const hasChanges =
       title !== initialValues.current.title ||
       subtitle !== initialValues.current.subtitle ||
       content !== initialValues.current.content ||
       lexicon !== initialValues.current.lexicon ||
       theme !== initialValues.current.theme ||
+      customColorsChanged ||
       visibility !== initialValues.current.visibility ||
       enableLatex !== initialValues.current.enableLatex
 
     setHasUnsavedChanges(hasChanges)
-  }, [title, subtitle, content, lexicon, theme, visibility, enableLatex])
+  }, [title, subtitle, content, lexicon, theme, customColors, visibility, enableLatex])
 
   // Block navigation when there are unsaved changes
   const blocker = useBlocker(
@@ -172,18 +207,48 @@ export function EditorPage() {
       setOriginalCreatedAt(entry.createdAt || null)
 
       // GreenGale-specific fields
+      const defaultCustomColors: CustomColors = {
+        background: '#ffffff',
+        text: '#24292f',
+        accent: '#0969da',
+        codeBackground: '',
+      }
+
       if (entry.source === 'greengale') {
-        setTheme(entry.theme?.preset || 'default')
+        // Check if post has custom colors
+        if (entry.theme?.custom) {
+          setTheme('custom')
+          setCustomColors({
+            background: entry.theme.custom.background || '#ffffff',
+            text: entry.theme.custom.text || '#24292f',
+            accent: entry.theme.custom.accent || '#0969da',
+            codeBackground: entry.theme.custom.codeBackground || '',
+          })
+        } else {
+          setTheme(entry.theme?.preset || 'default')
+        }
         setEnableLatex(entry.latex || false)
       }
 
       // Set initial values for change detection
+      const loadedCustomColors = entry.source === 'greengale' && entry.theme?.custom
+        ? {
+            background: entry.theme.custom.background || '#ffffff',
+            text: entry.theme.custom.text || '#24292f',
+            accent: entry.theme.custom.accent || '#0969da',
+            codeBackground: entry.theme.custom.codeBackground || '',
+          }
+        : defaultCustomColors
+
       initialValues.current = {
         title: entry.title || '',
         subtitle: entry.subtitle || '',
         content: entry.content,
         lexicon: entry.source,
-        theme: entry.source === 'greengale' ? (entry.theme?.preset || 'default') : 'default',
+        theme: entry.source === 'greengale'
+          ? (entry.theme?.custom ? 'custom' : (entry.theme?.preset || 'default'))
+          : 'default',
+        customColors: loadedCustomColors,
         visibility: entry.visibility || 'public',
         enableLatex: entry.source === 'greengale' ? (entry.latex || false) : false,
       }
@@ -216,6 +281,25 @@ export function EditorPage() {
       // Use original createdAt when editing, new timestamp when creating
       const createdAt = isEditing && originalCreatedAt ? originalCreatedAt : new Date().toISOString()
 
+      // Build theme object for GreenGale posts
+      let themeObj: { preset?: string; custom?: CustomColors } | undefined = undefined
+      if (!isWhiteWind) {
+        if (theme === 'custom') {
+          // Custom theme - store the colors
+          themeObj = {
+            custom: {
+              background: customColors.background || undefined,
+              text: customColors.text || undefined,
+              accent: customColors.accent || undefined,
+              codeBackground: customColors.codeBackground || undefined,
+            },
+          }
+        } else if (theme !== 'default') {
+          // Preset theme
+          themeObj = { preset: theme }
+        }
+      }
+
       const record = isWhiteWind
         ? {
             // WhiteWind format - simpler schema
@@ -233,7 +317,7 @@ export function EditorPage() {
             title: title || undefined,
             subtitle: subtitle || undefined,
             createdAt,
-            theme: theme !== 'default' ? { preset: theme } : undefined,
+            theme: themeObj,
             visibility: visibilityToUse,
             latex: enableLatex || undefined,
           }
@@ -286,7 +370,7 @@ export function EditorPage() {
       setError(err instanceof Error ? err.message : 'Failed to save post')
       return null
     }
-  }, [session, content, visibility, isWhiteWind, isEditing, originalCreatedAt, title, subtitle, theme, enableLatex, rkey])
+  }, [session, content, visibility, isWhiteWind, isEditing, originalCreatedAt, title, subtitle, theme, customColors, enableLatex, rkey])
 
   async function handlePublish() {
     setPublishing(true)
@@ -421,7 +505,10 @@ export function EditorPage() {
         {showPreview ? (
           /* Preview Mode */
           <div className="rounded-lg border border-[var(--site-border)] overflow-hidden">
-            <div className="p-8 text-[var(--theme-text)]">
+            <div
+              className="p-8 bg-[var(--theme-bg)] text-[var(--theme-text)]"
+              style={theme === 'custom' ? getCustomColorStyles(customColors) : undefined}
+            >
               {title && (
                 <h1 className="text-3xl font-bold mb-2">{title}</h1>
               )}
@@ -540,54 +627,222 @@ export function EditorPage() {
 
             {/* GreenGale-specific options */}
             {!isWhiteWind && (
-              <div className="grid md:grid-cols-2 gap-6">
-                {/* Theme */}
-                <div>
-                  <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                    Theme
-                  </label>
-                  <select
-                    value={theme}
-                    onChange={(e) => setTheme(e.target.value as ThemePreset)}
-                    className="w-full h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
-                  >
-                    {THEME_PRESETS.map((preset) => (
-                      <option key={preset} value={preset}>
-                        {THEME_LABELS[preset]}
-                      </option>
-                    ))}
-                  </select>
+              <>
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Theme */}
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
+                      Theme
+                    </label>
+                    <select
+                      value={theme}
+                      onChange={(e) => {
+                        const newTheme = e.target.value as ThemePreset
+                        setTheme(newTheme)
+                        // Pre-fill custom colors when switching to custom from a preset
+                        if (newTheme === 'custom' && theme !== 'custom') {
+                          const presetColors = getPresetColors(theme)
+                          setCustomColors({
+                            background: presetColors.background,
+                            text: presetColors.text,
+                            accent: presetColors.accent,
+                            codeBackground: '',
+                          })
+                        }
+                      }}
+                      className="w-full h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                    >
+                      {THEME_PRESETS.map((preset) => (
+                        <option key={preset} value={preset}>
+                          {THEME_LABELS[preset]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* LaTeX */}
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
+                      Options
+                    </label>
+                    <label className="flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
+                      <span className="relative flex items-center justify-center w-5 h-5">
+                        <input
+                          type="checkbox"
+                          checked={enableLatex}
+                          onChange={(e) => setEnableLatex(e.target.checked)}
+                          className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer"
+                        />
+                        <svg
+                          className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </span>
+                      <span className="text-[var(--site-text)]">Enable KaTeX</span>
+                    </label>
+                  </div>
                 </div>
 
-                {/* LaTeX */}
-                <div>
-                  <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                    Options
-                  </label>
-                  <label className="flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
-                    <span className="relative flex items-center justify-center w-5 h-5">
-                      <input
-                        type="checkbox"
-                        checked={enableLatex}
-                        onChange={(e) => setEnableLatex(e.target.checked)}
-                        className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer"
-                      />
-                      <svg
-                        className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </span>
-                    <span className="text-[var(--site-text)]">Enable KaTeX</span>
-                  </label>
-                </div>
-              </div>
+                {/* Custom Theme Settings */}
+                {theme === 'custom' && (
+                  <div className="p-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg-secondary)]">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-medium text-[var(--site-text)]">Custom Theme Colors</h3>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-[var(--site-text-secondary)]">Start from:</label>
+                        <select
+                          onChange={(e) => {
+                            const preset = e.target.value as ThemePreset
+                            if (preset && preset !== 'custom' && preset !== 'default') {
+                              const presetColors = getPresetColors(preset)
+                              setCustomColors({
+                                background: presetColors.background,
+                                text: presetColors.text,
+                                accent: presetColors.accent,
+                                codeBackground: '',
+                              })
+                            }
+                          }}
+                          className="px-2 py-1 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                          defaultValue=""
+                        >
+                          <option value="" disabled>Select preset...</option>
+                          {THEME_PRESETS.filter(p => p !== 'default' && p !== 'custom').map((preset) => (
+                            <option key={preset} value={preset}>
+                              {THEME_LABELS[preset]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 overflow-hidden">
+                      {/* Background */}
+                      <div>
+                        <label className="block text-xs text-[var(--site-text-secondary)] mb-1">
+                          Background
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={customColors.background || '#ffffff'}
+                            onChange={(e) => setCustomColors({ ...customColors, background: e.target.value })}
+                            className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
+                            style={{ backgroundColor: customColors.background || '#ffffff' }}
+                          />
+                          <input
+                            type="text"
+                            value={customColors.background || ''}
+                            onChange={(e) => setCustomColors({ ...customColors, background: e.target.value })}
+                            placeholder="#ffffff"
+                            className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Text */}
+                      <div>
+                        <label className="block text-xs text-[var(--site-text-secondary)] mb-1">
+                          Text
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={customColors.text || '#24292f'}
+                            onChange={(e) => setCustomColors({ ...customColors, text: e.target.value })}
+                            className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
+                            style={{ backgroundColor: customColors.text || '#24292f' }}
+                          />
+                          <input
+                            type="text"
+                            value={customColors.text || ''}
+                            onChange={(e) => setCustomColors({ ...customColors, text: e.target.value })}
+                            placeholder="#24292f"
+                            className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Accent */}
+                      <div>
+                        <label className="block text-xs text-[var(--site-text-secondary)] mb-1">
+                          Accent
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={customColors.accent || '#0969da'}
+                            onChange={(e) => setCustomColors({ ...customColors, accent: e.target.value })}
+                            className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
+                            style={{ backgroundColor: customColors.accent || '#0969da' }}
+                          />
+                          <input
+                            type="text"
+                            value={customColors.accent || ''}
+                            onChange={(e) => setCustomColors({ ...customColors, accent: e.target.value })}
+                            placeholder="#0969da"
+                            className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Code Background (optional) */}
+                      <div>
+                        <label className="block text-xs text-[var(--site-text-secondary)] mb-1">
+                          Code Block <span className="opacity-60">(optional)</span>
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={customColors.codeBackground || (deriveThemeColors(customColors)?.codeBackground || '#f6f8fa')}
+                            onChange={(e) => setCustomColors({ ...customColors, codeBackground: e.target.value })}
+                            className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
+                            style={{ backgroundColor: customColors.codeBackground || (deriveThemeColors(customColors)?.codeBackground || '#f6f8fa') }}
+                          />
+                          <input
+                            type="text"
+                            value={customColors.codeBackground || ''}
+                            onChange={(e) => setCustomColors({ ...customColors, codeBackground: e.target.value })}
+                            placeholder="Auto"
+                            className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Preview */}
+                    {customColors.background && customColors.text && customColors.accent && (
+                      <div className="mt-4 pt-4 border-t border-[var(--site-border)]">
+                        <p className="text-xs text-[var(--site-text-secondary)] mb-2">Preview:</p>
+                        <div
+                          className="p-4 rounded-lg"
+                          style={{ backgroundColor: customColors.background }}
+                        >
+                          <p style={{ color: customColors.text }} className="text-sm mb-2">
+                            This is how your text will look. <a href="#" onClick={(e) => e.preventDefault()} style={{ color: customColors.accent }} className="underline">Links appear like this.</a>
+                          </p>
+                          <div
+                            className="px-3 py-2 rounded text-sm font-mono"
+                            style={{
+                              backgroundColor: customColors.codeBackground || deriveThemeColors(customColors)?.codeBackground || customColors.background,
+                              color: customColors.text,
+                            }}
+                          >
+                            const code = "block"
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

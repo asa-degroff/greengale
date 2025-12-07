@@ -386,6 +386,23 @@
   --theme-link-hover: #f92672;
 }
 
+/* Custom theme - CSS variables are set via inline styles on the article element */
+/* Site variables fallback to github-light for the sidebar/chrome */
+:root[data-active-theme="custom"] {
+  --site-bg: #ffffff;
+  --site-bg-secondary: #f6f8fa;
+  --site-text: #24292f;
+  --site-text-secondary: #57606a;
+  --site-border: #d0d7de;
+  --site-accent: #0969da;
+  --site-accent-hover: #0550ae;
+  --sidebar-bg: #f6f8fa;
+  --sidebar-border: #d0d7de;
+  --grid-color: rgba(208, 215, 222, 0.4);
+  --vignette-color: rgba(9, 105, 218, 0.05);
+  /* Theme variables will be overridden by inline styles on the article */
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -393,14 +410,14 @@ body {
   color: var(--site-text);
 }
 
-/* Grid and vignette colors for light mode */
-:root {
+/* Grid and vignette colors for default theme (follows site light/dark mode) */
+/* These only apply when data-active-theme="default", not when a specific theme is active */
+:root[data-active-theme="default"] {
   --grid-color: oklch(84% 0.072 155 / 0.3);
   --vignette-color: oklch(38% 0.106 157 / 0.08);
 }
 
-/* Grid and vignette colors for dark mode */
-[data-site-theme="dark"] {
+:root[data-active-theme="default"][data-site-theme="dark"] {
   --grid-color: oklch(18% 0.12 158 / 0.5);
   --vignette-color: oklch(4% 0.127 159 / 0.5);
 }
