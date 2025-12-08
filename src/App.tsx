@@ -7,6 +7,8 @@ import { AuthorPage } from '@/pages/Author'
 import { PostPage } from '@/pages/Post'
 import { AuthCallbackPage } from '@/pages/AuthCallback'
 import { EditorPage } from '@/pages/Editor'
+import { TermsPage } from '@/pages/Terms'
+import { PrivacyPage } from '@/pages/Privacy'
 
 // Layout component that wraps all routes with providers and sidebar
 function RootLayout() {
@@ -30,6 +32,8 @@ const router = createBrowserRouter([
       { path: '/auth/callback', element: <AuthCallbackPage /> },
       { path: '/new', element: <EditorPage /> },
       { path: '/edit/:rkey', element: <EditorPage /> },
+      { path: '/terms', element: <TermsPage /> },
+      { path: '/privacy', element: <PrivacyPage /> },
       { path: '/:handle', element: <AuthorPage /> },
       { path: '/:handle/:rkey', element: <PostPage /> },
     ],

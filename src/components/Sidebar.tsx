@@ -272,6 +272,11 @@ export function Sidebar({ children }: SidebarProps) {
     { href: 'https://atproto.com', label: 'AT Protocol', icon: ExternalLinkIcon },
   ]
 
+  const legalLinks = [
+    { to: '/terms', label: 'Terms of Service' },
+    { to: '/privacy', label: 'Privacy Policy' },
+  ]
+
   const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Logo */}
@@ -346,6 +351,18 @@ export function Sidebar({ children }: SidebarProps) {
                   </a>
                 )
               })}
+              <div className="border-t border-[var(--sidebar-border)] my-1" />
+              {legalLinks.map((link) => (
+                <Link
+                  key={link.to}
+                  to={link.to}
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2 pl-11 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)]"
+                >
+                  <BookIcon className="w-4 h-4" />
+                  <span>{link.label}</span>
+                </Link>
+              ))}
             </div>
           )}
         </div>
