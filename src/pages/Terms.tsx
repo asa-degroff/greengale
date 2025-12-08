@@ -40,6 +40,34 @@ export function TermsPage() {
           </section>
 
           <section>
+            <h2 className="text-2xl font-semibold mb-4">About Permissions</h2>
+            <p className="text-[var(--site-text-secondary)] leading-relaxed mb-4">
+              When you sign in, Bluesky's authorization screen shows broad permissions ("manage your profile, posts, likes..."
+              and "create, update, and delete any public record"). Hhere's what GreenGale actually accesses:
+            </p>
+            <ul className="list-disc list-inside space-y-2 text-[var(--site-text-secondary)] mb-4">
+              <li><strong>We only write to two collections:</strong> <code className="text-sm bg-[var(--site-bg-secondary)] px-1.5 py-0.5 rounded">app.greengale.blog.entry</code> and <code className="text-sm bg-[var(--site-bg-secondary)] px-1.5 py-0.5 rounded">com.whtwnd.blog.entry</code></li>
+              <li>We never touch your Bluesky posts, likes, follows, or profile</li>
+              <li>We never read your private preferences</li>
+            </ul>
+            <p className="text-[var(--site-text-secondary)] leading-relaxed">
+              Granular permission scopes (like "only write to blog posts") are not fully supported yet,
+              so apps must request broad access even if they only use a small part of it.
+              We've opened an{' '}
+              <a
+                href="https://github.com/asa-degroff/greengale/issues/1"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--site-accent)] hover:underline"
+              >
+                issue to track this
+              </a>
+              , and we'll request minimal permissions as soon as the protocol supports it.
+              In the meantime, you can verify our code is open source.
+            </p>
+          </section>
+
+          <section>
             <h2 className="text-2xl font-semibold mb-4">Your Responsibilities</h2>
             <p className="text-[var(--site-text-secondary)] leading-relaxed">
               You're responsible for the content you publish. Don't post anything illegal, harmful, or that violates others' rights.
@@ -51,7 +79,7 @@ export function TermsPage() {
             <h2 className="text-2xl font-semibold mb-4">No Warranty</h2>
             <p className="text-[var(--site-text-secondary)] leading-relaxed">
               GreenGale is provided as-is. We do our best to keep things running smoothly, but we can't guarantee
-              the service will always be available or error-free. This is an open-source project maintained in spare time.
+              the service will always be available or error-free. This is an open-source passion project.
             </p>
           </section>
 
