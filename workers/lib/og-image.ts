@@ -19,9 +19,9 @@ const FONT_REGULAR_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Regular.ttf`
 const FONT_BOLD_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Bold.ttf`
 
 // Noto Sans SC for CJK (Chinese, Japanese, Korean) fallback
-// Using Google Fonts API to get the font file URL
-const NOTO_SANS_SC_REGULAR_URL = 'https://fonts.gstatic.com/s/notosanssc/v37/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYxNbPzS5HE.ttf'
-const NOTO_SANS_SC_BOLD_URL = 'https://fonts.gstatic.com/s/notosanssc/v37/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_Fn-pKbPzS5HE.ttf'
+// Hosted locally in public/fonts/ directory
+const NOTO_SANS_SC_REGULAR_URL = `${FONT_BASE_URL}/NotoSansSC-Regular.ttf`
+const NOTO_SANS_SC_BOLD_URL = `${FONT_BASE_URL}/NotoSansSC-Bold.ttf`
 
 // Cache fonts in memory to avoid re-fetching
 let fontRegularData: ArrayBuffer | null = null
@@ -29,63 +29,88 @@ let fontBoldData: ArrayBuffer | null = null
 let notoRegularData: ArrayBuffer | null = null
 let notoBoldData: ArrayBuffer | null = null
 
-interface LoadedFonts {
+interface BaseFonts {
   regular: ArrayBuffer
   bold: ArrayBuffer
-  notoRegular: ArrayBuffer
-  notoBold: ArrayBuffer
 }
 
-async function loadFonts(): Promise<LoadedFonts> {
-  // Fetch fonts in parallel if not cached
-  const [regular, bold, notoRegular, notoBold] = await Promise.all([
+/**
+ * Check if text contains CJK (Chinese, Japanese, Korean) characters
+ */
+function containsCJK(text: string): boolean {
+  // Unicode ranges for CJK characters:
+  // CJK Unified Ideographs: 4E00-9FFF
+  // CJK Unified Ideographs Extension A: 3400-4DBF
+  // Hiragana: 3040-309F
+  // Katakana: 30A0-30FF
+  // Hangul Syllables: AC00-D7AF
+  // Hangul Jamo: 1100-11FF
+  const cjkPattern = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u1100-\u11FF]/
+  return cjkPattern.test(text)
+}
+
+async function loadBaseFonts(): Promise<BaseFonts> {
+  const [regular, bold] = await Promise.all([
     fontRegularData ?? fetch(FONT_REGULAR_URL).then(res => res.arrayBuffer()),
     fontBoldData ?? fetch(FONT_BOLD_URL).then(res => res.arrayBuffer()),
+  ])
+
+  fontRegularData = regular
+  fontBoldData = bold
+
+  return { regular, bold }
+}
+
+async function loadCJKFonts(): Promise<{ notoRegular: ArrayBuffer; notoBold: ArrayBuffer }> {
+  const [notoRegular, notoBold] = await Promise.all([
     notoRegularData ?? fetch(NOTO_SANS_SC_REGULAR_URL).then(res => res.arrayBuffer()),
     notoBoldData ?? fetch(NOTO_SANS_SC_BOLD_URL).then(res => res.arrayBuffer()),
   ])
 
-  // Cache for subsequent requests
-  fontRegularData = regular
-  fontBoldData = bold
   notoRegularData = notoRegular
   notoBoldData = notoBold
 
-  return { regular, bold, notoRegular, notoBold }
+  return { notoRegular, notoBold }
 }
 
 /**
  * Build the fonts array for ImageResponse
- * Includes iA Writer Quattro as primary and Noto Sans SC as CJK fallback
+ * Only includes CJK fonts if needed (to avoid loading 20MB of font data unnecessarily)
  */
-function buildFontsArray(fonts: LoadedFonts) {
-  return [
+function buildFontsArray(baseFonts: BaseFonts, cjkFonts?: { notoRegular: ArrayBuffer; notoBold: ArrayBuffer }) {
+  const fonts = [
     {
       name: 'iA Writer Quattro',
-      data: fonts.regular,
+      data: baseFonts.regular,
       weight: 400 as const,
       style: 'normal' as const,
     },
     {
       name: 'iA Writer Quattro',
-      data: fonts.bold,
-      weight: 700 as const,
-      style: 'normal' as const,
-    },
-    // Noto Sans SC as fallback for CJK characters
-    {
-      name: 'Noto Sans SC',
-      data: fonts.notoRegular,
-      weight: 400 as const,
-      style: 'normal' as const,
-    },
-    {
-      name: 'Noto Sans SC',
-      data: fonts.notoBold,
+      data: baseFonts.bold,
       weight: 700 as const,
       style: 'normal' as const,
     },
   ]
+
+  if (cjkFonts) {
+    fonts.push(
+      {
+        name: 'Noto Sans SC',
+        data: cjkFonts.notoRegular,
+        weight: 400 as const,
+        style: 'normal' as const,
+      },
+      {
+        name: 'Noto Sans SC',
+        data: cjkFonts.notoBold,
+        weight: 700 as const,
+        style: 'normal' as const,
+      },
+    )
+  }
+
+  return fonts
 }
 
 /**
@@ -99,8 +124,8 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   const colors = resolveThemeColors(themePreset, customColors)
   const isDark = isDarkTheme(colors)
 
-  // Load fonts
-  const fonts = await loadFonts()
+  // Load base fonts (CJK fonts disabled - too large for worker limits)
+  const baseFonts = await loadBaseFonts()
 
   // Build the image HTML using workers-og JSX-like syntax
   const html = buildImageHtml({
@@ -116,7 +141,7 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: buildFontsArray(fonts),
+    fonts: buildFontsArray(baseFonts),
   })
 }
 
@@ -129,13 +154,14 @@ export async function generateHomepageOGImage(): Promise<Response> {
   const colors = resolveThemeColors()
   const isDark = isDarkTheme(colors)
 
-  const fonts = await loadFonts()
+  // Homepage only uses Latin text, no CJK needed
+  const baseFonts = await loadBaseFonts()
   const html = buildHomepageHtml(colors, isDark)
 
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: buildFontsArray(fonts),
+    fonts: buildFontsArray(baseFonts),
   })
 }
 
@@ -156,13 +182,14 @@ export async function generateProfileOGImage(data: ProfileOGImageData): Promise<
   const colors = resolveThemeColors()
   const isDark = isDarkTheme(colors)
 
-  const fonts = await loadFonts()
+  // Load base fonts (CJK fonts disabled - too large for worker limits)
+  const baseFonts = await loadBaseFonts()
   const html = buildProfileHtml(data, colors, isDark)
 
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: buildFontsArray(fonts),
+    fonts: buildFontsArray(baseFonts),
   })
 }
 
