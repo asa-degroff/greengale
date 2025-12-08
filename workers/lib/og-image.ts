@@ -18,22 +18,74 @@ const FONT_BASE_URL = 'https://greengale.app/fonts'
 const FONT_REGULAR_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Regular.ttf`
 const FONT_BOLD_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Bold.ttf`
 
+// Noto Sans SC for CJK (Chinese, Japanese, Korean) fallback
+// Using Google Fonts API to get the font file URL
+const NOTO_SANS_SC_REGULAR_URL = 'https://fonts.gstatic.com/s/notosanssc/v37/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYxNbPzS5HE.ttf'
+const NOTO_SANS_SC_BOLD_URL = 'https://fonts.gstatic.com/s/notosanssc/v37/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_Fn-pKbPzS5HE.ttf'
+
 // Cache fonts in memory to avoid re-fetching
 let fontRegularData: ArrayBuffer | null = null
 let fontBoldData: ArrayBuffer | null = null
+let notoRegularData: ArrayBuffer | null = null
+let notoBoldData: ArrayBuffer | null = null
 
-async function loadFonts(): Promise<{ regular: ArrayBuffer; bold: ArrayBuffer }> {
+interface LoadedFonts {
+  regular: ArrayBuffer
+  bold: ArrayBuffer
+  notoRegular: ArrayBuffer
+  notoBold: ArrayBuffer
+}
+
+async function loadFonts(): Promise<LoadedFonts> {
   // Fetch fonts in parallel if not cached
-  const [regular, bold] = await Promise.all([
+  const [regular, bold, notoRegular, notoBold] = await Promise.all([
     fontRegularData ?? fetch(FONT_REGULAR_URL).then(res => res.arrayBuffer()),
     fontBoldData ?? fetch(FONT_BOLD_URL).then(res => res.arrayBuffer()),
+    notoRegularData ?? fetch(NOTO_SANS_SC_REGULAR_URL).then(res => res.arrayBuffer()),
+    notoBoldData ?? fetch(NOTO_SANS_SC_BOLD_URL).then(res => res.arrayBuffer()),
   ])
 
   // Cache for subsequent requests
   fontRegularData = regular
   fontBoldData = bold
+  notoRegularData = notoRegular
+  notoBoldData = notoBold
 
-  return { regular, bold }
+  return { regular, bold, notoRegular, notoBold }
+}
+
+/**
+ * Build the fonts array for ImageResponse
+ * Includes iA Writer Quattro as primary and Noto Sans SC as CJK fallback
+ */
+function buildFontsArray(fonts: LoadedFonts) {
+  return [
+    {
+      name: 'iA Writer Quattro',
+      data: fonts.regular,
+      weight: 400 as const,
+      style: 'normal' as const,
+    },
+    {
+      name: 'iA Writer Quattro',
+      data: fonts.bold,
+      weight: 700 as const,
+      style: 'normal' as const,
+    },
+    // Noto Sans SC as fallback for CJK characters
+    {
+      name: 'Noto Sans SC',
+      data: fonts.notoRegular,
+      weight: 400 as const,
+      style: 'normal' as const,
+    },
+    {
+      name: 'Noto Sans SC',
+      data: fonts.notoBold,
+      weight: 700 as const,
+      style: 'normal' as const,
+    },
+  ]
 }
 
 /**
@@ -64,20 +116,7 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: [
-      {
-        name: 'iA Writer Quattro',
-        data: fonts.regular,
-        weight: 400,
-        style: 'normal',
-      },
-      {
-        name: 'iA Writer Quattro',
-        data: fonts.bold,
-        weight: 700,
-        style: 'normal',
-      },
-    ],
+    fonts: buildFontsArray(fonts),
   })
 }
 
@@ -96,20 +135,7 @@ export async function generateHomepageOGImage(): Promise<Response> {
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: [
-      {
-        name: 'iA Writer Quattro',
-        data: fonts.regular,
-        weight: 400,
-        style: 'normal',
-      },
-      {
-        name: 'iA Writer Quattro',
-        data: fonts.bold,
-        weight: 700,
-        style: 'normal',
-      },
-    ],
+    fonts: buildFontsArray(fonts),
   })
 }
 
@@ -136,20 +162,7 @@ export async function generateProfileOGImage(data: ProfileOGImageData): Promise<
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: [
-      {
-        name: 'iA Writer Quattro',
-        data: fonts.regular,
-        weight: 400,
-        style: 'normal',
-      },
-      {
-        name: 'iA Writer Quattro',
-        data: fonts.bold,
-        weight: 700,
-        style: 'normal',
-      },
-    ],
+    fonts: buildFontsArray(fonts),
   })
 }
 
