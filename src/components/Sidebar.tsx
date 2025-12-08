@@ -273,7 +273,7 @@ export function Sidebar({ children }: SidebarProps) {
   ]
 
   const legalLinks = [
-    { to: '/terms', label: 'Terms of Service' },
+    { to: '/terms', label: 'Terms' },
     { to: '/privacy', label: 'Privacy Policy' },
   ]
 
