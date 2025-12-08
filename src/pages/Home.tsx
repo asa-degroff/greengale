@@ -60,7 +60,7 @@ export function HomePage() {
           <h2><i>Closed Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             A markdown blog platform built on AT Protocol. Compatible with WhiteWind
-            and powered by your <a href="https://internethandle.org/">Internet handle.</a>
+            and powered by your <a href="https://internethandle.org/">internet handle.</a>
           </p>
         </div>
 

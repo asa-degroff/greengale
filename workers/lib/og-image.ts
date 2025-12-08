@@ -81,6 +81,78 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   })
 }
 
+/**
+ * Generate an OpenGraph image for the site homepage or generic pages
+ * Returns a PNG image response (1200x630)
+ */
+export async function generateHomepageOGImage(): Promise<Response> {
+  // Use default GreenGale colors
+  const colors = resolveThemeColors()
+  const isDark = isDarkTheme(colors)
+
+  const fonts = await loadFonts()
+  const html = buildHomepageHtml(colors, isDark)
+
+  return new ImageResponse(html, {
+    width: 1200,
+    height: 630,
+    fonts: [
+      {
+        name: 'iA Writer Quattro',
+        data: fonts.regular,
+        weight: 400,
+        style: 'normal',
+      },
+      {
+        name: 'iA Writer Quattro',
+        data: fonts.bold,
+        weight: 700,
+        style: 'normal',
+      },
+    ],
+  })
+}
+
+export interface ProfileOGImageData {
+  displayName: string
+  handle: string
+  avatarUrl?: string | null
+  description?: string | null
+  postsCount?: number
+}
+
+/**
+ * Generate an OpenGraph image for a user profile
+ * Returns a PNG image response (1200x630)
+ */
+export async function generateProfileOGImage(data: ProfileOGImageData): Promise<Response> {
+  // Use default GreenGale colors
+  const colors = resolveThemeColors()
+  const isDark = isDarkTheme(colors)
+
+  const fonts = await loadFonts()
+  const html = buildProfileHtml(data, colors, isDark)
+
+  return new ImageResponse(html, {
+    width: 1200,
+    height: 630,
+    fonts: [
+      {
+        name: 'iA Writer Quattro',
+        data: fonts.regular,
+        weight: 400,
+        style: 'normal',
+      },
+      {
+        name: 'iA Writer Quattro',
+        data: fonts.bold,
+        weight: 700,
+        style: 'normal',
+      },
+    ],
+  })
+}
+
 interface BuildHtmlOptions {
   title: string
   subtitle?: string | null
@@ -183,6 +255,90 @@ function buildImageHtml(options: BuildHtmlOptions): string {
         <div style="display: flex; font-size: 32px; font-weight: 600; color: ${colors.text}; font-family: ${fontFamily};">${escapeHtml(authorName)}</div>
         <div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily};">@${escapeHtml(authorHandle)}</div>
       </div>
+    </div>
+    <div style="display: flex; align-items: center; position: absolute; bottom: 60px; right: 60px; color: ${colors.accent};">
+      <svg width="38" height="38" viewBox="0 0 24 24" style="margin-right: 12px;">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+      </svg>
+      <span style="font-size: 32px; font-weight: 600; font-family: ${fontFamily};">GreenGale</span>
+    </div>
+  </div>`
+}
+
+/**
+ * Build HTML for homepage/site OG image
+ */
+function buildHomepageHtml(colors: ThemeColors, isDark: boolean): string {
+  const fontFamily = "'iA Writer Quattro', sans-serif"
+
+  // Build grid pattern
+  const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
+
+  // Vignette overlay
+  const vignetteHtml = buildVignetteLayers(colors.vignetteColor, isDark)
+
+  return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; font-family: ${fontFamily}; position: relative;">
+    ${gridPatternHtml}
+    ${vignetteHtml}
+    <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
+      <div style="display: flex; align-items: center; margin-bottom: 24px;">
+        <svg width="80" height="80" viewBox="0 0 24 24" style="margin-right: 20px; color: ${colors.accent};">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+        </svg>
+        <span style="font-size: 72px; font-weight: 700; color: ${colors.text}; font-family: ${fontFamily};">GreenGale</span>
+      </div>
+      <div style="display: flex; font-size: 32px; color: ${colors.textSecondary}; font-family: ${fontFamily};">A markdown blog platform on AT Protocol</div>
+    </div>
+  </div>`
+}
+
+/**
+ * Build HTML for user profile OG image
+ */
+function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark: boolean): string {
+  const { displayName, handle, avatarUrl, description, postsCount } = data
+  const fontFamily = "'iA Writer Quattro', sans-serif"
+
+  // Author initial for fallback avatar
+  const authorInitial = (displayName || handle).charAt(0).toUpperCase()
+
+  // Build avatar element (120px for profile - larger than post)
+  const avatarHtml = avatarUrl
+    ? `<img src="${escapeHtml(avatarUrl)}" width="120" height="120" style="border-radius: 60px; margin-bottom: 24px;" />`
+    : `<div style="display: flex; width: 120px; height: 120px; border-radius: 60px; margin-bottom: 24px; background: ${colors.accent}; align-items: center; justify-content: center; color: ${isDark ? colors.background : '#ffffff'}; font-size: 48px; font-weight: 700; font-family: ${fontFamily};">${authorInitial}</div>`
+
+  // Truncate description if too long
+  const displayDescription = description && description.length > 120
+    ? description.slice(0, 117) + '...'
+    : description
+
+  // Build description element
+  const descriptionHtml = displayDescription
+    ? `<div style="display: flex; font-size: 28px; color: ${colors.textSecondary}; line-height: 1.4; font-family: ${fontFamily}; text-align: center; max-width: 800px;">${escapeHtml(displayDescription)}</div>`
+    : ''
+
+  // Build posts count element
+  const postsHtml = postsCount !== undefined
+    ? `<div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-top: 16px;">${postsCount} ${postsCount === 1 ? 'post' : 'posts'}</div>`
+    : ''
+
+  // Build grid pattern
+  const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
+
+  // Vignette overlay
+  const vignetteHtml = buildVignetteLayers(colors.vignetteColor, isDark)
+
+  return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; font-family: ${fontFamily}; position: relative;">
+    ${gridPatternHtml}
+    ${vignetteHtml}
+    <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; top: 60px; left: 60px; right: 60px; bottom: 100px;">
+      ${avatarHtml}
+      <div style="display: flex; font-size: 48px; font-weight: 700; color: ${colors.text}; font-family: ${fontFamily}; margin-bottom: 8px;">${escapeHtml(displayName || handle)}</div>
+      <div style="display: flex; font-size: 28px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-bottom: 16px;">@${escapeHtml(handle)}</div>
+      ${descriptionHtml}
+      ${postsHtml}
     </div>
     <div style="display: flex; align-items: center; position: absolute; bottom: 60px; right: 60px; color: ${colors.accent};">
       <svg width="38" height="38" viewBox="0 0 24 24" style="margin-right: 12px;">

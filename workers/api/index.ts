@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { FirehoseConsumer } from '../firehose'
-import { generateOGImage } from '../lib/og-image'
+import { generateOGImage, generateHomepageOGImage, generateProfileOGImage } from '../lib/og-image'
 
 export { FirehoseConsumer }
 
@@ -67,6 +67,101 @@ app.get('/og/test', async (c) => {
   } catch (error) {
     console.error('Error generating test OG image:', error)
     return c.json({ error: 'Failed to generate image', details: String(error) }, 500)
+  }
+})
+
+// Generate OpenGraph image for the site homepage
+app.get('/og/site.png', async (c) => {
+  const cacheKey = 'og:site'
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'arrayBuffer')
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    const imageResponse = await generateHomepageOGImage()
+    const imageBuffer = await imageResponse.arrayBuffer()
+
+    // Cache for 7 days
+    await c.env.CACHE.put(cacheKey, imageBuffer, {
+      expirationTtl: OG_IMAGE_CACHE_TTL,
+    })
+
+    return new Response(imageBuffer, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating site OG image:', error)
+    return c.json({ error: 'Failed to generate image' }, 500)
+  }
+})
+
+// Generate OpenGraph image for a user profile
+app.get('/og/profile/:handle.png', async (c) => {
+  const handle = c.req.param('handle')
+  const cacheKey = `og:profile:${handle}`
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'arrayBuffer')
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    // Fetch author data from D1
+    const author = await c.env.DB.prepare(`
+      SELECT handle, display_name, description, avatar_url, posts_count
+      FROM authors
+      WHERE handle = ?
+    `).bind(handle).first()
+
+    if (!author) {
+      return c.json({ error: 'Author not found' }, 404)
+    }
+
+    const imageResponse = await generateProfileOGImage({
+      displayName: (author.display_name as string) || handle,
+      handle: (author.handle as string) || handle,
+      avatarUrl: author.avatar_url as string | null,
+      description: author.description as string | null,
+      postsCount: author.posts_count as number | undefined,
+    })
+
+    const imageBuffer = await imageResponse.arrayBuffer()
+
+    // Cache for 7 days
+    await c.env.CACHE.put(cacheKey, imageBuffer, {
+      expirationTtl: OG_IMAGE_CACHE_TTL,
+    })
+
+    return new Response(imageBuffer, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating profile OG image:', error)
+    return c.json({ error: 'Failed to generate image' }, 500)
   }
 })
 
