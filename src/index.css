@@ -597,6 +597,33 @@ body {
   margin: 1em 0;
 }
 
+/* SVG containers */
+.markdown-body .svg-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5em 0;
+  padding: 1em;
+  background-color: var(--theme-code-bg);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.markdown-body .svg-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-body .svg-error {
+  padding: 1em;
+  margin: 1em 0;
+  background-color: rgba(255, 0, 0, 0.1);
+  border: 1px solid rgba(255, 0, 0, 0.3);
+  border-radius: 6px;
+  color: var(--theme-text-secondary);
+  font-style: italic;
+  text-align: center;
+}
+
 /* Dark mode toggle button */
 .theme-toggle {
   background: transparent;

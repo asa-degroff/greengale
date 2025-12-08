@@ -3,12 +3,14 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import remarkRehype from 'remark-rehype'
+import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import rehypeReact from 'rehype-react'
 import * as prod from 'react/jsx-runtime'
 import { type ReactNode } from 'react'
+import { remarkSvg } from './remark-svg'
 
 // Production JSX runtime for rehype-react v8+
 const production = {
@@ -17,18 +19,47 @@ const production = {
   jsxs: prod.jsxs,
 }
 
-// Extended sanitization schema to allow KaTeX and code highlighting
+// Extended sanitization schema to allow KaTeX, code highlighting, and inline SVGs
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [
     ...(defaultSchema.tagNames || []),
     // KaTeX HTML elements
     'span',
+    // SVG elements (for KaTeX and inline SVG blocks)
     'svg',
+    'g',
+    'defs',
+    'symbol',
+    'use',
+    'title',
+    'desc',
+    'circle',
+    'ellipse',
     'line',
     'path',
+    'polygon',
+    'polyline',
     'rect',
-    'g',
+    'text',
+    'tspan',
+    'textPath',
+    'linearGradient',
+    'radialGradient',
+    'stop',
+    'pattern',
+    'clipPath',
+    'mask',
+    'marker',
+    'filter',
+    'feGaussianBlur',
+    'feOffset',
+    'feMerge',
+    'feMergeNode',
+    'feBlend',
+    'feColorMatrix',
+    'feFlood',
+    'feComposite',
     // MathML elements (for accessibility)
     'math',
     'semantics',
@@ -61,12 +92,40 @@ const sanitizeSchema = {
     code: ['className'],
     pre: ['className'],
     div: ['className', 'style'],
-    // SVG attributes for KaTeX
-    svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style', 'className'],
-    line: ['x1', 'x2', 'y1', 'y2', 'stroke', 'stroke-width', 'fill'],
-    path: ['d', 'stroke', 'stroke-width', 'fill', 'fill-rule', 'clip-rule'],
-    rect: ['x', 'y', 'width', 'height', 'fill', 'stroke', 'stroke-width'],
-    g: ['fill', 'stroke', 'transform'],
+    // SVG attributes (for KaTeX and inline SVG blocks)
+    svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style', 'className', 'x', 'y'],
+    g: ['fill', 'stroke', 'transform', 'opacity', 'className', 'id'],
+    defs: ['className', 'id'],
+    symbol: ['viewBox', 'preserveAspectRatio', 'id', 'className'],
+    use: ['href', 'x', 'y', 'width', 'height', 'className'],
+    title: ['className'],
+    desc: ['className'],
+    circle: ['cx', 'cy', 'r', 'fill', 'stroke', 'stroke-width', 'opacity', 'className', 'id'],
+    ellipse: ['cx', 'cy', 'rx', 'ry', 'fill', 'stroke', 'stroke-width', 'opacity', 'className', 'id'],
+    line: ['x1', 'x2', 'y1', 'y2', 'stroke', 'stroke-width', 'fill', 'opacity', 'className', 'id'],
+    path: ['d', 'stroke', 'stroke-width', 'fill', 'fill-rule', 'clip-rule', 'opacity', 'className', 'id', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray'],
+    polygon: ['points', 'fill', 'stroke', 'stroke-width', 'opacity', 'className', 'id'],
+    polyline: ['points', 'fill', 'stroke', 'stroke-width', 'opacity', 'className', 'id'],
+    rect: ['x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'stroke', 'stroke-width', 'opacity', 'className', 'id'],
+    text: ['x', 'y', 'dx', 'dy', 'text-anchor', 'dominant-baseline', 'font-family', 'font-size', 'font-weight', 'font-style', 'fill', 'stroke', 'opacity', 'className', 'id', 'letter-spacing'],
+    tspan: ['x', 'y', 'dx', 'dy', 'text-anchor', 'dominant-baseline', 'font-family', 'font-size', 'font-weight', 'font-style', 'fill', 'className'],
+    textPath: ['href', 'startOffset', 'method', 'spacing', 'className'],
+    linearGradient: ['id', 'x1', 'y1', 'x2', 'y2', 'gradientUnits', 'gradientTransform', 'spreadMethod', 'href'],
+    radialGradient: ['id', 'cx', 'cy', 'r', 'fx', 'fy', 'gradientUnits', 'gradientTransform', 'spreadMethod', 'href'],
+    stop: ['offset', 'stop-color', 'stop-opacity', 'className'],
+    pattern: ['id', 'x', 'y', 'width', 'height', 'patternUnits', 'patternContentUnits', 'patternTransform', 'href'],
+    clipPath: ['id', 'clipPathUnits', 'className'],
+    mask: ['id', 'x', 'y', 'width', 'height', 'maskUnits', 'maskContentUnits', 'className'],
+    marker: ['id', 'markerWidth', 'markerHeight', 'refX', 'refY', 'orient', 'markerUnits', 'viewBox', 'preserveAspectRatio'],
+    filter: ['id', 'x', 'y', 'width', 'height', 'filterUnits', 'primitiveUnits'],
+    feGaussianBlur: ['in', 'stdDeviation', 'result'],
+    feOffset: ['in', 'dx', 'dy', 'result'],
+    feMerge: ['result'],
+    feMergeNode: ['in'],
+    feBlend: ['in', 'in2', 'mode', 'result'],
+    feColorMatrix: ['in', 'type', 'values', 'result'],
+    feFlood: ['flood-color', 'flood-opacity', 'result'],
+    feComposite: ['in', 'in2', 'operator', 'k1', 'k2', 'k3', 'k4', 'result'],
     // MathML attributes
     math: ['xmlns', 'display', 'className', 'style'],
     mrow: ['className'],
@@ -98,6 +157,7 @@ const sanitizeSchema = {
 
 export interface RenderOptions {
   enableLatex?: boolean
+  enableSvg?: boolean
 }
 
 /**
@@ -107,7 +167,7 @@ export async function renderMarkdown(
   content: string,
   options: RenderOptions = {}
 ): Promise<ReactNode> {
-  const { enableLatex = false } = options
+  const { enableLatex = false, enableSvg = true } = options
 
   // Build the processor pipeline
   let processor = unified()
@@ -119,8 +179,22 @@ export async function renderMarkdown(
     processor = processor.use(remarkMath)
   }
 
+  // Add SVG block support if enabled
+  // This transforms ```svg blocks into sanitized inline SVG
+  if (enableSvg) {
+    processor = processor.use(remarkSvg)
+  }
+
+  // Convert to rehype (HTML AST)
+  // allowDangerousHtml is needed for SVG blocks to pass through as raw HTML
   processor = processor
-    .use(remarkRehype, { allowDangerousHtml: false })
+    .use(remarkRehype, { allowDangerousHtml: enableSvg })
+
+  // Parse raw HTML into proper hast nodes (needed for SVG blocks)
+  // This must come before sanitization so the HTML can be properly analyzed
+  if (enableSvg) {
+    processor = processor.use(rehypeRaw)
+  }
 
   // Add KaTeX rendering if math is enabled
   if (enableLatex) {
