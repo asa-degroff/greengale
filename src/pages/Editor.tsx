@@ -825,7 +825,7 @@ export function EditorPage() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 overflow-hidden">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {/* Background */}
                       <div>
                         <label className="block text-xs text-[var(--site-text-secondary)] mb-1">
