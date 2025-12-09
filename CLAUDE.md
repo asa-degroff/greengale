@@ -58,6 +58,8 @@ src/
 │   ├── appview.ts           # Indexed data API client
 │   ├── auth.tsx             # OAuth context (useAuth hook)
 │   ├── markdown.ts          # Markdown processing pipeline
+│   ├── remark-svg.ts        # Remark plugin for SVG code blocks
+│   ├── svg-sanitizer.ts     # SVG sanitization for security
 │   ├── themes.ts            # Theme presets and utilities
 │   ├── useDarkMode.ts       # Site light/dark mode hook
 │   └── useThemePreference.tsx # Post theme override context
@@ -112,6 +114,25 @@ Pipeline: Remark (GFM) → Rehype → Highlight.js → KaTeX (optional) → Sani
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 <MarkdownRenderer content={markdown} enableLatex={true} />
 ```
+
+### Inline SVG
+
+Blog posts support inline SVG diagrams via fenced code blocks with the `svg` language:
+
+````markdown
+```svg
+<svg viewBox="0 0 100 100" width="200" height="200">
+  <circle cx="50" cy="50" r="40" fill="#3b82f6"/>
+  <text x="50" y="55" text-anchor="middle" fill="white">Hello</text>
+</svg>
+```
+````
+
+**Supported SVG elements:** Basic shapes (circle, rect, path, line, polygon, polyline, ellipse), text (text, tspan, textPath), gradients (linearGradient, radialGradient, stop), patterns, filters, clipPath, mask, markers, defs, g, use, symbol.
+
+**Security:** SVGs are sanitized before rendering. Blocked: script tags, event handlers (onclick, etc.), external references (only `#id` hrefs allowed), dangerous CSS patterns (url(), expression(), etc.). Size limit: 100KB.
+
+**Implementation:** `src/lib/remark-svg.ts` (remark plugin), `src/lib/svg-sanitizer.ts` (sanitization).
 
 ### Data Fetching
 

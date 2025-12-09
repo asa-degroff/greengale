@@ -10,6 +10,7 @@ A markdown blog platform built on [AT Protocol](https://atproto.com). Compatible
 - **Theme Selection** - Choose from preset themes (GitHub Light/Dark, Dracula, Nord, Solarized, Monokai) applied per-post
 - **Custom Color Themes** - Create your own color scheme with automatic contrast validation and derived colors
 - **KaTeX Support** - Write mathematical equations with full LaTeX rendering
+- **Inline SVG Diagrams** - Embed sanitized SVG graphics directly in posts using fenced code blocks
 - **Dual Lexicon Support** - Create posts in either GreenGale (`app.greengale.blog.entry`) or WhiteWind (`com.whtwnd.blog.entry`) format
 - **Visibility Controls** - Public, unlisted (URL only), or private (author only) posts
 - **OAuth Authentication** - Sign in with your AT Protocol identity via OAuth
@@ -322,6 +323,41 @@ Users can set their preferred theme in the sidebar settings:
 - **Override toggle**: "Use Preferred Style" button overrides post themes with user preference
 
 Theme preferences are stored in localStorage and persist across sessions.
+
+## Inline SVG Diagrams
+
+GreenGale supports embedding SVG graphics directly in blog posts using fenced code blocks with the `svg` language identifier:
+
+````markdown
+```svg
+<svg viewBox="0 0 200 100" width="200" height="100">
+  <rect x="10" y="10" width="80" height="80" fill="#3b82f6" rx="8"/>
+  <circle cx="150" cy="50" r="40" fill="#10b981"/>
+  <text x="50" y="55" text-anchor="middle" fill="white" font-size="14">Box</text>
+</svg>
+```
+````
+
+### Supported Elements
+
+- **Shapes**: `circle`, `ellipse`, `rect`, `line`, `path`, `polygon`, `polyline`
+- **Text**: `text`, `tspan`, `textPath`
+- **Gradients**: `linearGradient`, `radialGradient`, `stop`
+- **Structure**: `g`, `defs`, `symbol`, `use`, `title`, `desc`
+- **Effects**: `clipPath`, `mask`, `marker`, `pattern`
+- **Filters**: `filter`, `feGaussianBlur`, `feOffset`, `feMerge`, `feBlend`, `feColorMatrix`, `feFlood`, `feComposite`
+
+### Security
+
+SVG content is sanitized before rendering to prevent XSS attacks:
+
+- **Blocked elements**: `script`, `foreignObject`, `iframe`, `object`, `embed`
+- **Blocked attributes**: All event handlers (`onclick`, `onload`, etc.)
+- **Restricted hrefs**: Only internal references (`#id`) are allowed; external URLs are stripped
+- **Blocked CSS patterns**: `url()`, `expression()`, `javascript:`, `@import`
+- **Size limit**: 100KB maximum per SVG block
+
+Invalid or unsafe SVG content displays an error message instead of rendering.
 
 ## License
 
