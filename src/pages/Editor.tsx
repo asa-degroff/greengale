@@ -72,7 +72,7 @@ const LEXICON_OPTIONS = [
 export function EditorPage() {
   const { rkey } = useParams<{ rkey?: string }>()
   const navigate = useNavigate()
-  const { isAuthenticated, isWhitelisted, isLoading, session, handle } = useAuth()
+  const { isAuthenticated, isLoading, session, handle } = useAuth()
 
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
@@ -123,12 +123,12 @@ export function EditorPage() {
   const customColorsValidation = theme === 'custom' ? validateCustomColors(customColors) : null
   const hasContrastError = theme === 'custom' && customColorsValidation !== null && !customColorsValidation.isValid
 
-  // Redirect if not authenticated or not whitelisted
+  // Redirect if not authenticated
   useEffect(() => {
-    if (!isLoading && (!isAuthenticated || !isWhitelisted)) {
+    if (!isLoading && !isAuthenticated) {
       navigate('/', { replace: true })
     }
-  }, [isLoading, isAuthenticated, isWhitelisted, navigate])
+  }, [isLoading, isAuthenticated, navigate])
 
   // Load existing post if editing
   useEffect(() => {
@@ -517,7 +517,7 @@ export function EditorPage() {
     )
   }
 
-  if (!isAuthenticated || !isWhitelisted) {
+  if (!isAuthenticated) {
     return null
   }
 

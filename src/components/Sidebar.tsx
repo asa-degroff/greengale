@@ -243,7 +243,7 @@ export function Sidebar({ children }: SidebarProps) {
   const [showRecents, setShowRecents] = useState(false)
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
-  const { isAuthenticated, isWhitelisted, isLoading, handle, login, logout, error } = useAuth()
+  const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
   const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
 
@@ -309,8 +309,8 @@ export function Sidebar({ children }: SidebarProps) {
           )
         })}
 
-        {/* New Post - only for whitelisted users */}
-        {isAuthenticated && isWhitelisted && (
+        {/* New Post - for authenticated users */}
+        {isAuthenticated && (
           <Link
             to="/new"
             onClick={() => setMobileOpen(false)}
@@ -425,11 +425,7 @@ export function Sidebar({ children }: SidebarProps) {
                 <p className="text-sm font-medium text-[var(--site-text)] truncate">
                   @{handle}
                 </p>
-                {isWhitelisted ? (
-                  <p className="text-xs text-[var(--site-accent)]">Beta Access</p>
-                ) : (
-                  <p className="text-xs text-[var(--site-text-secondary)]">Read Only</p>
-                )}
+                <p className="text-xs text-[var(--site-text-secondary)]">Signed in</p>
               </div>
               <ChevronDownIcon className={`w-4 h-4 text-[var(--site-text-secondary)] transition-transform ${showSettings ? 'rotate-180' : ''}`} />
             </button>

@@ -57,7 +57,7 @@ export function HomePage() {
           <h1 className="text-4xl md:text-5xl font-bold mb-4 text-[var(--site-text)]">
             GreenGale
           </h1>
-          <h2><i>Closed Beta</i></h2>
+          <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             A markdown blog platform built on AT Protocol. Compatible with WhiteWind
             and powered by your <a href="https://internethandle.org/">internet handle.</a>
