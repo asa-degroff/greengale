@@ -39,6 +39,39 @@
   font-display: swap;
 }
 
+/* iA Writer Mono Font (for code blocks) */
+@font-face {
+  font-family: 'iA Writer Mono';
+  src: url('/fonts/ia-writer-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'iA Writer Mono';
+  src: url('/fonts/ia-writer-mono-latin-400-italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'iA Writer Mono';
+  src: url('/fonts/ia-writer-mono-latin-700-normal.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'iA Writer Mono';
+  src: url('/fonts/ia-writer-mono-latin-700-italic.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 /* Base styles */
 :root {
   font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
@@ -518,7 +551,7 @@ body {
   background-color: var(--theme-code-bg);
   color: var(--theme-code-text);
   border-radius: 4px;
-  font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+  font-family: 'iA Writer Mono', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
 }
 
 .markdown-body pre {
@@ -530,6 +563,7 @@ body {
   color: var(--theme-code-text);
   border-radius: 6px;
   margin-bottom: 1em;
+  font-family: 'iA Writer Mono', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
 }
 
 .markdown-body pre code {
