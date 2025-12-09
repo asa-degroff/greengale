@@ -9,13 +9,14 @@ import {
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
 
 // For development, use loopback client ID
+// Client ID must use "localhost", redirect_uri must use "127.0.0.1" per AT Protocol OAuth spec
 // For production, use the deployed client metadata
 const CLIENT_ID = import.meta.env.DEV
-  ? `http://localhost?redirect_uri=${encodeURIComponent('http://localhost:5173/auth/callback')}&scope=${encodeURIComponent('atproto transition:generic')}`
+  ? `http://localhost?redirect_uri=${encodeURIComponent('http://127.0.0.1:5173/auth/callback')}&scope=${encodeURIComponent('atproto transition:generic')}`
   : `https://greengale.app/client-metadata.json`
 
 const API_BASE = import.meta.env.DEV
-  ? 'http://localhost:8787'
+  ? 'http://127.0.0.1:8787'
   : 'https://greengale.asadegroff.workers.dev'
 
 interface AuthState {
