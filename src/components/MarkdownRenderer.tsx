@@ -4,12 +4,14 @@ import { renderMarkdown } from '@/lib/markdown'
 interface MarkdownRendererProps {
   content: string
   enableLatex?: boolean
+  enableSvg?: boolean
   className?: string
 }
 
 export function MarkdownRenderer({
   content,
   enableLatex = false,
+  enableSvg = true,
   className = '',
 }: MarkdownRendererProps) {
   const [rendered, setRendered] = useState<ReactNode>(null)
@@ -20,7 +22,7 @@ export function MarkdownRenderer({
 
     async function render() {
       try {
-        const result = await renderMarkdown(content, { enableLatex })
+        const result = await renderMarkdown(content, { enableLatex, enableSvg })
         if (!cancelled) {
           setRendered(result)
           setError(null)
@@ -37,7 +39,7 @@ export function MarkdownRenderer({
     return () => {
       cancelled = true
     }
-  }, [content, enableLatex])
+  }, [content, enableLatex, enableSvg])
 
   if (error) {
     return (

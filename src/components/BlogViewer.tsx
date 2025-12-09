@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
 import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@/lib/themes'
@@ -15,6 +16,11 @@ interface BlogViewerProps {
   source?: 'whitewind' | 'greengale'
 }
 
+// Check if content has SVG code blocks
+function hasSvgContent(content: string): boolean {
+  return /```svg\s*\n/i.test(content)
+}
+
 export function BlogViewer({
   content,
   title,
@@ -26,6 +32,12 @@ export function BlogViewer({
   source,
 }: BlogViewerProps) {
   const { forceDefaultTheme } = useThemePreference()
+  const [showRaw, setShowRaw] = useState(false)
+
+  // Determine if this post has special content that benefits from a raw view
+  const hasSpecialContent = useMemo(() => {
+    return latex || hasSvgContent(content)
+  }, [latex, content])
 
   // Custom color overrides (inline styles) - theme preset is now applied globally via data-active-theme
   // Don't apply custom styles if user has "Use Default Style" enabled
@@ -69,16 +81,46 @@ export function BlogViewer({
           </div>
         </header>
 
-        {/* Author */}
-        {author && (
-          <div className="mb-8">
+        {/* Author and View Toggle */}
+        <div className="mb-8 flex items-center justify-between">
+          {author ? (
             <AuthorCard author={author} />
-          </div>
-        )}
+          ) : (
+            <div /> /* Spacer when no author */
+          )}
+          {hasSpecialContent && (
+            <button
+              onClick={() => setShowRaw(!showRaw)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--theme-border)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] hover:border-[var(--theme-text-secondary)] transition-colors"
+              title={showRaw ? 'Show formatted view' : 'Show raw markdown'}
+            >
+              {showRaw ? (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                  </svg>
+                  <span>Formatted</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+                  </svg>
+                  <span>Raw</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
 
         {/* Content */}
         <div className="prose max-w-none">
-          <MarkdownRenderer content={content} enableLatex={latex} />
+          {showRaw ? (
+            <MarkdownRenderer content={content} enableLatex={false} enableSvg={false} />
+          ) : (
+            <MarkdownRenderer content={content} enableLatex={latex} />
+          )}
         </div>
       </div>
     </article>
