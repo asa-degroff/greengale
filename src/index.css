@@ -3,9 +3,6 @@
 /* KaTeX styles */
 @import "katex/dist/katex.min.css";
 
-/* Highlight.js github theme */
-@import "highlight.js/styles/github.css";
-
 /* iA Writer Quattro Font */
 @font-face {
   font-family: 'iA Writer Quattro';
