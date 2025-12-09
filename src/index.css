@@ -516,6 +516,7 @@ body {
   margin: 0;
   font-size: 85%;
   background-color: var(--theme-code-bg);
+  color: var(--theme-code-text);
   border-radius: 4px;
   font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
 }
@@ -526,6 +527,7 @@ body {
   font-size: 85%;
   line-height: 1.45;
   background-color: var(--theme-code-bg);
+  color: var(--theme-code-text);
   border-radius: 6px;
   margin-bottom: 1em;
 }
@@ -535,6 +537,7 @@ body {
   margin: 0;
   font-size: 100%;
   background-color: transparent;
+  color: inherit;
   border-radius: 0;
 }
 
