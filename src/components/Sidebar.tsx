@@ -244,7 +244,7 @@ export function Sidebar({ children }: SidebarProps) {
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
-  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors } = useThemePreference()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
 
   // Local state for custom color inputs
@@ -618,8 +618,8 @@ export function Sidebar({ children }: SidebarProps) {
           </>
         )}
 
-        {/* Theme Toggle - only show when using default theme preference */}
-        {preferredTheme === 'default' && (
+        {/* Theme Toggle - only show when effective theme is default (light/dark mode matters) */}
+        {effectiveTheme === 'default' && (
           <button
             onClick={toggleTheme}
             className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
@@ -670,8 +670,8 @@ export function Sidebar({ children }: SidebarProps) {
             <span className="font-bold text-[var(--site-text)]">GreenGale</span>
           </Link>
         </div>
-        {/* Only show theme toggle when using default theme preference */}
-        {preferredTheme === 'default' && (
+        {/* Only show theme toggle when effective theme is default (light/dark mode matters) */}
+        {effectiveTheme === 'default' && (
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
