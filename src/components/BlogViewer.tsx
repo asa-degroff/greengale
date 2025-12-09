@@ -16,9 +16,9 @@ interface BlogViewerProps {
   source?: 'whitewind' | 'greengale'
 }
 
-// Check if content has SVG code blocks
-function hasSvgContent(content: string): boolean {
-  return /```svg\s*\n/i.test(content)
+// Check if content has ```svg code blocks (must be exactly "svg" as the language)
+function hasSvgCodeBlock(content: string): boolean {
+  return /^```svg\s*$/m.test(content)
 }
 
 export function BlogViewer({
@@ -35,8 +35,9 @@ export function BlogViewer({
   const [showRaw, setShowRaw] = useState(false)
 
   // Determine if this post has special content that benefits from a raw view
+  // Only show toggle for LaTeX or ```svg code blocks (content our plugins transform)
   const hasSpecialContent = useMemo(() => {
-    return latex || hasSvgContent(content)
+    return latex || hasSvgCodeBlock(content)
   }, [latex, content])
 
   // Custom color overrides (inline styles) - theme preset is now applied globally via data-active-theme
@@ -115,13 +116,15 @@ export function BlogViewer({
         </div>
 
         {/* Content */}
-        <div className="prose max-w-none">
-          {showRaw ? (
-            <MarkdownRenderer content={content} enableLatex={false} enableSvg={false} />
-          ) : (
+        {showRaw ? (
+          <pre className="whitespace-pre-wrap break-words font-mono text-sm p-4 rounded-lg bg-[var(--theme-code-bg)] text-[var(--theme-text)] overflow-x-auto">
+            {content}
+          </pre>
+        ) : (
+          <div className="prose max-w-none">
             <MarkdownRenderer content={content} enableLatex={latex} />
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </article>
   )
