@@ -32,12 +32,16 @@ export function HomePage() {
   const [recentPosts, setRecentPosts] = useState<AppViewPost[]>([])
   const [loading, setLoading] = useState(true)
   const [appViewAvailable, setAppViewAvailable] = useState(false)
+  const [cursor, setCursor] = useState<string | undefined>()
+  const [loadCount, setLoadCount] = useState(1)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
     async function loadRecentPosts() {
       try {
-        const { posts } = await getRecentPosts(12)
+        const { posts, cursor: nextCursor } = await getRecentPosts(12)
         setRecentPosts(posts)
+        setCursor(nextCursor)
         setAppViewAvailable(true)
       } catch {
         // AppView not available, that's fine
@@ -49,6 +53,19 @@ export function HomePage() {
 
     loadRecentPosts()
   }, [])
+
+  async function handleLoadMore() {
+    if (!cursor || loadingMore || loadCount >= 12) return
+    setLoadingMore(true)
+    try {
+      const { posts, cursor: nextCursor } = await getRecentPosts(12, cursor)
+      setRecentPosts(prev => [...prev, ...posts])
+      setCursor(nextCursor)
+      setLoadCount(prev => prev + 1)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -113,6 +130,17 @@ export function HomePage() {
                 />
               ))}
             </div>
+            {cursor && loadCount < 12 && (
+              <div className="mt-8 text-center">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingMore ? 'Loading...' : 'More'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
