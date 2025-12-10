@@ -245,7 +245,7 @@ export async function listBlogEntries(
 
   // Check if viewer is the author (can see all posts)
   const isOwnProfile = options.viewerDid && options.viewerDid === did
-  const maxPerCollection = options.maxPerCollection || 1000
+  const maxPerCollection = options.maxPerCollection || 2000
 
   // Fetch from both collections independently (cursors are collection-specific)
   for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
