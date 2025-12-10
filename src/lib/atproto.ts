@@ -230,10 +230,11 @@ export async function getBlogEntry(
 /**
  * List blog entries for an author
  * @param viewerDid Optional viewer's DID - if matches author, includes private posts
+ * @param maxPerCollection Maximum posts to fetch per collection (default 1000)
  */
 export async function listBlogEntries(
   identifier: string,
-  options: { limit?: number; viewerDid?: string } = {}
+  options: { viewerDid?: string; maxPerCollection?: number } = {}
 ): Promise<{ entries: BlogEntry[] }> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
@@ -244,41 +245,58 @@ export async function listBlogEntries(
 
   // Check if viewer is the author (can see all posts)
   const isOwnProfile = options.viewerDid && options.viewerDid === did
+  const maxPerCollection = options.maxPerCollection || 1000
 
   // Fetch from both collections independently (cursors are collection-specific)
   for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
     try {
-      const response = await agent.com.atproto.repo.listRecords({
-        repo: did,
-        collection,
-        limit: options.limit || 100,
-      })
+      let cursor: string | undefined
+      let fetched = 0
 
-      for (const item of response.data.records) {
-        const record = item.value as Record<string, unknown>
-        const visibility = (record.visibility as string | undefined) || 'public'
+      // Paginate through all records in this collection
+      while (fetched < maxPerCollection) {
+        const limit = Math.min(100, maxPerCollection - fetched)
+        const response = await agent.com.atproto.repo.listRecords({
+          repo: did,
+          collection,
+          limit,
+          cursor,
+        })
 
-        // Filter by visibility
-        if (!isOwnProfile && visibility !== 'public') {
-          // Non-owners can only see public posts
-          continue
+        for (const item of response.data.records) {
+          const record = item.value as Record<string, unknown>
+          const visibility = (record.visibility as string | undefined) || 'public'
+
+          // Filter by visibility
+          if (!isOwnProfile && visibility !== 'public') {
+            // Non-owners can only see public posts
+            continue
+          }
+
+          entries.push({
+            uri: item.uri,
+            cid: item.cid,
+            authorDid: did,
+            rkey: item.uri.split('/').pop() || '',
+            source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
+            content: (record.content as string) || '',
+            title: record.title as string | undefined,
+            subtitle: record.subtitle as string | undefined,
+            createdAt: record.createdAt as string | undefined,
+            theme: parseTheme(record.theme),
+            visibility: visibility as 'public' | 'url' | 'author',
+            latex: record.latex as boolean | undefined,
+            blobs: record.blobs as BlogEntry['blobs'],
+          })
         }
 
-        entries.push({
-          uri: item.uri,
-          cid: item.cid,
-          authorDid: did,
-          rkey: item.uri.split('/').pop() || '',
-          source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
-          content: (record.content as string) || '',
-          title: record.title as string | undefined,
-          subtitle: record.subtitle as string | undefined,
-          createdAt: record.createdAt as string | undefined,
-          theme: parseTheme(record.theme),
-          visibility: visibility as 'public' | 'url' | 'author',
-          latex: record.latex as boolean | undefined,
-          blobs: record.blobs as BlogEntry['blobs'],
-        })
+        fetched += response.data.records.length
+
+        // Check if there are more records
+        if (!response.data.cursor || response.data.records.length < limit) {
+          break
+        }
+        cursor = response.data.cursor
       }
     } catch {
       // Collection might not exist for this user
