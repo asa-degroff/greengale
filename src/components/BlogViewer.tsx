@@ -16,9 +16,16 @@ interface BlogViewerProps {
   source?: 'whitewind' | 'greengale'
 }
 
-// Check if content has ```svg code blocks (must be exactly "svg" as the language)
+// Check if content has SVG code blocks that will be transformed by remark-svg
+// Matches: ```svg or ```xml followed by <svg (matching remark-svg plugin logic)
 function hasSvgCodeBlock(content: string): boolean {
-  return /^```svg\s*$/m.test(content)
+  // Direct svg language code block
+  if (/^```svg\s*$/m.test(content)) {
+    return true
+  }
+  // XML code block containing SVG (must start with <svg after the fence)
+  const xmlBlockMatch = content.match(/^```xml\s*\n\s*(<svg[\s>])/m)
+  return !!xmlBlockMatch
 }
 
 export function BlogViewer({
