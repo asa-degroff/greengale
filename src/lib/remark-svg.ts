@@ -35,8 +35,11 @@ export const remarkSvg: Plugin<[RemarkSvgOptions?], Root> = (
 
   return (tree: Root) => {
     visit(tree, 'code', (node: Code, index, parent) => {
-      // Only process svg code blocks
-      if (node.lang !== 'svg') {
+      // Process svg code blocks, or xml blocks that contain SVG
+      const isSvgLang = node.lang === 'svg'
+      const isXmlWithSvg = node.lang === 'xml' && node.value.trim().startsWith('<svg')
+
+      if (!isSvgLang && !isXmlWithSvg) {
         return
       }
 
