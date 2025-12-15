@@ -10,6 +10,7 @@ import rehypeReact from 'rehype-react'
 import * as prod from 'react/jsx-runtime'
 import { type ReactNode } from 'react'
 import { remarkSvg } from './remark-svg'
+import { rehypeHeadingIds } from './rehype-heading-ids'
 
 // Production JSX runtime for rehype-react v8+
 const production = {
@@ -97,6 +98,13 @@ const sanitizeSchema = {
     code: ['className'],
     pre: ['className'],
     div: ['className', 'style'],
+    // Allow id attributes on headings for TOC anchor links
+    h1: ['id'],
+    h2: ['id'],
+    h3: ['id'],
+    h4: ['id'],
+    h5: ['id'],
+    h6: ['id'],
     // SVG attributes (for KaTeX and inline SVG blocks)
     svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style', 'className', 'x', 'y'],
     g: ['fill', 'stroke', 'transform', 'opacity', 'className', 'id', 'style'],
@@ -211,6 +219,9 @@ export async function renderMarkdown(
   if (enableLatex) {
     processor = processor.use(rehypeKatex)
   }
+
+  // Add IDs to headings for TOC anchor navigation
+  processor = processor.use(rehypeHeadingIds)
 
   processor = processor
     .use(rehypeSanitize, sanitizeSchema)

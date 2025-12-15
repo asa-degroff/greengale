@@ -691,3 +691,213 @@ body {
 .sidebar::-webkit-scrollbar-thumb:hover {
   background-color: var(--site-text-secondary);
 }
+
+/* Smooth scrolling for anchor navigation */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Table of Contents */
+.toc {
+  max-height: calc(100vh - 8rem);
+  overflow-y: auto;
+}
+
+.toc-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--theme-text);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.toc-item {
+  margin: 0;
+  padding: 0;
+}
+
+/* Indentation for heading levels */
+.toc-item--level-1 { padding-left: 0; }
+.toc-item--level-2 { padding-left: 0.75rem; }
+.toc-item--level-3 { padding-left: 1.5rem; }
+.toc-item--level-4 { padding-left: 2.25rem; }
+.toc-item--level-5 { padding-left: 3rem; }
+.toc-item--level-6 { padding-left: 3.75rem; }
+
+.toc-link {
+  display: block;
+  padding: 0.375rem 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--theme-text-secondary);
+  text-decoration: none;
+  transition: color 0.15s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toc-link:hover {
+  color: var(--theme-accent);
+}
+
+.toc-link.active {
+  color: var(--theme-accent);
+  font-weight: 500;
+}
+
+/* Desktop TOC container */
+.toc-desktop {
+  background: var(--theme-bg);
+  border: 1px solid var(--theme-border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+/* TOC scrollbar */
+.toc::-webkit-scrollbar {
+  width: 4px;
+}
+
+.toc::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.toc::-webkit-scrollbar-thumb {
+  background-color: var(--theme-border);
+  border-radius: 2px;
+}
+
+.toc::-webkit-scrollbar-thumb:hover {
+  background-color: var(--theme-text-secondary);
+}
+
+/* Mobile TOC */
+.toc-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.toc-mobile-drawer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--theme-bg);
+  border-top: 1px solid var(--theme-border);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  max-height: 70vh;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+}
+
+/* Respect sidebar width on lg+ screens */
+@media (min-width: 1024px) {
+  .toc-mobile-drawer {
+    left: 16rem; /* 256px = w-64 sidebar width */
+    border-top-left-radius: 0;
+  }
+}
+
+.toc-mobile-drawer--open {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toc-mobile-drawer {
+    transition: none;
+  }
+}
+
+.toc-mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--theme-border);
+}
+
+.toc-mobile-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--theme-text);
+}
+
+.toc-mobile-close {
+  padding: 0.5rem;
+  color: var(--theme-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.toc-mobile-close:hover {
+  color: var(--theme-text);
+}
+
+.toc-mobile-content {
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  max-height: calc(70vh - 4rem);
+}
+
+.toc-mobile-content .toc-title {
+  display: none;
+}
+
+.toc-mobile-toggle {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 30;
+  width: 3rem;
+  height: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--theme-bg);
+  color: var(--theme-text);
+  border: 1px solid var(--theme-border);
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toc-mobile-toggle:hover {
+  background: var(--theme-code-bg);
+  border-color: var(--theme-accent);
+}
+
+.toc-mobile-toggle--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Also update overlay to respect sidebar on lg+ */
+@media (min-width: 1024px) {
+  .toc-mobile-overlay {
+    left: 16rem; /* 256px = w-64 sidebar width */
+  }
+}

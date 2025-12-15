@@ -1,8 +1,12 @@
 import { useState, useMemo } from 'react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
+import { TableOfContents } from './TableOfContents'
+import { TableOfContentsMobile } from './TableOfContentsMobile'
 import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
+import { extractHeadings } from '@/lib/extractHeadings'
+import { useScrollSpy } from '@/lib/useScrollSpy'
 import type { AuthorProfile } from '@/lib/atproto'
 
 interface BlogViewerProps {
@@ -46,6 +50,11 @@ export function BlogViewer({
   const hasSpecialContent = useMemo(() => {
     return latex || hasSvgCodeBlock(content)
   }, [latex, content])
+
+  // Extract headings for table of contents
+  const headings = useMemo(() => extractHeadings(content), [content])
+  const headingIds = useMemo(() => headings.map((h) => h.id), [headings])
+  const { activeId } = useScrollSpy(headingIds)
 
   // Custom color overrides (inline styles) - theme preset is now applied globally via data-active-theme
   // Don't apply custom styles if user has "Use Default Style" enabled
@@ -133,6 +142,20 @@ export function BlogViewer({
           </div>
         )}
       </div>
+
+      {/* Desktop Table of Contents - only show when there's enough room */}
+      {headings.length > 0 && (
+        <aside className="hidden 2xl:block fixed right-8 top-24 w-64 toc-desktop">
+          <TableOfContents headings={headings} activeId={activeId} />
+        </aside>
+      )}
+
+      {/* Mobile Table of Contents - respect sidebar on lg+ screens */}
+      {headings.length > 0 && (
+        <div className="2xl:hidden">
+          <TableOfContentsMobile headings={headings} activeId={activeId} />
+        </div>
+      )}
     </article>
   )
 }

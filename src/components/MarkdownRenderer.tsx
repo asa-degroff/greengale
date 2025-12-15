@@ -41,6 +41,20 @@ export function MarkdownRenderer({
     }
   }, [content, enableLatex, enableSvg])
 
+  // Handle initial hash navigation after content renders
+  useEffect(() => {
+    if (rendered && window.location.hash) {
+      const id = window.location.hash.slice(1)
+      const element = document.getElementById(id)
+      if (element) {
+        // Small delay to ensure DOM is fully painted
+        requestAnimationFrame(() => {
+          element.scrollIntoView()
+        })
+      }
+    }
+  }, [rendered])
+
   if (error) {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
