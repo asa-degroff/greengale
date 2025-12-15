@@ -9,7 +9,7 @@
     "https://greengale.app/auth/callback",
     "https://greengale-app.pages.dev/auth/callback"
   ],
-  "scope": "atproto transition:generic",
+  "scope": "atproto repo?collection=app.greengale.blog.entry&collection=com.whtwnd.blog.entry blob",
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",

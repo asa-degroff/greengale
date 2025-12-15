@@ -8,11 +8,15 @@ import {
 } from 'react'
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
 
+// Minimal OAuth scopes: only blog entry collections + blob uploads
+const OAUTH_SCOPE =
+  'atproto repo?collection=app.greengale.blog.entry&collection=com.whtwnd.blog.entry blob'
+
 // For development, use loopback client ID
 // Client ID must use "localhost", redirect_uri must use "127.0.0.1" per AT Protocol OAuth spec
 // For production, use the deployed client metadata
 const CLIENT_ID = import.meta.env.DEV
-  ? `http://localhost?redirect_uri=${encodeURIComponent('http://127.0.0.1:5173/auth/callback')}&scope=${encodeURIComponent('atproto transition:generic')}`
+  ? `http://localhost?redirect_uri=${encodeURIComponent('http://127.0.0.1:5173/auth/callback')}&scope=${encodeURIComponent(OAUTH_SCOPE)}`
   : `https://greengale.app/client-metadata.json`
 
 const API_BASE = import.meta.env.DEV
@@ -134,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const client = await getOAuthClient()
       await client.signIn(handle, {
-        scope: 'atproto transition:generic',
+        scope: OAUTH_SCOPE,
       })
       // The page will redirect, so we don't need to handle the response here
     } catch (error) {
