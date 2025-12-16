@@ -626,7 +626,7 @@ export function EditorPage() {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Write your post in markdown..."
-                rows={20}
+                rows={40}
                 className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] font-mono text-sm resize-y"
               />
             </div>
