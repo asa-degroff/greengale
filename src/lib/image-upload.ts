@@ -5,14 +5,23 @@
  * for the GreenGale blog editor.
  */
 
-import { encode as encodeAvif } from '@jsquash/avif'
+import encodeAvif, { init as initAvifEncoder } from '@jsquash/avif/encode'
+
+// Initialize AVIF encoder for multithreading support
+// SharedArrayBuffer requires COOP/COEP headers (configured in vite.config.ts and public/_headers)
+let encoderInitialized = false
+async function ensureEncoderInitialized() {
+  if (encoderInitialized) return
+  await initAvifEncoder()
+  encoderInitialized = true
+}
 
 // AT Protocol blob limit is 1,000,000 bytes
 // Target ~900KB to leave margin for encoding overhead
 const MAX_BLOB_SIZE = 900 * 1024
 const MAX_DIMENSION = 4096 // Maximum width or height
 // cqLevel: 0-63, lower is better quality (like CRF)
-const CQ_LEVEL_START = 25 // Starting quality (good balance)
+const CQ_LEVEL_START = 20 // Starting quality (good balance)
 const CQ_LEVEL_MAX = 50 // Maximum cqLevel (lower quality) to try before failing
 
 // Supported input image types
@@ -161,6 +170,9 @@ async function encodeToAvif(
   imageData: ImageData,
   onProgress?: (progress: number) => void
 ): Promise<ArrayBuffer> {
+  // Ensure encoder is initialized with correct paths for multithreading
+  await ensureEncoderInitialized()
+
   let cqLevel = CQ_LEVEL_START
   let encoded: ArrayBuffer | null = null
 

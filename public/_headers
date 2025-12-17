@@ -1,0 +1,19 @@
+# Enable SharedArrayBuffer for WASM multi-threading on editor pages
+# This allows @jsquash/avif to use its multi-threaded encoder
+
+/new
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin
+
+/edit/*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin
+
+# Worker files and WASM modules need COEP since they create their own execution context
+# The @jsquash/avif encoder spawns workers from /assets/
+/assets/*
+  Cross-Origin-Embedder-Policy: require-corp
+
+# All static assets need CORP to be loadable by COEP-enabled pages
+/*
+  Cross-Origin-Resource-Policy: same-origin
