@@ -32,6 +32,8 @@ const SUPPORTED_TYPES = new Set([
   'image/webp',
   'image/avif',
   'image/bmp',
+  'image/heic',
+  'image/heif',
 ])
 
 /** Content label values for adult/sensitive content */
@@ -79,7 +81,7 @@ export function validateImageFile(file: File): { valid: boolean; error?: string 
   if (!file.type || !SUPPORTED_TYPES.has(file.type)) {
     return {
       valid: false,
-      error: `Unsupported image type: ${file.type || 'unknown'}. Supported: JPEG, PNG, GIF, WebP, AVIF, BMP`,
+      error: `Unsupported image type: ${file.type || 'unknown'}. Supported: JPEG, PNG, GIF, WebP, AVIF, BMP, HEIC`,
     }
   }
 
