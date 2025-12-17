@@ -706,6 +706,33 @@ export function EditorPage() {
     []
   )
 
+  // Delete an uploaded image from the post
+  const handleDeleteImage = useCallback(
+    (cid: string, imageName: string) => {
+      if (!confirm(`Remove "${imageName}" from this post?\n\nNote: This will remove the image attachment. You may also want to delete its markdown reference from the content.`)) {
+        return
+      }
+      setUploadedBlobs((prev) => prev.filter((blob) => blob.cid !== cid))
+      // Also remove from preview URLs
+      setPreviewUrls((prev) => {
+        const next = new Map(prev)
+        // Find and remove the preview URL for this CID
+        for (const [url, previewUrl] of next.entries()) {
+          if (url.includes(cid)) {
+            URL.revokeObjectURL(previewUrl)
+            next.delete(url)
+          }
+        }
+        return next
+      })
+      // Close editor if this image was being edited
+      if (editingImageCid === cid) {
+        setEditingImageCid(null)
+      }
+    },
+    [editingImageCid]
+  )
+
   // Get image URL for display
   const getImagePreviewUrl = useCallback(
     (cid: string) => {
@@ -958,23 +985,43 @@ export function EditorPage() {
                                 )}
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setEditingImageCid(blob.cid)}
-                              className="flex-shrink-0 p-2 text-[var(--site-text-secondary)] hover:text-[var(--site-accent)] hover:bg-[var(--site-bg-secondary)] rounded transition-colors"
-                              title="Edit metadata"
-                            >
-                              <svg
-                                className="w-4 h-4"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
+                            <div className="flex-shrink-0 flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingImageCid(blob.cid)}
+                                className="p-2 text-[var(--site-text-secondary)] hover:text-[var(--site-accent)] hover:bg-[var(--site-bg-secondary)] rounded transition-colors"
+                                title="Edit metadata"
                               >
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                            </button>
+                                <svg
+                                  className="w-4 h-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteImage(blob.cid, blob.name)}
+                                className="p-2 text-[var(--site-text-secondary)] hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
+                                title="Remove image"
+                              >
+                                <svg
+                                  className="w-4 h-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                >
+                                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                                  <line x1="10" y1="11" x2="10" y2="17" />
+                                  <line x1="14" y1="11" x2="14" y2="17" />
+                                </svg>
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
