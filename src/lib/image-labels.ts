@@ -30,7 +30,7 @@ export function extractCidFromBlobUrl(url: string): string | null {
  * Extract CID from a blobref object
  * Handles multiple possible structures returned by AT Protocol
  */
-function extractCidFromBlobref(blobref: unknown): string | null {
+export function extractCidFromBlobref(blobref: unknown): string | null {
   // Handle null/undefined
   if (!blobref) return null
 

@@ -11,6 +11,7 @@ import {
   type ContentLabelValue,
 } from '@/lib/image-upload'
 import { ImageMetadataEditor } from '@/components/ImageMetadataEditor'
+import { extractCidFromBlobref } from '@/lib/image-labels'
 import { getPdsEndpoint } from '@/lib/atproto'
 import {
   THEME_PRESETS,
@@ -339,17 +340,24 @@ export function EditorPage() {
 
         // Restore uploaded blobs if present
         if (entry.blobs && entry.blobs.length > 0) {
-          setUploadedBlobs(
-            entry.blobs.map((b) => ({
-              cid: (b.blobref as { ref: { $link: string } }).ref.$link,
-              mimeType: (b.blobref as { mimeType: string }).mimeType,
-              size: (b.blobref as { size: number }).size,
+          const restoredBlobs: UploadedBlob[] = []
+          for (const b of entry.blobs) {
+            // Extract CID using robust extraction (handles _CID class instances)
+            const cid = extractCidFromBlobref(b.blobref)
+            if (!cid) continue
+
+            const blobref = b.blobref as Record<string, unknown>
+            restoredBlobs.push({
+              cid,
+              mimeType: (blobref.mimeType as string) || 'image/avif',
+              size: (blobref.size as number) || 0,
               name: b.name || 'image',
               alt: b.alt,
               labels: b.labels,
               blobRef: b.blobref as UploadedBlob['blobRef'],
-            }))
-          )
+            })
+          }
+          setUploadedBlobs(restoredBlobs)
         }
       }
 
