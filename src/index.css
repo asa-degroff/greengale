@@ -593,6 +593,12 @@ body {
   max-width: 100%;
   height: auto;
   border-radius: 6px;
+  cursor: zoom-in;
+  transition: opacity 0.15s ease;
+}
+
+.markdown-body img:hover {
+  opacity: 0.9;
 }
 
 .markdown-body table {
