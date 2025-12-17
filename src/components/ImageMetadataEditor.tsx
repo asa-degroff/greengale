@@ -70,7 +70,7 @@ export function ImageMetadataEditor({
           onChange={(e) => setAlt(e.target.value)}
           placeholder="Describe what's in this image..."
           className="w-full px-3 py-2 text-sm border border-[var(--site-border)] rounded-md bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] resize-none"
-          rows={2}
+          rows={5}
           maxLength={1000}
         />
         <p className="text-xs text-[var(--site-text-secondary)] mt-1 text-right">
