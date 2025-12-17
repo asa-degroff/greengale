@@ -217,6 +217,13 @@ export function EditorPage() {
     if (isWhiteWind) {
       setTheme('default')
       setEnableLatex(false)
+      // Clear uploaded images since WhiteWind doesn't support blobs
+      if (uploadedBlobs.length > 0) {
+        setUploadedBlobs([])
+        // Clean up preview URLs
+        previewUrls.forEach((url) => URL.revokeObjectURL(url))
+        setPreviewUrls(new Map())
+      }
     }
   }, [isWhiteWind])
 
@@ -626,6 +633,12 @@ export function EditorPage() {
       e.stopPropagation()
       setIsDragging(false)
 
+      // WhiteWind format doesn't support image blobs
+      if (isWhiteWind) {
+        setUploadError('Image uploads are not supported in WhiteWind format. Switch to GreenGale format to attach images.')
+        return
+      }
+
       if (!session || !pdsEndpoint) {
         setUploadError('Not authenticated or PDS endpoint not available')
         return
@@ -679,7 +692,7 @@ export function EditorPage() {
 
       setUploadProgress(null)
     },
-    [session, pdsEndpoint, content]
+    [session, pdsEndpoint, content, isWhiteWind]
   )
 
   // Update metadata (alt text and labels) for an uploaded image
@@ -864,7 +877,7 @@ export function EditorPage() {
                   onDragLeave={handleDragLeave}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
-                  placeholder="Write your post in markdown... (drag and drop images to upload)"
+                  placeholder={isWhiteWind ? "Write your post in markdown..." : "Write your post in markdown... (drag and drop images to upload)"}
                   rows={40}
                   className={`w-full px-4 py-3 rounded-lg border bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] font-mono text-sm resize-y transition-colors ${
                     isDragging
@@ -875,9 +888,13 @@ export function EditorPage() {
 
                 {/* Drag overlay indicator */}
                 {isDragging && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-[var(--site-accent)]/10 rounded-lg border-2 border-dashed border-[var(--site-accent)] pointer-events-none">
-                    <div className="text-[var(--site-accent)] font-medium text-lg">
-                      Drop images to upload
+                  <div className={`absolute inset-0 flex items-center justify-center rounded-lg border-2 border-dashed pointer-events-none ${
+                    isWhiteWind
+                      ? 'bg-red-500/10 border-red-500/50'
+                      : 'bg-[var(--site-accent)]/10 border-[var(--site-accent)]'
+                  }`}>
+                    <div className={`font-medium text-lg ${isWhiteWind ? 'text-red-500' : 'text-[var(--site-accent)]'}`}>
+                      {isWhiteWind ? 'Image uploads not supported in WhiteWind format' : 'Drop images to upload'}
                     </div>
                   </div>
                 )}
