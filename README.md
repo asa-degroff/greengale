@@ -11,6 +11,7 @@ A markdown blog platform built on [AT Protocol](https://atproto.com). Compatible
 - **Custom Color Themes** - Create your own color scheme with automatic contrast validation and derived colors
 - **KaTeX Support** - Write mathematical equations with full LaTeX rendering
 - **Inline SVG Diagrams** - Embed sanitized SVG graphics directly in posts using fenced code blocks
+- **Image Uploads** - Drag-and-drop images with automatic AVIF conversion, alt text support, and content warnings
 - **Dual Lexicon Support** - Create posts in either GreenGale (`app.greengale.blog.entry`) or WhiteWind (`com.whtwnd.blog.entry`) format
 - **Visibility Controls** - Public, unlisted (URL only), or private (author only) posts
 - **OAuth Authentication** - Sign in with your AT Protocol identity via OAuth
@@ -208,6 +209,21 @@ References to uploaded binary content (images, files).
 |----------|------|----------|-------------|
 | `blobref` | blob | ✓ | AT Protocol blob reference |
 | `name` | string | | Original filename |
+| `alt` | string | | Alt text for accessibility (max 1,000 chars) |
+| `labels` | selfLabels | | Content warning labels |
+
+#### Content Warning Labels
+
+Images can be labeled with content warnings using AT Protocol self-labels:
+
+| Label | Description |
+|-------|-------------|
+| `nudity` | Non-sexual nudity (artistic, educational) |
+| `sexual` | Sexually suggestive content |
+| `porn` | Explicit sexual content (18+) |
+| `graphic-media` | Violence, gore, or disturbing imagery |
+
+Labeled images display blurred with a warning overlay until the viewer acknowledges.
 
 ### WhiteWind Compatibility (`com.whtwnd.blog.entry`)
 
@@ -323,6 +339,46 @@ Users can set their preferred theme in the sidebar settings:
 - **Override toggle**: "Use Preferred Style" button overrides post themes with user preference
 
 Theme preferences are stored in localStorage and persist across sessions.
+
+## Image Uploads
+
+GreenGale supports embedding images in blog posts via drag-and-drop. Images are stored in your Personal Data Server (PDS) as blobs.
+
+### Upload Process
+
+1. **Drag and drop** an image onto the editor textarea
+2. Images are automatically validated, resized, and converted to AVIF format
+3. The processed image is uploaded to your PDS
+4. Markdown image syntax is inserted at the cursor position
+
+### Supported Formats
+
+- JPEG, PNG, GIF, WebP, AVIF, BMP
+- Maximum input size: 50MB
+- Images are resized to max 4096×4096 (preserving aspect ratio)
+- Output format: AVIF (target <900KB to stay within AT Protocol's 1MB blob limit)
+
+### Alt Text
+
+Click any uploaded image in the "Uploaded Images" panel to add accessibility text (max 1,000 characters). When viewing posts, images display an "ALT" badge that reveals the description when clicked.
+
+### Content Warnings
+
+Images can be labeled with content warnings for sensitive content:
+
+| Label | Description |
+|-------|-------------|
+| `nudity` | Non-sexual nudity (artistic, educational) |
+| `sexual` | Sexually suggestive content |
+| `porn` | Explicit sexual content (18+) |
+| `graphic-media` | Violence, gore, or disturbing imagery |
+
+Labeled images display blurred with a warning overlay. Viewers must acknowledge the warning before the image is revealed.
+
+### Limitations
+
+- Image uploads are only available for **GreenGale format** posts
+- WhiteWind format does not support blob attachments
 
 ## Inline SVG Diagrams
 

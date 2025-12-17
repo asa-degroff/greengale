@@ -46,7 +46,11 @@ src/
 │   ├── BlogViewer.tsx       # Full post display
 │   ├── BlogCard.tsx         # Post card for listings
 │   ├── MarkdownRenderer.tsx # Markdown to React
-│   └── AuthorCard.tsx       # Author profile display
+│   ├── AuthorCard.tsx       # Author profile display
+│   ├── ImageWithAlt.tsx     # Image display with alt text badge
+│   ├── ContentWarningImage.tsx # Blurred preview for sensitive images
+│   ├── ImageLightbox.tsx    # Full-screen image viewer
+│   └── ImageMetadataEditor.tsx # Alt text and content label editor
 ├── pages/
 │   ├── Home.tsx             # Recent posts feed
 │   ├── Author.tsx           # /:handle - author's posts
@@ -62,7 +66,9 @@ src/
 │   ├── svg-sanitizer.ts     # SVG sanitization for security
 │   ├── themes.ts            # Theme presets and utilities
 │   ├── useDarkMode.ts       # Site light/dark mode hook
-│   └── useThemePreference.tsx # Post theme override context
+│   ├── useThemePreference.tsx # Post theme override context
+│   ├── image-upload.ts      # Image processing and PDS upload
+│   └── image-labels.ts      # Alt text and content label utilities
 ├── App.tsx                  # Router + providers
 └── index.css                # Global styles + theme CSS vars
 
@@ -133,6 +139,43 @@ Blog posts support inline SVG diagrams via fenced code blocks with the `svg` lan
 **Security:** SVGs are sanitized before rendering. Blocked: script tags, event handlers (onclick, etc.), external references (only `#id` hrefs allowed), dangerous CSS patterns (url(), expression(), etc.). Size limit: 100KB.
 
 **Implementation:** `src/lib/remark-svg.ts` (remark plugin), `src/lib/svg-sanitizer.ts` (sanitization).
+
+### Image Uploads
+
+Blog posts support embedded images via drag-and-drop in the editor. Images are stored in the user's PDS as blobs.
+
+**Upload Pipeline:**
+1. **Validation** - Supported formats: JPEG, PNG, GIF, WebP, AVIF, BMP (max 50MB input)
+2. **Resize** - Images resized to max 4096×4096 preserving aspect ratio
+3. **Encode** - Converted to AVIF format with dynamic quality (target <900KB for AT Protocol's 1MB limit)
+4. **Upload** - Blob uploaded to user's PDS via `com.atproto.repo.uploadBlob`
+
+```typescript
+// Upload result structure
+interface UploadedBlob {
+  cid: string           // Content identifier
+  mimeType: string      // "image/avif"
+  size: number          // Final size in bytes
+  name: string          // Original filename
+  alt?: string          // Accessibility text (max 1000 chars)
+  labels?: SelfLabels   // Content warnings
+  blobRef: BlobRef      // AT Protocol reference
+}
+```
+
+**Alt Text:** Click any uploaded image in the "Uploaded Images" panel to open the metadata editor. Images display an "ALT" badge when viewed; clicking reveals the full description.
+
+**Content Warnings:** Four self-label types available:
+- `nudity` - Non-sexual nudity (artistic, educational)
+- `sexual` - Sexually suggestive content
+- `porn` - Explicit content (18+)
+- `graphic-media` - Violence, gore, disturbing imagery
+
+Labeled images display blurred with a warning overlay until the user acknowledges.
+
+**Limitation:** Image uploads only work with GreenGale format posts (not WhiteWind compatibility mode).
+
+**Implementation:** `src/lib/image-upload.ts` (processing), `src/lib/image-labels.ts` (utilities), `src/components/ImageMetadataEditor.tsx` (editor UI).
 
 ### Data Fetching
 
