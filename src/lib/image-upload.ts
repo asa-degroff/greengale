@@ -19,7 +19,7 @@ async function ensureEncoderInitialized() {
 // AT Protocol blob limit is 1,000,000 bytes
 // Target ~900KB to leave margin for encoding overhead
 const MAX_BLOB_SIZE = 900 * 1024
-const MAX_DIMENSION = 4096 // Maximum width or height
+const MAX_DIMENSION = 6144 // Maximum width or height
 // cqLevel: 0-63, lower is better quality (like CRF)
 const CQ_LEVEL_START = 20 // Starting quality (good balance)
 const CQ_LEVEL_MAX = 50 // Maximum cqLevel (lower quality) to try before failing
