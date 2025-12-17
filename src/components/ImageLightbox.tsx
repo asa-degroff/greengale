@@ -113,19 +113,26 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
       </button>
 
       {/* Image container */}
-      <div
+      <figure
         className="max-w-[95vw] max-h-[95vh] p-4"
         onClick={(e) => e.stopPropagation()}
+        role="group"
+        aria-label={alt ? `Image: ${alt}` : 'Image'}
       >
         <img
           src={src}
           alt={alt || ''}
-          className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
         />
         {alt && (
-          <p className="mt-3 text-center text-white/70 text-sm">{alt}</p>
+          <figcaption className="mt-3 p-3 bg-black/50 rounded-lg max-w-2xl mx-auto">
+            <span className="block text-xs font-medium text-white/50 uppercase tracking-wide mb-1">
+              Image description
+            </span>
+            <p className="text-white/90 text-sm leading-relaxed">{alt}</p>
+          </figcaption>
         )}
-      </div>
+      </figure>
     </div>,
     document.body
   )

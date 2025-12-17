@@ -21,6 +21,8 @@ export function ContentWarningImage({
   onReveal,
 }: ContentWarningImageProps) {
   const [revealed, setRevealed] = useState(false)
+  const [showAltText, setShowAltText] = useState(false)
+  const hasAlt = alt && alt.trim().length > 0
 
   const handleReveal = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -36,14 +38,60 @@ export function ContentWarningImage({
     }
   }
 
+  const handleAltBadgeClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setShowAltText(!showAltText)
+  }
+
+  const handleAltKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      setShowAltText(!showAltText)
+    }
+    if (e.key === 'Escape') {
+      setShowAltText(false)
+    }
+  }
+
   if (revealed) {
+    // Show image with ALT badge (same as ImageWithAlt but inline to avoid circular deps)
     return (
-      <img
-        src={src}
-        alt={alt}
-        className={`cursor-zoom-in ${className}`}
-        onClick={handleImageClick}
-      />
+      <span className="image-with-alt-container inline-block relative">
+        <img
+          src={src}
+          alt={alt}
+          className={`cursor-zoom-in ${className}`}
+          onClick={handleImageClick}
+        />
+
+        {hasAlt && (
+          <>
+            <button
+              type="button"
+              onClick={handleAltBadgeClick}
+              onKeyDown={handleAltKeyDown}
+              className="alt-badge absolute bottom-2 left-2 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-black/70 text-white rounded hover:bg-black/90 focus:outline-none focus:ring-2 focus:ring-white/50 transition-colors"
+              aria-label={showAltText ? 'Hide image description' : 'Show image description'}
+              aria-expanded={showAltText}
+            >
+              ALT
+            </button>
+
+            {showAltText && (
+              <span
+                role="tooltip"
+                className="absolute bottom-10 left-2 right-2 p-2 text-sm bg-black/90 text-white rounded-lg shadow-lg max-h-32 overflow-y-auto"
+              >
+                <span className="block font-medium text-xs text-white/60 mb-1">
+                  Image description:
+                </span>
+                <span className="block">{alt}</span>
+              </span>
+            )}
+          </>
+        )}
+      </span>
     )
   }
 

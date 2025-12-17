@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } fro
 import { renderMarkdown } from '@/lib/markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ContentWarningImage } from './ContentWarningImage'
+import { ImageWithAlt } from './ImageWithAlt'
 import type { BlogEntry } from '@/lib/atproto'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import {
@@ -85,7 +86,7 @@ export function MarkdownRenderer({
   // Create custom img component that wraps labeled images
   const CustomImage = useMemo(() => {
     return function CustomImg(props: Record<string, unknown>) {
-      const { src, alt, ...rest } = props
+      const { src, alt } = props
       const srcStr = typeof src === 'string' ? src : ''
       const altStr = typeof alt === 'string' ? alt : ''
 
@@ -111,12 +112,12 @@ export function MarkdownRenderer({
         )
       }
 
+      // Use ImageWithAlt for accessible alt text display
       return (
-        <img
+        <ImageWithAlt
           src={srcStr}
           alt={finalAlt}
-          className="cursor-zoom-in"
-          {...rest}
+          onClick={() => openLightbox(srcStr, finalAlt)}
         />
       )
     }

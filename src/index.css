@@ -926,3 +926,47 @@ html {
 .markdown-body .content-warning-container img:hover {
   opacity: 1;
 }
+
+/* Image with Alt Text Badge Styles */
+.image-with-alt-container {
+  position: relative;
+  display: inline-block;
+}
+
+.image-with-alt-container img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+/* ALT badge styling */
+.alt-badge {
+  z-index: 10;
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+
+.image-with-alt-container:hover .alt-badge {
+  opacity: 1;
+}
+
+/* Alt text panel animation */
+.image-with-alt-container [role="tooltip"] {
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Ensure alt badge is visible on dark and light backgrounds */
+.markdown-body .image-with-alt-container .alt-badge {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
