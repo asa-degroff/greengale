@@ -81,6 +81,43 @@
         "name": {
           "type": "string",
           "description": "Original filename"
+        },
+        "alt": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Alt text for accessibility"
+        },
+        "labels": {
+          "type": "ref",
+          "ref": "#selfLabels",
+          "description": "Content labels (self-labels) for this image"
+        }
+      }
+    },
+    "selfLabels": {
+      "type": "object",
+      "description": "Metadata tags on an atproto resource, published by the author",
+      "required": ["values"],
+      "properties": {
+        "values": {
+          "type": "array",
+          "maxLength": 10,
+          "items": {
+            "type": "ref",
+            "ref": "#selfLabel"
+          }
+        }
+      }
+    },
+    "selfLabel": {
+      "type": "object",
+      "description": "Metadata tag on an atproto resource, published by the author",
+      "required": ["val"],
+      "properties": {
+        "val": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The short string name of the value or type of this label"
         }
       }
     }

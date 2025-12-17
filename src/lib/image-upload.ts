@@ -25,6 +25,14 @@ const SUPPORTED_TYPES = new Set([
   'image/bmp',
 ])
 
+/** Content label values for adult/sensitive content */
+export type ContentLabelValue = 'nudity' | 'sexual' | 'porn' | 'graphic-media'
+
+/** Self-labels structure following AT Protocol pattern */
+export interface SelfLabels {
+  values: Array<{ val: ContentLabelValue }>
+}
+
 export interface UploadedBlob {
   /** CID of the uploaded blob */
   cid: string
@@ -34,6 +42,10 @@ export interface UploadedBlob {
   size: number
   /** Original filename */
   name: string
+  /** Alt text for accessibility */
+  alt?: string
+  /** Content labels (self-labels) for this image */
+  labels?: SelfLabels
   /** Full blob reference object for AT Protocol record */
   blobRef: {
     $type: 'blob'

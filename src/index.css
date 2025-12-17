@@ -907,3 +907,22 @@ html {
     left: 16rem; /* 256px = w-64 sidebar width */
   }
 }
+
+/* Content Warning Image Styles */
+.content-warning-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.content-warning-container img {
+  cursor: default;
+}
+
+/* Override zoom cursor for blurred images */
+.markdown-body .content-warning-container img {
+  cursor: default;
+}
+
+.markdown-body .content-warning-container img:hover {
+  opacity: 1;
+}

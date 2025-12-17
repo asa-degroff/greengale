@@ -1,13 +1,18 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { ContentLabelValue } from '@/lib/image-upload'
+import { getLabelWarningText } from '@/lib/image-labels'
 
 interface ImageLightboxProps {
   src: string
   alt?: string
+  labels?: ContentLabelValue[]
   onClose: () => void
 }
 
-export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
+export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps) {
+  const [acknowledged, setAcknowledged] = useState(false)
+  const hasLabels = labels && labels.length > 0
   // Close on Escape key
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -28,6 +33,60 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
       document.body.style.overflow = ''
     }
   }, [handleKeyDown])
+
+  // Show content warning screen if image has labels
+  if (hasLabels && !acknowledged) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+        onClick={onClose}
+      >
+        <div
+          className="text-center p-8 max-w-md"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Warning icon */}
+          <svg
+            className="w-16 h-16 mx-auto mb-4 text-amber-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            />
+          </svg>
+
+          <h2 className="text-xl font-bold text-white mb-2">Content Warning</h2>
+          <p className="text-white/80 mb-2">
+            This image has been marked as containing:
+          </p>
+          <p className="text-amber-400 font-medium mb-6">
+            {getLabelWarningText(labels)}
+          </p>
+
+          <div className="flex gap-4 justify-center">
+            <button
+              onClick={onClose}
+              className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => setAcknowledged(true)}
+              className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-lg transition-colors"
+            >
+              View Image
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )
+  }
 
   return createPortal(
     <div

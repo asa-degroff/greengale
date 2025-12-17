@@ -7,7 +7,7 @@ import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@
 import { useThemePreference } from '@/lib/useThemePreference'
 import { extractHeadings } from '@/lib/extractHeadings'
 import { useScrollSpy } from '@/lib/useScrollSpy'
-import type { AuthorProfile } from '@/lib/atproto'
+import type { AuthorProfile, BlogEntry } from '@/lib/atproto'
 
 interface BlogViewerProps {
   content: string
@@ -18,6 +18,7 @@ interface BlogViewerProps {
   latex?: boolean
   author?: AuthorProfile
   source?: 'whitewind' | 'greengale'
+  blobs?: BlogEntry['blobs']
 }
 
 // Check if content has SVG code blocks that will be transformed by remark-svg
@@ -41,6 +42,7 @@ export function BlogViewer({
   latex = false,
   author,
   source,
+  blobs,
 }: BlogViewerProps) {
   const { forceDefaultTheme } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
@@ -138,7 +140,7 @@ export function BlogViewer({
           </pre>
         ) : (
           <div className="prose max-w-none">
-            <MarkdownRenderer content={content} enableLatex={latex} />
+            <MarkdownRenderer content={content} enableLatex={latex} blobs={blobs} />
           </div>
         )}
       </div>

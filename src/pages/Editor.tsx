@@ -5,9 +5,12 @@ import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import {
   processAndUploadImage,
   generateMarkdownImage,
+  getBlobUrl,
   type UploadedBlob,
   type UploadProgress,
+  type ContentLabelValue,
 } from '@/lib/image-upload'
+import { ImageMetadataEditor } from '@/components/ImageMetadataEditor'
 import { getPdsEndpoint } from '@/lib/atproto'
 import {
   THEME_PRESETS,
@@ -114,6 +117,8 @@ export function EditorPage() {
   const [pdsEndpoint, setPdsEndpoint] = useState<string | null>(null)
   // Map PDS blob URLs to local object URLs for preview (avoids CORS issues)
   const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map())
+  // CID of image currently being edited for metadata
+  const [editingImageCid, setEditingImageCid] = useState<string | null>(null)
 
   // Load recent palettes on mount
   useEffect(() => {
@@ -340,6 +345,8 @@ export function EditorPage() {
               mimeType: (b.blobref as { mimeType: string }).mimeType,
               size: (b.blobref as { size: number }).size,
               name: b.name || 'image',
+              alt: b.alt,
+              labels: b.labels,
               blobRef: b.blobref as UploadedBlob['blobRef'],
             }))
           )
@@ -442,6 +449,8 @@ export function EditorPage() {
                 ? uploadedBlobs.map((b) => ({
                     blobref: b.blobRef,
                     name: b.name,
+                    alt: b.alt || undefined,
+                    labels: b.labels,
                   }))
                 : undefined,
           }
@@ -494,7 +503,7 @@ export function EditorPage() {
       setError(err instanceof Error ? err.message : 'Failed to save post')
       return null
     }
-  }, [session, content, visibility, isWhiteWind, isEditing, originalCreatedAt, title, subtitle, theme, customColors, enableLatex, rkey])
+  }, [session, content, visibility, isWhiteWind, isEditing, originalCreatedAt, title, subtitle, theme, customColors, enableLatex, uploadedBlobs, rkey])
 
   async function handlePublish() {
     setPublishing(true)
@@ -665,6 +674,39 @@ export function EditorPage() {
       setUploadProgress(null)
     },
     [session, pdsEndpoint, content]
+  )
+
+  // Update metadata (alt text and labels) for an uploaded image
+  const handleImageMetadataSave = useCallback(
+    (cid: string, alt: string, labels: ContentLabelValue[]) => {
+      setUploadedBlobs((prev) =>
+        prev.map((blob) =>
+          blob.cid === cid
+            ? {
+                ...blob,
+                alt: alt || undefined,
+                labels:
+                  labels.length > 0
+                    ? { values: labels.map((l) => ({ val: l })) }
+                    : undefined,
+              }
+            : blob
+        )
+      )
+      setEditingImageCid(null)
+    },
+    []
+  )
+
+  // Get image URL for display
+  const getImagePreviewUrl = useCallback(
+    (cid: string) => {
+      if (!pdsEndpoint || !session?.did) return ''
+      const pdsUrl = getBlobUrl(pdsEndpoint, session.did, cid)
+      // Use local preview URL if available (avoids CORS)
+      return previewUrls.get(pdsUrl) || pdsUrl
+    },
+    [pdsEndpoint, session?.did, previewUrls]
   )
 
   if (isLoading || loadingPost) {
@@ -852,6 +894,84 @@ export function EditorPage() {
                       <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
                   </button>
+                </div>
+              )}
+
+              {/* Uploaded Images Panel */}
+              {uploadedBlobs.length > 0 && (
+                <div className="mt-4 border border-[var(--site-border)] rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-[var(--site-bg-secondary)] border-b border-[var(--site-border)]">
+                    <h3 className="text-sm font-medium text-[var(--site-text)]">
+                      Uploaded Images ({uploadedBlobs.length})
+                    </h3>
+                  </div>
+                  <div className="p-3 space-y-3">
+                    {uploadedBlobs.map((blob) => (
+                      <div key={blob.cid}>
+                        {editingImageCid === blob.cid ? (
+                          <ImageMetadataEditor
+                            imageUrl={getImagePreviewUrl(blob.cid)}
+                            imageName={blob.name}
+                            initialAlt={blob.alt || ''}
+                            initialLabels={
+                              blob.labels?.values.map((l) => l.val) || []
+                            }
+                            onSave={(alt, labels) =>
+                              handleImageMetadataSave(blob.cid, alt, labels)
+                            }
+                            onCancel={() => setEditingImageCid(null)}
+                          />
+                        ) : (
+                          <div className="flex items-center gap-3 p-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)]">
+                            <img
+                              src={getImagePreviewUrl(blob.cid)}
+                              alt=""
+                              className="w-12 h-12 object-cover rounded flex-shrink-0"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-[var(--site-text)] truncate">
+                                {blob.name}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {blob.alt && (
+                                  <span className="text-xs text-green-600 dark:text-green-400">
+                                    Has alt text
+                                  </span>
+                                )}
+                                {blob.labels?.values.length ? (
+                                  <span className="text-xs text-amber-600 dark:text-amber-400">
+                                    {blob.labels.values.length} label(s)
+                                  </span>
+                                ) : null}
+                                {!blob.alt && !blob.labels?.values.length && (
+                                  <span className="text-xs text-[var(--site-text-secondary)]">
+                                    No metadata
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditingImageCid(blob.cid)}
+                              className="flex-shrink-0 p-2 text-[var(--site-text-secondary)] hover:text-[var(--site-accent)] hover:bg-[var(--site-bg-secondary)] rounded transition-colors"
+                              title="Edit metadata"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                              >
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

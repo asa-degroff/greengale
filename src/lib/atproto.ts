@@ -1,6 +1,7 @@
 import { AtpAgent } from '@atproto/api'
 import { isValidHandle } from '@atproto/syntax'
 import type { Theme, ThemePreset, CustomColors } from './themes'
+import type { SelfLabels } from './image-upload'
 
 // Simple DID validation
 function isValidDid(did: string): boolean {
@@ -39,6 +40,8 @@ export interface BlogEntry {
   blobs?: Array<{
     blobref: unknown
     name?: string
+    alt?: string
+    labels?: SelfLabels
   }>
 }
 

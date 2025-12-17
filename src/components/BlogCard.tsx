@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { extractText, extractFirstImage } from '@/lib/markdown'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
+import { extractCidFromBlobUrl, getBlobLabelsMap } from '@/lib/image-labels'
 
 interface BlogCardProps {
   entry: BlogEntry
@@ -10,6 +12,16 @@ interface BlogCardProps {
 export function BlogCard({ entry, author }: BlogCardProps) {
   const preview = extractText(entry.content, 160)
   const thumbnail = extractFirstImage(entry.content)
+
+  // Check if thumbnail has content labels
+  const thumbnailHasLabels = useMemo(() => {
+    if (!thumbnail || !entry.blobs?.length) return false
+    const cid = extractCidFromBlobUrl(thumbnail)
+    if (!cid) return false
+    const labelsMap = getBlobLabelsMap(entry.blobs)
+    const labels = labelsMap.get(cid)
+    return labels && labels.values.length > 0
+  }, [thumbnail, entry.blobs])
 
   const formattedDate = entry.createdAt
     ? new Date(entry.createdAt).toLocaleDateString('en-US', {
@@ -24,7 +36,7 @@ export function BlogCard({ entry, author }: BlogCardProps) {
   return (
     <article className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]">
       <Link to={`/${authorHandle}/${entry.rkey}`} className="block">
-        {thumbnail && (
+        {thumbnail && !thumbnailHasLabels && (
           <div className="aspect-video overflow-hidden bg-[var(--site-bg-secondary)]">
             <img
               src={thumbnail}
@@ -32,6 +44,26 @@ export function BlogCard({ entry, author }: BlogCardProps) {
               className="w-full h-full object-cover"
               loading="lazy"
             />
+          </div>
+        )}
+        {thumbnail && thumbnailHasLabels && (
+          <div className="aspect-video overflow-hidden bg-[var(--site-bg-secondary)] flex items-center justify-center">
+            <div className="text-center text-[var(--site-text-secondary)]">
+              <svg
+                className="w-8 h-8 mx-auto mb-1 text-amber-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                />
+              </svg>
+              <span className="text-xs">Sensitive Content</span>
+            </div>
           </div>
         )}
         <div className="p-4">

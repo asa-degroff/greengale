@@ -170,6 +170,7 @@ export function PostPage() {
         latex={entry.latex || entry.source === 'greengale'}
         author={author || undefined}
         source={entry.source}
+        blobs={entry.blobs}
       />
     </div>
   )

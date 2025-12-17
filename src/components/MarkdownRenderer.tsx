@@ -1,6 +1,15 @@
-import { useEffect, useState, useCallback, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { renderMarkdown } from '@/lib/markdown'
 import { ImageLightbox } from './ImageLightbox'
+import { ContentWarningImage } from './ContentWarningImage'
+import type { BlogEntry } from '@/lib/atproto'
+import type { ContentLabelValue } from '@/lib/image-upload'
+import {
+  extractCidFromBlobUrl,
+  getBlobLabelsMap,
+  getBlobAltMap,
+  getLabelValues,
+} from '@/lib/image-labels'
 
 interface MarkdownRendererProps {
   content: string
@@ -9,6 +18,8 @@ interface MarkdownRendererProps {
   className?: string
   /** Disable lightbox for images (e.g., in editor preview) */
   disableLightbox?: boolean
+  /** Blob metadata for image labels and alt text */
+  blobs?: BlogEntry['blobs']
 }
 
 export function MarkdownRenderer({
@@ -17,10 +28,44 @@ export function MarkdownRenderer({
   enableSvg = true,
   className = '',
   disableLightbox = false,
+  blobs,
 }: MarkdownRendererProps) {
   const [rendered, setRendered] = useState<ReactNode>(null)
   const [error, setError] = useState<string | null>(null)
-  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null)
+  const [lightboxImage, setLightboxImage] = useState<{
+    src: string
+    alt: string
+    labels?: ContentLabelValue[]
+  } | null>(null)
+
+  // Track which images have been revealed by the user (to skip warning in lightbox)
+  const revealedImagesRef = useRef<Set<string>>(new Set())
+
+  // Build lookup maps for blob metadata
+  const labelsMap = useMemo(() => getBlobLabelsMap(blobs), [blobs])
+  const altMap = useMemo(() => getBlobAltMap(blobs), [blobs])
+
+  // Handle opening lightbox for an image
+  const openLightbox = useCallback(
+    (src: string, alt: string) => {
+      if (disableLightbox) return
+      const cid = extractCidFromBlobUrl(src)
+      const imageLabels = cid ? labelsMap.get(cid) : undefined
+      // Skip labels if user already revealed the image on the page
+      const wasRevealed = revealedImagesRef.current.has(src)
+      setLightboxImage({
+        src,
+        alt,
+        labels: wasRevealed ? undefined : (imageLabels ? getLabelValues(imageLabels) : undefined),
+      })
+    },
+    [disableLightbox, labelsMap]
+  )
+
+  // Mark an image as revealed
+  const markImageRevealed = useCallback((src: string) => {
+    revealedImagesRef.current.add(src)
+  }, [])
 
   // Handle clicks on images to open lightbox
   const handleContentClick = useCallback(
@@ -31,18 +76,62 @@ export function MarkdownRenderer({
       if (target.tagName === 'IMG') {
         const img = target as HTMLImageElement
         e.preventDefault()
-        setLightboxImage({ src: img.src, alt: img.alt || '' })
+        openLightbox(img.src, img.alt || '')
       }
     },
-    [disableLightbox]
+    [disableLightbox, openLightbox]
   )
+
+  // Create custom img component that wraps labeled images
+  const CustomImage = useMemo(() => {
+    return function CustomImg(props: Record<string, unknown>) {
+      const { src, alt, ...rest } = props
+      const srcStr = typeof src === 'string' ? src : ''
+      const altStr = typeof alt === 'string' ? alt : ''
+
+      if (!srcStr) return null
+
+      const cid = extractCidFromBlobUrl(srcStr)
+      // Get alt text from blob metadata if available, fall back to markdown alt
+      const blobAlt = cid ? altMap.get(cid) : undefined
+      const finalAlt = blobAlt || altStr
+      // Check for content labels
+      const imageLabels = cid ? labelsMap.get(cid) : undefined
+      const labelValues = imageLabels ? getLabelValues(imageLabels) : []
+
+      if (labelValues.length > 0) {
+        return (
+          <ContentWarningImage
+            src={srcStr}
+            alt={finalAlt}
+            labels={labelValues}
+            onClick={() => openLightbox(srcStr, finalAlt)}
+            onReveal={() => markImageRevealed(srcStr)}
+          />
+        )
+      }
+
+      return (
+        <img
+          src={srcStr}
+          alt={finalAlt}
+          className="cursor-zoom-in"
+          {...rest}
+        />
+      )
+    }
+  }, [labelsMap, altMap, openLightbox, markImageRevealed])
 
   useEffect(() => {
     let cancelled = false
 
     async function render() {
       try {
-        const result = await renderMarkdown(content, { enableLatex, enableSvg })
+        const result = await renderMarkdown(content, {
+          enableLatex,
+          enableSvg,
+          components: { img: CustomImage },
+        })
         if (!cancelled) {
           setRendered(result)
           setError(null)
@@ -59,7 +148,7 @@ export function MarkdownRenderer({
     return () => {
       cancelled = true
     }
-  }, [content, enableLatex, enableSvg])
+  }, [content, enableLatex, enableSvg, blobs, CustomImage])
 
   // Handle initial hash navigation after content renders
   useEffect(() => {
@@ -108,6 +197,7 @@ export function MarkdownRenderer({
         <ImageLightbox
           src={lightboxImage.src}
           alt={lightboxImage.alt}
+          labels={lightboxImage.labels}
           onClose={() => setLightboxImage(null)}
         />
       )}

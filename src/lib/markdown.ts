@@ -105,6 +105,8 @@ const sanitizeSchema = {
     h4: ['id'],
     h5: ['id'],
     h6: ['id'],
+    // Ensure img tags preserve src and alt attributes
+    img: ['src', 'alt', 'title', 'width', 'height', 'loading'],
     // SVG attributes (for KaTeX and inline SVG blocks)
     svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio', 'style', 'className', 'x', 'y'],
     g: ['fill', 'stroke', 'transform', 'opacity', 'className', 'id', 'style'],
@@ -182,6 +184,8 @@ const sanitizeSchema = {
 export interface RenderOptions {
   enableLatex?: boolean
   enableSvg?: boolean
+  /** Custom React components to use for specific HTML elements */
+  components?: Record<string, React.ComponentType<Record<string, unknown>>>
 }
 
 /**
@@ -191,7 +195,7 @@ export async function renderMarkdown(
   content: string,
   options: RenderOptions = {}
 ): Promise<ReactNode> {
-  const { enableLatex = false, enableSvg = true } = options
+  const { enableLatex = false, enableSvg = true, components } = options
 
   // Build the processor pipeline
   let processor = unified()
@@ -230,7 +234,7 @@ export async function renderMarkdown(
 
   processor = processor
     .use(rehypeSanitize, sanitizeSchema)
-    .use(rehypeReact, production)
+    .use(rehypeReact, components ? { ...production, components } : production)
 
   const file = await processor.process(content)
   return file.result as ReactNode
