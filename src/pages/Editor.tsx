@@ -111,6 +111,7 @@ export function EditorPage() {
 
   // Image upload state
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -605,6 +606,19 @@ export function EditorPage() {
     }
   }
 
+  // Check if a file is likely an image (handles iOS photo library quirks)
+  const isImageFile = useCallback((file: File): boolean => {
+    // Check MIME type first
+    if (file.type.startsWith('image/')) return true
+    // iOS photo library sometimes doesn't set MIME type, check extension
+    const ext = file.name.toLowerCase().split('.').pop()
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'heic', 'heif', 'bmp', 'svg']
+    if (ext && imageExtensions.includes(ext)) return true
+    // For iOS "image.jpg" style names without proper type, accept if it looks like a photo
+    if (file.type === '' && file.name.match(/\.(jpg|jpeg|png|heic|heif)$/i)) return true
+    return false
+  }, [])
+
   // Drag and drop handlers for image upload
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -644,7 +658,7 @@ export function EditorPage() {
         return
       }
 
-      const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+      const files = Array.from(e.dataTransfer.files).filter(isImageFile)
       if (files.length === 0) {
         return
       }
@@ -692,7 +706,73 @@ export function EditorPage() {
 
       setUploadProgress(null)
     },
-    [session, pdsEndpoint, content, isWhiteWind]
+    [session, pdsEndpoint, content, isWhiteWind, isImageFile]
+  )
+
+  // Handle file input selection (for mobile/button upload)
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
+      if (!files || files.length === 0) return
+
+      // Reset the input so the same file can be selected again
+      e.target.value = ''
+
+      if (!session || !pdsEndpoint) {
+        setUploadError('Not authenticated or PDS endpoint not available')
+        return
+      }
+
+      const imageFiles = Array.from(files).filter(isImageFile)
+      if (imageFiles.length === 0) {
+        setUploadError('No valid image files selected')
+        return
+      }
+
+      // Get cursor position from textarea
+      const textarea = textareaRef.current
+      let cursorPosition = textarea?.selectionStart ?? content.length
+
+      setUploadError(null)
+
+      for (const file of imageFiles) {
+        try {
+          const result = await processAndUploadImage(
+            file,
+            (url, init) => session.fetchHandler(url, init),
+            pdsEndpoint,
+            session.did,
+            setUploadProgress
+          )
+
+          // Track uploaded blob for record save
+          setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
+
+          // Create local object URL for preview (avoids CORS issues with PDS)
+          const localPreviewUrl = URL.createObjectURL(file)
+          setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
+
+          // Generate markdown and insert at cursor position
+          // Use empty alt text - user should add meaningful alt text via metadata editor
+          const markdown = generateMarkdownImage('', result.markdownUrl)
+
+          // Insert markdown at cursor position
+          const before = content.slice(0, cursorPosition)
+          const after = content.slice(cursorPosition)
+          const insertText = '\n' + markdown + '\n'
+          const newContent = before + insertText + after
+          setContent(newContent)
+
+          // Update cursor position for next image
+          cursorPosition += insertText.length
+        } catch (err) {
+          setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
+        }
+      }
+
+      setUploadProgress(null)
+    },
+    [session, pdsEndpoint, content, isImageFile]
   )
 
   // Update metadata (alt text and labels) for an uploaded image
@@ -865,9 +945,46 @@ export function EditorPage() {
 
             {/* Content */}
             <div>
-              <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                Content (Markdown)
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium text-[var(--site-text-secondary)]">
+                  Content (Markdown)
+                </label>
+                {/* Toolbar - only show for GreenGale format */}
+                {!isWhiteWind && (
+                  <div className="flex items-center gap-1">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={!session || !pdsEndpoint || !!uploadProgress}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] hover:text-[var(--site-text)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Upload image"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                        <circle cx="8.5" cy="8.5" r="1.5" />
+                        <polyline points="21 15 16 10 5 21" />
+                      </svg>
+                      <span className="hidden sm:inline">Add Image</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="relative">
                 <textarea
                   ref={textareaRef}
