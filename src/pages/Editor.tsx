@@ -955,7 +955,10 @@ export function EditorPage() {
                             onCancel={() => setEditingImageCid(null)}
                           />
                         ) : (
-                          <div className="flex items-center gap-3 p-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)]">
+                          <div
+                            className="flex items-center gap-3 p-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors"
+                            onClick={() => setEditingImageCid(blob.cid)}
+                          >
                             <img
                               src={getImagePreviewUrl(blob.cid)}
                               alt=""
@@ -1039,7 +1042,7 @@ export function EditorPage() {
                 <select
                   value={lexicon}
                   onChange={(e) => setLexicon(e.target.value as LexiconType)}
-                  className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                  className="w-full pl-4 pr-6 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
                 >
                   {LEXICON_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -1078,7 +1081,7 @@ export function EditorPage() {
                 <select
                   value={visibility}
                   onChange={(e) => setVisibility(e.target.value as 'public' | 'url' | 'author')}
-                  className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                  className="w-full pl-4 pr-6 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
                 >
                   {VISIBILITY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
