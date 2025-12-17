@@ -10,7 +10,7 @@ import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
 
 // Minimal OAuth scopes: only blog entry collections + blob uploads
 const OAUTH_SCOPE =
-  'atproto repo?collection=app.greengale.blog.entry&collection=com.whtwnd.blog.entry blob'
+  'atproto repo?collection=app.greengale.blog.entry&collection=com.whtwnd.blog.entry blob:image/*'
 
 // For development, use loopback client ID
 // Client ID must use "localhost", redirect_uri must use "127.0.0.1" per AT Protocol OAuth spec
@@ -20,7 +20,7 @@ const CLIENT_ID = import.meta.env.DEV
   : `https://greengale.app/client-metadata.json`
 
 const API_BASE = import.meta.env.DEV
-  ? 'http://127.0.0.1:8787'
+  ? 'http://127.0.0.1:8788'
   : 'https://greengale.asadegroff.workers.dev'
 
 interface AuthState {
@@ -45,10 +45,12 @@ let oauthClient: BrowserOAuthClient | null = null
 
 async function getOAuthClient(): Promise<BrowserOAuthClient> {
   if (!oauthClient) {
+    console.log('[Auth] Loading BrowserOAuthClient with clientId:', CLIENT_ID)
     oauthClient = await BrowserOAuthClient.load({
       clientId: CLIENT_ID,
       handleResolver: 'https://bsky.social',
     })
+    console.log('[Auth] BrowserOAuthClient loaded successfully')
   }
   return oauthClient
 }
@@ -94,17 +96,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function init() {
       try {
+        console.log('[Auth] Initializing, getting OAuth client...')
         const client = await getOAuthClient()
+        console.log('[Auth] OAuth client loaded, calling init...')
         const result = await client.init()
+        console.log('[Auth] init result:', result)
 
         if (result?.session) {
           const did = result.session.did
+          console.log('[Auth] Session found for DID:', did)
+          console.log('[Auth] Checking whitelist...')
           const whitelisted = await checkWhitelist(did)
+          console.log('[Auth] Whitelist result:', whitelisted)
 
           // Get handle - for now we'll resolve it later or use the DID
           // The session.sub is the DID
+          console.log('[Auth] Resolving handle...')
           const resolvedHandle = await resolveHandleFromDid(did)
+          console.log('[Auth] Handle resolved:', resolvedHandle)
 
+          console.log('[Auth] Setting authenticated state')
           setState({
             isLoading: false,
             isAuthenticated: true,
@@ -136,13 +147,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, isLoading: true, error: null }))
 
     try {
+      console.log('[Auth] Starting login for handle:', handle)
+      console.log('[Auth] Getting OAuth client...')
       const client = await getOAuthClient()
+      console.log('[Auth] OAuth client loaded, calling signIn...')
       await client.signIn(handle, {
         scope: OAUTH_SCOPE,
       })
+      console.log('[Auth] signIn completed (should have redirected)')
       // The page will redirect, so we don't need to handle the response here
     } catch (error) {
-      console.error('Login error:', error)
+      console.error('[Auth] Login error:', error)
       setState((s) => ({
         ...s,
         isLoading: false,

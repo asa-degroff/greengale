@@ -172,6 +172,11 @@ const sanitizeSchema = {
   // Allow data-* attributes globally for KaTeX
   clobberPrefix: '',
   clobber: [],
+  // Allow blob: URLs for images (used for local preview of uploaded images)
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src || []), 'blob'],
+  },
 }
 
 export interface RenderOptions {

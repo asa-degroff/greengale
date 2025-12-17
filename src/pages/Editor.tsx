@@ -1,7 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useParams, useBlocker } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import {
+  processAndUploadImage,
+  generateMarkdownImage,
+  type UploadedBlob,
+  type UploadProgress,
+} from '@/lib/image-upload'
+import { getPdsEndpoint } from '@/lib/atproto'
 import {
   THEME_PRESETS,
   THEME_LABELS,
@@ -98,10 +105,39 @@ export function EditorPage() {
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
+  // Image upload state
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadedBlobs, setUploadedBlobs] = useState<UploadedBlob[]>([])
+  const [pdsEndpoint, setPdsEndpoint] = useState<string | null>(null)
+  // Map PDS blob URLs to local object URLs for preview (avoids CORS issues)
+  const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map())
+
   // Load recent palettes on mount
   useEffect(() => {
     setRecentPalettes(getRecentPalettes())
   }, [])
+
+  // Cleanup object URLs on unmount
+  const previewUrlsRef = useRef<Map<string, string>>(new Map())
+  previewUrlsRef.current = previewUrls
+  useEffect(() => {
+    return () => {
+      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [])
+
+  // Compute preview content with local URLs substituted for PDS URLs
+  const previewContent = useMemo(() => {
+    if (previewUrls.size === 0) return content
+    let result = content
+    previewUrls.forEach((localUrl, pdsUrl) => {
+      result = result.split(pdsUrl).join(localUrl)
+    })
+    return result
+  }, [content, previewUrls])
 
   // Track initial values to detect changes
   const initialValues = useRef<{
@@ -129,6 +165,21 @@ export function EditorPage() {
       navigate('/', { replace: true })
     }
   }, [isLoading, isAuthenticated, navigate])
+
+  // Fetch PDS endpoint when session is available
+  useEffect(() => {
+    async function fetchPdsEndpoint() {
+      if (session?.did) {
+        try {
+          const endpoint = await getPdsEndpoint(session.did)
+          setPdsEndpoint(endpoint)
+        } catch (err) {
+          console.error('Failed to get PDS endpoint:', err)
+        }
+      }
+    }
+    fetchPdsEndpoint()
+  }, [session?.did])
 
   // Load existing post if editing
   useEffect(() => {
@@ -280,6 +331,19 @@ export function EditorPage() {
           setTheme(entry.theme?.preset || 'default')
         }
         setEnableLatex(entry.latex || false)
+
+        // Restore uploaded blobs if present
+        if (entry.blobs && entry.blobs.length > 0) {
+          setUploadedBlobs(
+            entry.blobs.map((b) => ({
+              cid: (b.blobref as { ref: { $link: string } }).ref.$link,
+              mimeType: (b.blobref as { mimeType: string }).mimeType,
+              size: (b.blobref as { size: number }).size,
+              name: b.name || 'image',
+              blobRef: b.blobref as UploadedBlob['blobRef'],
+            }))
+          )
+        }
       }
 
       // Set initial values for change detection
@@ -372,6 +436,14 @@ export function EditorPage() {
             theme: themeObj,
             visibility: visibilityToUse,
             latex: enableLatex || undefined,
+            // Include uploaded blobs for reference
+            blobs:
+              uploadedBlobs.length > 0
+                ? uploadedBlobs.map((b) => ({
+                    blobref: b.blobRef,
+                    name: b.name,
+                  }))
+                : undefined,
           }
 
       let response: Response
@@ -509,6 +581,92 @@ export function EditorPage() {
     }
   }
 
+  // Drag and drop handlers for image upload
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only set dragging false if we're leaving the textarea entirely
+    if (e.currentTarget.contains(e.relatedTarget as Node)) {
+      return
+    }
+    setIsDragging(false)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragging(false)
+
+      if (!session || !pdsEndpoint) {
+        setUploadError('Not authenticated or PDS endpoint not available')
+        return
+      }
+
+      const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+      if (files.length === 0) {
+        return
+      }
+
+      // Get cursor position from textarea
+      const textarea = textareaRef.current
+      let cursorPosition = textarea?.selectionStart ?? content.length
+
+      setUploadError(null)
+
+      for (const file of files) {
+        try {
+          const result = await processAndUploadImage(
+            file,
+            (url, init) => session.fetchHandler(url, init),
+            pdsEndpoint,
+            session.did,
+            setUploadProgress
+          )
+
+          // Track uploaded blob for record save
+          setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
+
+          // Create local object URL for preview (avoids CORS issues with PDS)
+          const localPreviewUrl = URL.createObjectURL(file)
+          setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
+
+          // Generate markdown and insert at cursor position
+          const markdown = generateMarkdownImage(
+            file.name.replace(/\.[^.]+$/, ''), // Use filename without extension as alt
+            result.markdownUrl
+          )
+
+          // Insert markdown at cursor position
+          const before = content.slice(0, cursorPosition)
+          const after = content.slice(cursorPosition)
+          const insertText = '\n' + markdown + '\n'
+          const newContent = before + insertText + after
+          setContent(newContent)
+
+          // Update cursor position for next image
+          cursorPosition += insertText.length
+        } catch (err) {
+          setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
+        }
+      }
+
+      setUploadProgress(null)
+    },
+    [session, pdsEndpoint, content]
+  )
+
   if (isLoading || loadingPost) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -582,7 +740,7 @@ export function EditorPage() {
                 <p className="text-xl text-[var(--theme-text-secondary)] mb-6">{subtitle}</p>
               )}
               <div className="prose max-w-none">
-                <MarkdownRenderer content={content} enableLatex={enableLatex} />
+                <MarkdownRenderer content={previewContent} enableLatex={enableLatex} />
               </div>
             </div>
           </div>
@@ -622,13 +780,80 @@ export function EditorPage() {
               <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
                 Content (Markdown)
               </label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Write your post in markdown..."
-                rows={40}
-                className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] font-mono text-sm resize-y"
-              />
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  placeholder="Write your post in markdown... (drag and drop images to upload)"
+                  rows={40}
+                  className={`w-full px-4 py-3 rounded-lg border bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] font-mono text-sm resize-y transition-colors ${
+                    isDragging
+                      ? 'border-[var(--site-accent)] border-2 bg-[var(--site-accent)]/5'
+                      : 'border-[var(--site-border)]'
+                  }`}
+                />
+
+                {/* Drag overlay indicator */}
+                {isDragging && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[var(--site-accent)]/10 rounded-lg border-2 border-dashed border-[var(--site-accent)] pointer-events-none">
+                    <div className="text-[var(--site-accent)] font-medium text-lg">
+                      Drop images to upload
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload progress indicator */}
+                {uploadProgress && (
+                  <div className="absolute bottom-4 left-4 right-4 bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded-lg p-4 shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin w-5 h-5 border-2 border-[var(--site-accent)] border-t-transparent rounded-full" />
+                      <div className="flex-1">
+                        <div className="text-sm text-[var(--site-text)]">
+                          {uploadProgress.stage === 'validating' && 'Validating...'}
+                          {uploadProgress.stage === 'resizing' && 'Resizing image...'}
+                          {uploadProgress.stage === 'encoding' && 'Encoding to AVIF...'}
+                          {uploadProgress.stage === 'uploading' && 'Uploading to PDS...'}
+                        </div>
+                        <div className="text-xs text-[var(--site-text-secondary)] mt-1">
+                          {uploadProgress.filename}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 h-1.5 bg-[var(--site-border)] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--site-accent)] transition-all duration-200"
+                        style={{ width: `${uploadProgress.progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Upload error display */}
+              {uploadError && (
+                <div className="mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 text-sm flex items-center justify-between">
+                  <span>{uploadError}</span>
+                  <button
+                    onClick={() => setUploadError(null)}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Options */}
