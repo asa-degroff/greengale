@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface ImageWithAltProps {
   src: string
@@ -22,6 +22,28 @@ export function ImageWithAlt({
 }: ImageWithAltProps) {
   const [showAltText, setShowAltText] = useState(false)
   const hasAlt = alt && alt.trim().length > 0
+  const containerRef = useRef<HTMLSpanElement>(null)
+
+  // Close alt text panel when clicking outside
+  useEffect(() => {
+    if (!showAltText) return
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowAltText(false)
+      }
+    }
+
+    // Delay adding listener to avoid immediate trigger from the opening click
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside)
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showAltText])
 
   const handleImageClick = (e: React.MouseEvent) => {
     if (onClick) {
@@ -60,7 +82,7 @@ export function ImageWithAlt({
   }
 
   return (
-    <span className="image-with-alt-container inline-block relative">
+    <span ref={containerRef} className="image-with-alt-container inline-block relative">
       <img
         src={src}
         alt={alt}

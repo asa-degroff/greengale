@@ -660,10 +660,8 @@ export function EditorPage() {
           setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
 
           // Generate markdown and insert at cursor position
-          const markdown = generateMarkdownImage(
-            file.name.replace(/\.[^.]+$/, ''), // Use filename without extension as alt
-            result.markdownUrl
-          )
+          // Use empty alt text - user should add meaningful alt text via metadata editor
+          const markdown = generateMarkdownImage('', result.markdownUrl)
 
           // Insert markdown at cursor position
           const before = content.slice(0, cursorPosition)

@@ -942,11 +942,12 @@ html {
 /* ALT badge styling */
 .alt-badge {
   z-index: 10;
-  opacity: 0.85;
+  opacity: 0.2;
   transition: opacity 0.2s ease;
 }
 
-.image-with-alt-container:hover .alt-badge {
+.image-with-alt-container:hover .alt-badge,
+.alt-badge:focus {
   opacity: 1;
 }
 

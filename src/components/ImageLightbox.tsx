@@ -125,11 +125,11 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
           className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
         />
         {alt && (
-          <figcaption className="mt-3 p-3 bg-black/50 rounded-lg max-w-2xl mx-auto">
-            <span className="block text-xs font-medium text-white/50 uppercase tracking-wide mb-1">
+          <figcaption className="mt-3 bg-black/50 rounded-lg max-w-2xl mx-auto max-h-32 overflow-y-auto">
+            <span className="block text-xs font-medium text-white/50 uppercase tracking-wide px-3 pt-3 pb-1 sticky top-0 bg-black/80 backdrop-blur-sm rounded-t-lg">
               Image description
             </span>
-            <p className="text-white/90 text-sm leading-relaxed">{alt}</p>
+            <p className="text-white/90 text-sm leading-relaxed px-3 pb-3">{alt}</p>
           </figcaption>
         )}
       </figure>

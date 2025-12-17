@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import { getLabelWarningText } from '@/lib/image-labels'
 
@@ -23,6 +23,28 @@ export function ContentWarningImage({
   const [revealed, setRevealed] = useState(false)
   const [showAltText, setShowAltText] = useState(false)
   const hasAlt = alt && alt.trim().length > 0
+  const containerRef = useRef<HTMLSpanElement>(null)
+
+  // Close alt text panel when clicking outside
+  useEffect(() => {
+    if (!showAltText) return
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowAltText(false)
+      }
+    }
+
+    // Delay adding listener to avoid immediate trigger from the opening click
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside)
+    }, 0)
+
+    return () => {
+      clearTimeout(timeoutId)
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [showAltText])
 
   const handleReveal = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -57,7 +79,7 @@ export function ContentWarningImage({
   if (revealed) {
     // Show image with ALT badge (same as ImageWithAlt but inline to avoid circular deps)
     return (
-      <span className="image-with-alt-container inline-block relative">
+      <span ref={containerRef} className="image-with-alt-container inline-block relative">
         <img
           src={src}
           alt={alt}
