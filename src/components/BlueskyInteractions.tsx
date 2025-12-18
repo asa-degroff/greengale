@@ -92,7 +92,7 @@ export function BlueskyInteractions({ postUrl, postTitle }: BlueskyInteractionsP
           href={shareUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className={`${outlineButtonClass} text-sm`}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--theme-accent)] text-[var(--theme-accent)] hover:opacity-80 transition-opacity text-sm"
         >
           <BlueskyIcon className="w-4 h-4" />
           <span>Share on Bluesky</span>
