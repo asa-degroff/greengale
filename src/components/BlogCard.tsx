@@ -78,18 +78,18 @@ export function BlogCard({ entry, author }: BlogCardProps) {
           <p className="text-sm text-[var(--site-text-secondary)] line-clamp-3 mb-3">
             {preview}
           </p>
-          <div className="flex items-center justify-between text-xs text-[var(--site-text-secondary)]">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between text-xs text-[var(--site-text-secondary)] gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               {author?.avatar && (
                 <img
                   src={author.avatar}
                   alt=""
-                  className="w-5 h-5 rounded-full"
+                  className="w-5 h-5 rounded-full flex-shrink-0"
                 />
               )}
-              <span>@{authorHandle}</span>
+              <span className="truncate">@{authorHandle}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {/* Visibility indicator for non-public posts */}
               {entry.visibility === 'author' && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
