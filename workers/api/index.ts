@@ -270,6 +270,187 @@ app.get('/og/:handle/:filename', async (c) => {
 // Cache TTL for recent posts (30 minutes)
 const RECENT_POSTS_CACHE_TTL = 30 * 60
 
+// Cache TTL for Bluesky interactions (10 minutes)
+const BLUESKY_INTERACTIONS_CACHE_TTL = 10 * 60
+
+// Bluesky API base URL (api.bsky.app works better than public.api.bsky.app which has aggressive rate limiting)
+const BLUESKY_API = 'https://api.bsky.app'
+
+// Get Bluesky posts that link to a GreenGale blog post URL
+app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
+  const url = c.req.query('url')
+  if (!url) {
+    return c.json({ error: 'Missing url parameter' }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 25)
+  const sort = c.req.query('sort') || 'top'
+  const includeReplies = c.req.query('includeReplies') !== 'false'
+
+  // Build cache key
+  const cacheKey = `bluesky:${url}:${limit}:${sort}:${includeReplies}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    // Search for posts linking to this URL
+    // Note: We use '*' as the query since empty query may be rejected
+    const searchUrl = new URL(`${BLUESKY_API}/xrpc/app.bsky.feed.searchPosts`)
+    searchUrl.searchParams.set('q', '*')
+    searchUrl.searchParams.set('url', url)
+    searchUrl.searchParams.set('limit', limit.toString())
+    searchUrl.searchParams.set('sort', sort)
+
+    const searchResponse = await fetch(searchUrl.toString(), {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'GreenGale/1.0',
+      },
+    })
+
+    if (!searchResponse.ok) {
+      const errorText = await searchResponse.text()
+      console.error('Bluesky search failed:', searchResponse.status, errorText)
+      return c.json({ error: 'Failed to search Bluesky', posts: [] }, searchResponse.status)
+    }
+
+    const searchData = await searchResponse.json() as {
+      posts: BlueskyPostView[]
+      cursor?: string
+      hitsTotal?: number
+    }
+
+    // Transform posts to our format
+    let posts = searchData.posts.map(transformBlueskyPost)
+
+    // Optionally fetch replies for each post
+    if (includeReplies) {
+      posts = await Promise.all(
+        posts.map(async (post) => {
+          if (post.replyCount === 0) return post
+
+          try {
+            const threadUrl = new URL(`${BLUESKY_API}/xrpc/app.bsky.feed.getPostThread`)
+            threadUrl.searchParams.set('uri', post.uri)
+            threadUrl.searchParams.set('depth', '2')
+            threadUrl.searchParams.set('parentHeight', '0')
+
+            const threadResponse = await fetch(threadUrl.toString(), {
+              headers: {
+                'Accept': 'application/json',
+                'User-Agent': 'GreenGale/1.0',
+              },
+            })
+
+            if (!threadResponse.ok) return post
+
+            const threadData = await threadResponse.json() as {
+              thread: BlueskyThreadViewPost
+            }
+
+            if (threadData.thread && threadData.thread.replies) {
+              post.replies = threadData.thread.replies
+                .filter((r): r is BlueskyThreadViewPost => r.$type === 'app.bsky.feed.defs#threadViewPost')
+                .slice(0, 3)
+                .map((reply) => transformBlueskyPost(reply.post))
+                .sort((a, b) => b.likeCount - a.likeCount)
+            }
+          } catch (err) {
+            console.error('Failed to fetch thread:', err)
+          }
+          return post
+        })
+      )
+    }
+
+    const response = {
+      posts,
+      totalHits: searchData.hitsTotal,
+      cursor: searchData.cursor,
+    }
+
+    // Cache the response
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: BLUESKY_INTERACTIONS_CACHE_TTL,
+    })
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error fetching Bluesky interactions:', error)
+    return c.json({ error: 'Failed to fetch Bluesky interactions', posts: [] }, 500)
+  }
+})
+
+// Bluesky API types
+interface BlueskyPostView {
+  uri: string
+  cid: string
+  author: {
+    did: string
+    handle: string
+    displayName?: string
+    avatar?: string
+  }
+  record: {
+    text?: string
+    createdAt?: string
+  }
+  indexedAt: string
+  likeCount?: number
+  repostCount?: number
+  replyCount?: number
+  quoteCount?: number
+}
+
+interface BlueskyThreadViewPost {
+  $type: string
+  post: BlueskyPostView
+  replies?: BlueskyThreadViewPost[]
+}
+
+interface TransformedPost {
+  uri: string
+  cid: string
+  author: {
+    did: string
+    handle: string
+    displayName?: string
+    avatar?: string
+  }
+  text: string
+  createdAt: string
+  indexedAt: string
+  likeCount: number
+  repostCount: number
+  replyCount: number
+  quoteCount: number
+  replies?: TransformedPost[]
+}
+
+function transformBlueskyPost(post: BlueskyPostView): TransformedPost {
+  return {
+    uri: post.uri,
+    cid: post.cid,
+    author: {
+      did: post.author.did,
+      handle: post.author.handle,
+      displayName: post.author.displayName,
+      avatar: post.author.avatar,
+    },
+    text: post.record?.text || '',
+    createdAt: post.record?.createdAt || post.indexedAt,
+    indexedAt: post.indexedAt,
+    likeCount: post.likeCount || 0,
+    repostCount: post.repostCount || 0,
+    replyCount: post.replyCount || 0,
+    quoteCount: post.quoteCount || 0,
+  }
+}
+
 // Get recent posts across all authors
 // Note: Recent posts feed only shows public posts (no viewer parameter needed)
 app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {

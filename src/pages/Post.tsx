@@ -171,6 +171,7 @@ export function PostPage() {
         author={author || undefined}
         source={entry.source}
         blobs={entry.blobs}
+        postUrl={`${window.location.origin}/${handle}/${rkey}`}
       />
     </div>
   )

@@ -3,6 +3,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
 import { TableOfContents } from './TableOfContents'
 import { TableOfContentsMobile } from './TableOfContentsMobile'
+import { BlueskyInteractions } from './BlueskyInteractions'
 import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { extractHeadings } from '@/lib/extractHeadings'
@@ -19,6 +20,7 @@ interface BlogViewerProps {
   author?: AuthorProfile
   source?: 'whitewind' | 'greengale'
   blobs?: BlogEntry['blobs']
+  postUrl?: string
 }
 
 // Check if content has SVG code blocks that will be transformed by remark-svg
@@ -43,6 +45,7 @@ export function BlogViewer({
   author,
   source,
   blobs,
+  postUrl,
 }: BlogViewerProps) {
   const { forceDefaultTheme } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
@@ -142,6 +145,11 @@ export function BlogViewer({
           <div className="prose max-w-none">
             <MarkdownRenderer content={content} enableLatex={latex} blobs={blobs} />
           </div>
+        )}
+
+        {/* Bluesky Interactions */}
+        {postUrl && (
+          <BlueskyInteractions postUrl={postUrl} postTitle={title} />
         )}
       </div>
 
