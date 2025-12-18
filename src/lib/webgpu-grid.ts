@@ -355,11 +355,14 @@ export class WebGPURippleGrid {
     this.device.queue.writeBuffer(this.rippleUniformBuffer!, 0, rippleResult.data as Float32Array<ArrayBuffer>)
 
     // Pack uniforms: time, aspect, activeCount, viewportHeight, gridColor (r,g,b), padding, bgColor (r,g,b), padding
+    // Use CSS pixel height (not physical pixels) to match the CSS grid regardless of DPI
+    const dpr = window.devicePixelRatio || 1
+    const cssHeight = this.canvas.height / dpr
     const timeUniforms = new Float32Array([
       timestamp / 1000,
       this.canvas.width / this.canvas.height,
       rippleResult.activeCount,
-      this.canvas.height, // viewport height in pixels for grid size calculation
+      cssHeight, // viewport height in CSS pixels for grid size calculation
       this.gridColor[0],
       this.gridColor[1],
       this.gridColor[2],
