@@ -18,12 +18,12 @@
     "deploy": "npm run build && npm run worker:deploy && npm run pages:deploy"
   },
   "dependencies": {
-    "@jsquash/avif": "^1.3.0",
     "@atproto/api": "^0.18.4",
     "@atproto/identity": "^0.4.10",
     "@atproto/oauth-client-browser": "^0.3.36",
     "@atproto/sync": "^0.1.38",
     "@atproto/syntax": "^0.4.2",
+    "@jsquash/avif": "^1.3.0",
     "cbor-x": "^1.6.0",
     "culori": "^4.0.2",
     "highlight.js": "^11.11.1",
@@ -55,6 +55,7 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "@webgpu/types": "^0.1.68",
     "autoprefixer": "^10.4.22",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",

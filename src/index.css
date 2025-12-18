@@ -465,6 +465,14 @@ body {
   background-size: 24px 24px;
 }
 
+/* Animated WebGPU grid canvas (easter egg) */
+.animated-grid-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
 /* Vignette overlay */
 .vignette-overlay {
   position: fixed;

@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
+import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
+import { checkWebGPUSupport, type RGB } from '@/lib/webgpu-grid'
 import logoImage from '/grey-logo.avif?url'
 
 // Icons as inline SVGs
@@ -246,6 +248,99 @@ export function Sidebar({ children }: SidebarProps) {
   const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
   const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
+
+  // Easter egg: animated grid background
+  const [animatedGridEnabled, setAnimatedGridEnabled] = useState(false)
+  const [webGPUSupported, setWebGPUSupported] = useState(false)
+  const [themeColors, setThemeColors] = useState<{ grid: RGB; bg: RGB }>({
+    grid: [0.3, 0.35, 0.25],
+    bg: [0.02, 0.01, 0.03],
+  })
+  const middleClickCount = useRef(0)
+  const middleClickTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  // Check WebGPU support on mount
+  useEffect(() => {
+    checkWebGPUSupport().then(setWebGPUSupported)
+  }, [])
+
+  // Parse theme colors from CSS variables when theme changes
+  useEffect(() => {
+    const parseColor = (cssValue: string): RGB => {
+      // Use a canvas to convert any CSS color to RGB
+      const canvas = document.createElement('canvas')
+      canvas.width = 1
+      canvas.height = 1
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return [0.3, 0.35, 0.25]
+
+      ctx.fillStyle = cssValue
+      ctx.fillRect(0, 0, 1, 1)
+      const imageData = ctx.getImageData(0, 0, 1, 1).data
+
+      return [
+        imageData[0] / 255,
+        imageData[1] / 255,
+        imageData[2] / 255,
+      ]
+    }
+
+    const updateColors = () => {
+      const style = getComputedStyle(document.documentElement)
+      const gridColorRaw = style.getPropertyValue('--grid-color').trim()
+      const bgColorRaw = style.getPropertyValue('--site-bg').trim()
+
+      setThemeColors({
+        grid: parseColor(gridColorRaw),
+        bg: parseColor(bgColorRaw),
+      })
+    }
+
+    // Use requestAnimationFrame to ensure inline styles (for custom themes) are applied
+    const frameId = requestAnimationFrame(() => {
+      updateColors()
+    })
+
+    return () => cancelAnimationFrame(frameId)
+  }, [effectiveTheme, isDark, preferredTheme, preferredCustomColors])
+
+  // Triple middle-click detection for easter egg (global listener)
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      // Middle button = 1
+      if (e.button !== 1) return
+
+      middleClickCount.current++
+      window.clearTimeout(middleClickTimer.current)
+
+      if (middleClickCount.current >= 3) {
+        setAnimatedGridEnabled((prev) => {
+          console.log('[Easter Egg] Animated grid:', !prev ? 'enabled' : 'disabled')
+          return !prev
+        })
+        middleClickCount.current = 0
+      } else {
+        middleClickTimer.current = window.setTimeout(() => {
+          middleClickCount.current = 0
+        }, 500)
+      }
+    }
+
+    window.addEventListener('mousedown', handleMouseDown)
+    return () => window.removeEventListener('mousedown', handleMouseDown)
+  }, [])
+
+  // Disable text selection when animated grid is active (prevents interference with drag ripples)
+  useEffect(() => {
+    if (animatedGridEnabled) {
+      document.body.style.userSelect = 'none'
+    } else {
+      document.body.style.userSelect = ''
+    }
+    return () => {
+      document.body.style.userSelect = ''
+    }
+  }, [animatedGridEnabled])
 
   // Local state for custom color inputs
   const [customColors, setCustomColors] = useState<CustomColors>(() => {
@@ -652,7 +747,11 @@ export function Sidebar({ children }: SidebarProps) {
   return (
     <div className="min-h-screen">
       {/* Background effects */}
-      <div className="grid-background" aria-hidden="true" />
+      {animatedGridEnabled && webGPUSupported ? (
+        <AnimatedGridBackground gridColor={themeColors.grid} bgColor={themeColors.bg} />
+      ) : (
+        <div className="grid-background" aria-hidden="true" />
+      )}
       <div className="vignette-overlay" aria-hidden="true" />
 
       {/* Mobile Header */}
