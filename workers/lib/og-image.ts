@@ -204,12 +204,12 @@ interface BuildHtmlOptions {
 }
 
 function escapeHtml(text: string): string {
+  // Only escape < and > to prevent HTML tag injection
+  // Other entities (&, ", ') are NOT escaped because Satori renders
+  // HTML entities literally instead of decoding them
   return text
-    .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
 }
 
 /**
