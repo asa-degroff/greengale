@@ -113,16 +113,30 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     return () => window.removeEventListener('resize', checkConstraint)
   }, [checkConstraint])
 
-  // Handle scroll wheel zoom
+  // Handle scroll wheel zoom (zooms toward cursor position)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
     const delta = e.deltaY > 0 ? 0.9 : 1.1
-    setZoom((prev) => {
-      const newZoom = Math.min(Math.max(prev * delta, 0.5), 10)
-      // Clamp pan for the new zoom level
-      setPan((currentPan) => clampPan(currentPan.x, currentPan.y, newZoom))
+
+    // Cursor position relative to viewport center
+    const viewportCenterX = window.innerWidth / 2
+    const viewportCenterY = window.innerHeight / 2
+    const cursorRelX = e.clientX - viewportCenterX
+    const cursorRelY = e.clientY - viewportCenterY
+
+    setZoom((prevZoom) => {
+      const newZoom = Math.min(Math.max(prevZoom * delta, 0.5), 10)
+      const zoomRatio = newZoom / prevZoom
+
+      // Adjust pan to keep the point under cursor stationary
+      setPan((currentPan) => {
+        const newPanX = cursorRelX * (1 - zoomRatio) + currentPan.x * zoomRatio
+        const newPanY = cursorRelY * (1 - zoomRatio) + currentPan.y * zoomRatio
+        return clampPan(newPanX, newPanY, newZoom)
+      })
+
       return newZoom
     })
   }, [clampPan])
