@@ -19,7 +19,8 @@ async function ensureEncoderInitialized() {
 // AT Protocol blob limit is 1,000,000 bytes
 // Target ~900KB to leave margin for encoding overhead
 const MAX_BLOB_SIZE = 900 * 1024
-const MAX_DIMENSION = 6144 // Maximum width or height
+const MAX_PIXELS = 25_000_000 // Maximum total pixels (~25 megapixels)
+const MAX_DIMENSION = 10240 // Maximum single dimension (failsafe for very thin images)
 // cqLevel: 0-63, lower is better quality (like CRF)
 const CQ_LEVEL_START = 20 // Starting quality (good balance)
 const CQ_LEVEL_MAX = 50 // Maximum cqLevel (lower quality) to try before failing
@@ -116,26 +117,35 @@ async function loadImage(file: File): Promise<HTMLImageElement> {
 }
 
 /**
- * Calculate new dimensions that fit within MAX_DIMENSION while preserving aspect ratio
+ * Calculate new dimensions that fit within MAX_PIXELS and MAX_DIMENSION while preserving aspect ratio
  */
 function calculateResizedDimensions(
   width: number,
   height: number
 ): { width: number; height: number; needsResize: boolean } {
-  if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
+  const currentPixels = width * height
+
+  // Check if already within both limits
+  if (currentPixels <= MAX_PIXELS && width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
     return { width, height, needsResize: false }
   }
 
-  const aspectRatio = width / height
-  let newWidth: number
-  let newHeight: number
+  let newWidth = width
+  let newHeight = height
 
-  if (width > height) {
-    newWidth = MAX_DIMENSION
-    newHeight = Math.round(MAX_DIMENSION / aspectRatio)
-  } else {
-    newHeight = MAX_DIMENSION
-    newWidth = Math.round(MAX_DIMENSION * aspectRatio)
+  // First, apply dimension cap if needed
+  if (newWidth > MAX_DIMENSION || newHeight > MAX_DIMENSION) {
+    const dimensionScale = Math.min(MAX_DIMENSION / newWidth, MAX_DIMENSION / newHeight)
+    newWidth = Math.round(newWidth * dimensionScale)
+    newHeight = Math.round(newHeight * dimensionScale)
+  }
+
+  // Then, apply pixel cap if still needed
+  const newPixels = newWidth * newHeight
+  if (newPixels > MAX_PIXELS) {
+    const pixelScale = Math.sqrt(MAX_PIXELS / newPixels)
+    newWidth = Math.round(newWidth * pixelScale)
+    newHeight = Math.round(newHeight * pixelScale)
   }
 
   return { width: newWidth, height: newHeight, needsResize: true }
