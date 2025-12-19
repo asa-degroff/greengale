@@ -21,6 +21,12 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [isHeightConstrained, setIsHeightConstrained] = useState(false)
   const [isHoveringAltZone, setIsHoveringAltZone] = useState(false)
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+
+  // Detect touch device on first touch
+  const markAsTouchDevice = useCallback(() => {
+    if (!isTouchDevice) setIsTouchDevice(true)
+  }, [isTouchDevice])
 
   // Touch/pinch state
   const [touchState, setTouchState] = useState<{
@@ -29,6 +35,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     centerX: number
     centerY: number
   } | null>(null)
+  const [touchStartPos, setTouchStartPos] = useState<{ x: number; y: number } | null>(null)
 
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -187,6 +194,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
 
   // Handle touch start (for both pan and pinch)
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    markAsTouchDevice()
     if (e.touches.length === 2) {
       // Pinch start
       e.preventDefault()
@@ -198,15 +206,20 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
         centerX: center.x,
         centerY: center.y,
       })
+      setTouchStartPos(null) // Clear tap detection for pinch
     } else if (e.touches.length === 1) {
-      // Single touch - start pan
+      // Single touch - start pan and track for tap detection
       setIsDragging(true)
       setDragStart({
         x: e.touches[0].clientX - pan.x,
         y: e.touches[0].clientY - pan.y,
       })
+      setTouchStartPos({
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+      })
     }
-  }, [zoom, pan])
+  }, [zoom, pan, markAsTouchDevice])
 
   // Handle touch move (for both pan and pinch)
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
@@ -237,14 +250,28 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
         y: e.touches[0].clientY - dragStart.y,
       }
       setPan(clampPan(newPan.x, newPan.y, zoom))
+
+      // If moved more than 10px, it's a drag not a tap
+      if (touchStartPos) {
+        const dx = e.touches[0].clientX - touchStartPos.x
+        const dy = e.touches[0].clientY - touchStartPos.y
+        if (Math.sqrt(dx * dx + dy * dy) > 10) {
+          setTouchStartPos(null)
+        }
+      }
     }
-  }, [touchState, zoom, isDragging, dragStart, clampPan])
+  }, [touchState, zoom, isDragging, dragStart, clampPan, touchStartPos])
 
   // Handle touch end
   const handleTouchEnd = useCallback(() => {
+    // If touchStartPos is still set, it was a tap (not a drag)
+    if (touchStartPos) {
+      setIsHoveringAltZone(false) // Hide alt text on tap
+    }
     setTouchState(null)
+    setTouchStartPos(null)
     setIsDragging(false)
-  }, [])
+  }, [touchStartPos])
 
   // Reset zoom and pan when closing
   const handleClose = useCallback(() => {
@@ -320,7 +347,12 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     )
   }
 
-  const showAltText = alt && (!isHeightConstrained || isHoveringAltZone)
+  // On touch devices, always require tap to show alt text
+  // On non-touch devices, show by default for width-constrained images, hover for height-constrained
+  const showAltText = alt && (isTouchDevice
+    ? isHoveringAltZone
+    : (!isHeightConstrained || isHoveringAltZone)
+  )
 
   return createPortal(
     <div
@@ -387,9 +419,14 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
             className="absolute bottom-0 left-1/2 -translate-x-1/2 pb-8 pt-24 px-8 -mx-8"
             onMouseEnter={() => setIsHoveringAltZone(true)}
             onMouseLeave={() => setIsHoveringAltZone(false)}
+            onClick={(e) => {
+              // Toggle on tap for mobile
+              e.stopPropagation()
+              setIsHoveringAltZone((prev) => !prev)
+            }}
           >
             <figcaption
-              className={`bg-black/95 pt-16 pb-10 px-8 sm:px-16 transition-opacity duration-200 w-[95vw] sm:w-auto sm:max-w-3xl ${
+              className={`bg-black/95 pt-16 pb-10 px-8 sm:px-24 transition-opacity duration-200 w-[95vw] sm:w-auto sm:max-w-3xl ${
                 showAltText ? 'opacity-100' : 'opacity-0'
               }`}
               style={{
