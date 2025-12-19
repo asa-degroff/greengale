@@ -22,6 +22,14 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const [isHeightConstrained, setIsHeightConstrained] = useState(false)
   const [isHoveringAltZone, setIsHoveringAltZone] = useState(false)
 
+  // Touch/pinch state
+  const [touchState, setTouchState] = useState<{
+    initialDistance: number
+    initialZoom: number
+    centerX: number
+    centerY: number
+  } | null>(null)
+
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -164,6 +172,80 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     setIsDragging(false)
   }, [])
 
+  // Helper to get distance between two touch points
+  const getTouchDistance = (touches: React.TouchList) => {
+    const dx = touches[0].clientX - touches[1].clientX
+    const dy = touches[0].clientY - touches[1].clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  // Helper to get center point between two touches
+  const getTouchCenter = (touches: React.TouchList) => ({
+    x: (touches[0].clientX + touches[1].clientX) / 2,
+    y: (touches[0].clientY + touches[1].clientY) / 2,
+  })
+
+  // Handle touch start (for both pan and pinch)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      // Pinch start
+      e.preventDefault()
+      const distance = getTouchDistance(e.touches)
+      const center = getTouchCenter(e.touches)
+      setTouchState({
+        initialDistance: distance,
+        initialZoom: zoom,
+        centerX: center.x,
+        centerY: center.y,
+      })
+    } else if (e.touches.length === 1) {
+      // Single touch - start pan
+      setIsDragging(true)
+      setDragStart({
+        x: e.touches[0].clientX - pan.x,
+        y: e.touches[0].clientY - pan.y,
+      })
+    }
+  }, [zoom, pan])
+
+  // Handle touch move (for both pan and pinch)
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && touchState) {
+      // Pinch zoom
+      e.preventDefault()
+      const newDistance = getTouchDistance(e.touches)
+      const scale = newDistance / touchState.initialDistance
+      const newZoom = Math.min(Math.max(touchState.initialZoom * scale, 0.5), 10)
+
+      // Calculate zoom toward pinch center
+      const viewportCenterX = window.innerWidth / 2
+      const viewportCenterY = window.innerHeight / 2
+      const pinchRelX = touchState.centerX - viewportCenterX
+      const pinchRelY = touchState.centerY - viewportCenterY
+      const zoomRatio = newZoom / zoom
+
+      setZoom(newZoom)
+      setPan((currentPan) => {
+        const newPanX = pinchRelX * (1 - zoomRatio) + currentPan.x * zoomRatio
+        const newPanY = pinchRelY * (1 - zoomRatio) + currentPan.y * zoomRatio
+        return clampPan(newPanX, newPanY, newZoom)
+      })
+    } else if (e.touches.length === 1 && isDragging) {
+      // Single touch pan
+      const newPan = {
+        x: e.touches[0].clientX - dragStart.x,
+        y: e.touches[0].clientY - dragStart.y,
+      }
+      setPan(clampPan(newPan.x, newPan.y, zoom))
+    }
+  }, [touchState, zoom, isDragging, dragStart, clampPan])
+
+  // Handle touch end
+  const handleTouchEnd = useCallback(() => {
+    setTouchState(null)
+    setIsDragging(false)
+  }, [])
+
   // Reset zoom and pan when closing
   const handleClose = useCallback(() => {
     setZoom(1)
@@ -287,12 +369,15 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
           ref={imageRef}
           src={src}
           alt={alt || ''}
-          className="max-w-full max-h-full object-contain"
+          className="max-w-full max-h-full object-contain touch-none"
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transition: isDragging ? 'none' : 'transform 0.1s ease-out',
           }}
           onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           draggable={false}
         />
 
