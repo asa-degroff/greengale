@@ -129,11 +129,34 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   }, [checkConstraint])
 
   // Handle scroll wheel zoom (zooms toward cursor position)
+  // Supports both mouse wheels (discrete steps) and touchpads (smooth pixel scrolling)
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    // Normalize deltaY based on input type
+    // deltaMode: 0 = pixels (touchpad), 1 = lines (mouse wheel), 2 = pages
+    let normalizedDelta = e.deltaY
+
+    if (e.deltaMode === 0) {
+      // Pixel mode (touchpads) - values can range from ~1-100+
+      // Scale down for smooth, proportional zooming
+      normalizedDelta /= 150
+    } else if (e.deltaMode === 1) {
+      // Line mode (mouse wheels) - typically 1-3 lines per notch
+      // Scale to give similar feel to touchpad
+      normalizedDelta /= 5
+    } else {
+      // Page mode - rare, treat like a big line scroll
+      normalizedDelta *= 1
+    }
+
+    // Clamp to prevent extreme zoom jumps from fast scrolling
+    normalizedDelta = Math.max(-0.5, Math.min(0.5, normalizedDelta))
+
+    // Convert to zoom multiplier using exponential scaling
+    // Negative delta (scroll up) = zoom in, positive (scroll down) = zoom out
+    const zoomMultiplier = Math.pow(2, -normalizedDelta)
 
     // Cursor position relative to viewport center
     const viewportCenterX = window.innerWidth / 2
@@ -142,7 +165,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     const cursorRelY = e.clientY - viewportCenterY
 
     setZoom((prevZoom) => {
-      const newZoom = Math.min(Math.max(prevZoom * delta, 0.5), 10)
+      const newZoom = Math.min(Math.max(prevZoom * zoomMultiplier, 0.5), 10)
       const zoomRatio = newZoom / prevZoom
 
       // Adjust pan to keep the point under cursor stationary
