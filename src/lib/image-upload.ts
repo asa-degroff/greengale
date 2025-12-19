@@ -5,17 +5,11 @@
  * for the GreenGale blog editor.
  */
 
-import encodeAvif, { init as initAvifEncoder } from '@jsquash/avif/encode'
-
-// Initialize AVIF encoder for multithreading support
-// SharedArrayBuffer requires COOP/COEP headers (configured in vite.config.ts and public/_headers)
-// Note: Vite correctly handles WASM and worker paths when locateFile is NOT overridden
-let encoderInitialized = false
-async function ensureEncoderInitialized() {
-  if (encoderInitialized) return
-  await initAvifEncoder()
-  encoderInitialized = true
-}
+import type {
+  EncodeRequest,
+  WorkerMessage,
+} from './avif-encoder.worker'
+import AvifEncoderWorker from './avif-encoder.worker?worker'
 
 // AT Protocol blob limit is 1,000,000 bytes
 const MAX_BLOB_SIZE = 1000 * 1000
@@ -187,46 +181,53 @@ function getImageData(
 
 /**
  * Encode ImageData to AVIF with quality adjustment to meet size limit.
+ * Runs encoding in a Web Worker to avoid blocking the main thread.
  * Throws EncodingError if the WASM encoder fails (e.g., due to memory constraints).
  */
 async function encodeToAvif(
   imageData: ImageData,
   onProgress?: (progress: number) => void
 ): Promise<ArrayBuffer> {
-  // Ensure encoder is initialized with correct paths for multithreading
-  await ensureEncoderInitialized()
+  return new Promise((resolve, reject) => {
+    const worker = new AvifEncoderWorker()
 
-  let cqLevel = CQ_LEVEL_START
-  let encoded: ArrayBuffer | null = null
+    worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+      const message = event.data
 
-  while (cqLevel <= CQ_LEVEL_MAX) {
-    onProgress?.(Math.round(((cqLevel - CQ_LEVEL_START) / (CQ_LEVEL_MAX - CQ_LEVEL_START)) * 50))
-
-    try {
-      encoded = await encodeAvif(imageData, {
-        cqLevel,
-        speed: 6, // Balance between speed and compression (0-10, higher = faster)
-      })
-    } catch (err) {
-      // WASM encoder failed - likely due to memory constraints with large images
-      const message = err instanceof Error ? err.message : String(err)
-      throw new EncodingError(`AVIF encoding failed: ${message}`)
+      switch (message.type) {
+        case 'progress':
+          onProgress?.(message.progress)
+          break
+        case 'success':
+          worker.terminate()
+          resolve(message.encoded)
+          break
+        case 'error':
+          worker.terminate()
+          if (message.isEncodingError) {
+            reject(new EncodingError(message.error))
+          } else {
+            reject(new Error(message.error))
+          }
+          break
+      }
     }
 
-    if (encoded.byteLength <= MAX_BLOB_SIZE) {
-      onProgress?.(100)
-      return encoded
+    worker.onerror = (event) => {
+      worker.terminate()
+      reject(new EncodingError(`Worker error: ${event.message}`))
     }
 
-    // Increase cqLevel (reduce quality) and try again
-    cqLevel += 5
-  }
+    const request: EncodeRequest = {
+      type: 'encode',
+      imageData,
+      cqLevelStart: CQ_LEVEL_START,
+      cqLevelMax: CQ_LEVEL_MAX,
+      maxBlobSize: MAX_BLOB_SIZE,
+    }
 
-  // If we still can't get under the limit, throw an error
-  throw new Error(
-    `Could not compress image to under ${Math.round(MAX_BLOB_SIZE / 1024)}KB. ` +
-      `Try using a smaller image or one with fewer colors.`
-  )
+    worker.postMessage(request)
+  })
 }
 
 /**
