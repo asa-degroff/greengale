@@ -25,6 +25,41 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Helper to clamp pan values to keep image visible
+  const clampPan = useCallback((panX: number, panY: number, currentZoom: number) => {
+    const img = imageRef.current
+    if (!img) return { x: panX, y: panY }
+
+    // Get the base displayed size of the image (at zoom=1)
+    // We need to calculate this from natural dimensions and viewport constraints
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const naturalWidth = img.naturalWidth
+    const naturalHeight = img.naturalHeight
+
+    if (!naturalWidth || !naturalHeight) return { x: panX, y: panY }
+
+    // Calculate the displayed size at zoom=1 (fitting within viewport)
+    const scale = Math.min(viewportWidth / naturalWidth, viewportHeight / naturalHeight, 1)
+    const baseWidth = naturalWidth * scale
+    const baseHeight = naturalHeight * scale
+
+    // Scaled size at current zoom
+    const scaledWidth = baseWidth * currentZoom
+    const scaledHeight = baseHeight * currentZoom
+
+    // Calculate max pan - when scaled image is larger than viewport,
+    // allow panning until image edge reaches viewport edge
+    // When scaled image is smaller than viewport, no panning needed
+    const maxPanX = Math.max(0, (scaledWidth - viewportWidth) / 2)
+    const maxPanY = Math.max(0, (scaledHeight - viewportHeight) / 2)
+
+    return {
+      x: Math.max(-maxPanX, Math.min(maxPanX, panX)),
+      y: Math.max(-maxPanY, Math.min(maxPanY, panY)),
+    }
+  }, [])
+
   // Close on Escape key, reset zoom on 'r'
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -84,8 +119,13 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     e.stopPropagation()
 
     const delta = e.deltaY > 0 ? 0.9 : 1.1
-    setZoom((prev) => Math.min(Math.max(prev * delta, 0.5), 10))
-  }, [])
+    setZoom((prev) => {
+      const newZoom = Math.min(Math.max(prev * delta, 0.5), 10)
+      // Clamp pan for the new zoom level
+      setPan((currentPan) => clampPan(currentPan.x, currentPan.y, newZoom))
+      return newZoom
+    })
+  }, [clampPan])
 
   // Handle drag start
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -98,11 +138,12 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   // Handle drag move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDragging) return
-    setPan({
+    const newPan = {
       x: e.clientX - dragStart.x,
       y: e.clientY - dragStart.y,
-    })
-  }, [isDragging, dragStart])
+    }
+    setPan(clampPan(newPan.x, newPan.y, zoom))
+  }, [isDragging, dragStart, zoom, clampPan])
 
   // Handle drag end
   const handleMouseUp = useCallback(() => {
