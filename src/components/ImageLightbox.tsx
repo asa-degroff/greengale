@@ -20,7 +20,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [isHeightConstrained, setIsHeightConstrained] = useState(false)
-  const [isHovering, setIsHovering] = useState(false)
+  const [isHoveringAltZone, setIsHoveringAltZone] = useState(false)
 
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -238,7 +238,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     )
   }
 
-  const showAltText = alt && (!isHeightConstrained || isHovering)
+  const showAltText = alt && (!isHeightConstrained || isHoveringAltZone)
 
   return createPortal(
     <div
@@ -248,7 +248,6 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
-      onMouseEnter={() => setIsHovering(true)}
       style={{ cursor: isDragging ? 'grabbing' : zoom > 1 ? 'grab' : 'default' }}
     >
       {/* Close button */}
@@ -283,8 +282,6 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
         role="group"
         aria-label={alt ? `Image: ${alt}` : 'Image'}
         onWheel={handleWheel}
-        onMouseEnter={() => setIsHovering(true)}
-        onMouseLeave={() => setIsHovering(false)}
       >
         <img
           ref={imageRef}
@@ -299,23 +296,45 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
           draggable={false}
         />
 
-        {/* Alt text overlay */}
+        {/* Alt text hover zone and overlay */}
         {alt && (
-          <figcaption
-            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-12 pb-4 px-4 transition-opacity duration-200 ${
-              showAltText ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            }`}
-            onWheel={(e) => e.stopPropagation()}
+          <div
+            className="absolute bottom-0 left-1/2 -translate-x-1/2 pb-8 pt-24 px-8 -mx-8"
+            onMouseEnter={() => setIsHoveringAltZone(true)}
+            onMouseLeave={() => setIsHoveringAltZone(false)}
           >
-            <div className="max-w-2xl mx-auto">
-              <span className="block text-xs font-medium text-white/50 uppercase tracking-wide mb-1">
-                Image description
-              </span>
-              <p className="text-white/90 text-sm leading-relaxed max-h-24 overflow-y-auto">
-                {alt}
-              </p>
-            </div>
-          </figcaption>
+            <figcaption
+              className={`bg-black/95 pt-16 pb-10 px-8 sm:px-16 transition-opacity duration-200 w-[95vw] sm:w-auto sm:max-w-3xl ${
+                showAltText ? 'opacity-100' : 'opacity-0'
+              }`}
+              style={{
+                maskImage: `
+                  linear-gradient(to bottom, transparent, black 25%),
+                  linear-gradient(to top, transparent, black 20%),
+                  linear-gradient(to left, transparent, black 12%),
+                  linear-gradient(to right, transparent, black 12%)
+                `,
+                maskComposite: 'intersect',
+                WebkitMaskImage: `
+                  linear-gradient(to bottom, transparent, black 25%),
+                  linear-gradient(to top, transparent, black 20%),
+                  linear-gradient(to left, transparent, black 12%),
+                  linear-gradient(to right, transparent, black 12%)
+                `,
+                WebkitMaskComposite: 'source-in',
+              }}
+              onWheel={(e) => e.stopPropagation()}
+            >
+              <div>
+                <span className="block text-xs font-medium text-white/50 uppercase tracking-wide mb-1">
+                  Image description
+                </span>
+                <p className="text-white/90 text-sm leading-relaxed max-h-24 overflow-y-auto">
+                  {alt}
+                </p>
+              </div>
+            </figcaption>
+          </div>
         )}
       </figure>
     </div>,
