@@ -3,23 +3,17 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
-// Plugin to add COOP/COEP headers for editor pages (enables SharedArrayBuffer for @jsquash/avif multithreading)
+// Plugin to add COOP/COEP headers for SharedArrayBuffer support (@jsquash/avif multithreading)
+// These headers must be on ALL pages because SPA client-side routing doesn't trigger new document requests
 function crossOriginIsolationPlugin(): Plugin {
   return {
     name: 'cross-origin-isolation',
     configureServer(server) {
-      // Add middleware for page-specific headers
       server.middlewares.use((req, res, next) => {
-        const url = req.url || ''
-        // Editor pages need COOP/COEP for SharedArrayBuffer
-        if (url === '/new' || url.startsWith('/edit/')) {
-          res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
-          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
-        }
-        // Worker files need COEP too since they create their own execution context
-        if (url.includes('.worker.js') || url.includes('worker_file')) {
-          res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
-        }
+        // Apply COOP/COEP to all responses to support client-side navigation to editor pages
+        // Use 'credentialless' instead of 'require-corp' to allow loading external images
+        res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless')
+        res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
         next()
       })
     },

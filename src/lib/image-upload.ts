@@ -9,6 +9,7 @@ import encodeAvif, { init as initAvifEncoder } from '@jsquash/avif/encode'
 
 // Initialize AVIF encoder for multithreading support
 // SharedArrayBuffer requires COOP/COEP headers (configured in vite.config.ts and public/_headers)
+// Note: Vite correctly handles WASM and worker paths when locateFile is NOT overridden
 let encoderInitialized = false
 async function ensureEncoderInitialized() {
   if (encoderInitialized) return
