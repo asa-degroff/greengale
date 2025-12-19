@@ -30,7 +30,10 @@ export interface SuccessMessage {
 export interface ErrorMessage {
   type: 'error'
   error: string
+  /** True if the WASM encoder itself failed (e.g., memory constraints) */
   isEncodingError: boolean
+  /** True if retrying with smaller dimensions might help */
+  shouldRetryWithResize: boolean
 }
 
 export type WorkerMessage = ProgressMessage | SuccessMessage | ErrorMessage
@@ -65,7 +68,7 @@ async function encodeWithQualityAdjustment(
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      throw { message: `AVIF encoding failed: ${message}`, isEncodingError: true }
+      throw { message: `AVIF encoding failed: ${message}`, isEncodingError: true, shouldRetryWithResize: true }
     }
 
     if (encoded.byteLength <= maxBlobSize) {
@@ -77,8 +80,9 @@ async function encodeWithQualityAdjustment(
   }
 
   throw {
-    message: `Could not compress image to under ${Math.round(maxBlobSize / 1024)}KB. Try using a smaller image or one with fewer colors.`,
+    message: `Could not compress to under ${Math.round(maxBlobSize / 1024)}KB at current dimensions`,
     isEncodingError: false,
+    shouldRetryWithResize: true,
   }
 }
 
@@ -97,11 +101,12 @@ self.onmessage = async (event: MessageEvent<EncodeRequest>) => {
       { transfer: [encoded] }
     )
   } catch (err) {
-    const error = err as { message: string; isEncodingError: boolean }
+    const error = err as { message: string; isEncodingError: boolean; shouldRetryWithResize: boolean }
     self.postMessage({
       type: 'error',
       error: error.message || String(err),
       isEncodingError: error.isEncodingError ?? true,
+      shouldRetryWithResize: error.shouldRetryWithResize ?? true,
     } satisfies ErrorMessage)
   }
 }

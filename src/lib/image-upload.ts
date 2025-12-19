@@ -13,19 +13,19 @@ import AvifEncoderWorker from './avif-encoder.worker?worker'
 
 // AT Protocol blob limit is 1,000,000 bytes
 const MAX_BLOB_SIZE = 1000 * 1000
-const MAX_PIXELS = 50_000_000 // Maximum total pixels (~50 megapixels)
-const MAX_DIMENSION = 12288 // Maximum single dimension (failsafe for very thin images)
+const MAX_PIXELS = 35_000_000 // Maximum total pixels (~50 megapixels)
+const MAX_DIMENSION = 10240 // Maximum single dimension (failsafe for very thin images)
 const MIN_DIMENSION = 256 // Minimum dimension before giving up on encoding
 const RESIZE_FACTOR = 0.75 // Scale factor when retrying after encoding failure
 // cqLevel: 0-63, lower is better quality (like CRF)
 const CQ_LEVEL_START = 20 // Starting quality (good balance)
-const CQ_LEVEL_MAX = 50 // Maximum cqLevel (lower quality) to try before failing
+const CQ_LEVEL_MAX = 35 // Maximum cqLevel (lower quality) to try before failing
 
-/** Error thrown when AVIF encoding fails due to resource constraints */
-class EncodingError extends Error {
+/** Error thrown when AVIF encoding fails and may benefit from resizing */
+class ResizableEncodingError extends Error {
   constructor(message: string) {
     super(message)
-    this.name = 'EncodingError'
+    this.name = 'ResizableEncodingError'
   }
 }
 
@@ -182,7 +182,7 @@ function getImageData(
 /**
  * Encode ImageData to AVIF with quality adjustment to meet size limit.
  * Runs encoding in a Web Worker to avoid blocking the main thread.
- * Throws EncodingError if the WASM encoder fails (e.g., due to memory constraints).
+ * Throws ResizableEncodingError if encoding fails and resizing might help.
  */
 async function encodeToAvif(
   imageData: ImageData,
@@ -204,8 +204,8 @@ async function encodeToAvif(
           break
         case 'error':
           worker.terminate()
-          if (message.isEncodingError) {
-            reject(new EncodingError(message.error))
+          if (message.shouldRetryWithResize) {
+            reject(new ResizableEncodingError(message.error))
           } else {
             reject(new Error(message.error))
           }
@@ -215,7 +215,7 @@ async function encodeToAvif(
 
     worker.onerror = (event) => {
       worker.terminate()
-      reject(new EncodingError(`Worker error: ${event.message}`))
+      reject(new ResizableEncodingError(`Worker error: ${event.message}`))
     }
 
     const request: EncodeRequest = {
@@ -316,17 +316,17 @@ export async function processAndUploadImage(
       })
       break // Success!
     } catch (err) {
-      if (err instanceof EncodingError) {
-        // Encoding failed, try with smaller dimensions
+      if (err instanceof ResizableEncodingError) {
+        // Encoding failed or size limit exceeded, try with smaller dimensions
         lastError = err
         width = Math.round(width * RESIZE_FACTOR)
         height = Math.round(height * RESIZE_FACTOR)
         console.warn(
-          `AVIF encoding failed, retrying with smaller dimensions: ${width}x${height}`
+          `Encoding issue at current size, retrying with smaller dimensions: ${width}x${height}`
         )
         continue
       }
-      // Non-encoding error (e.g., size limit), rethrow
+      // Non-resizable error, rethrow
       throw err
     }
   }
