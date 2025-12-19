@@ -720,7 +720,7 @@ html {
 
 /* Table of Contents */
 .toc {
-  max-height: calc(100vh - 8rem);
+  max-height: calc(100vh - 10rem);
   overflow-y: auto;
 }
 
