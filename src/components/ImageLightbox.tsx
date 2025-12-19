@@ -39,6 +39,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
 
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const figureRef = useRef<HTMLElement>(null)
 
   // Helper to clamp pan values to keep image visible
   const clampPan = useCallback((panX: number, panY: number, currentZoom: number) => {
@@ -130,7 +131,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
 
   // Handle scroll wheel zoom (zooms toward cursor position)
   // Supports both mouse wheels (discrete steps) and touchpads (smooth pixel scrolling)
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault()
     e.stopPropagation()
 
@@ -178,6 +179,15 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
       return newZoom
     })
   }, [clampPan])
+
+  // Attach wheel listener with { passive: false } to allow preventDefault
+  useEffect(() => {
+    const figure = figureRef.current
+    if (!figure) return
+
+    figure.addEventListener('wheel', handleWheel, { passive: false })
+    return () => figure.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
 
   // Handle drag start
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -415,10 +425,10 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
 
       {/* Image container */}
       <figure
+        ref={figureRef}
         className="w-full h-full flex items-center justify-center overflow-hidden"
         role="group"
         aria-label={alt ? `Image: ${alt}` : 'Image'}
-        onWheel={handleWheel}
       >
         <img
           ref={imageRef}

@@ -18,13 +18,22 @@ async function ensureEncoderInitialized() {
 }
 
 // AT Protocol blob limit is 1,000,000 bytes
-// Target ~900KB to leave margin for encoding overhead
-const MAX_BLOB_SIZE = 900 * 1024
-const MAX_PIXELS = 25_000_000 // Maximum total pixels (~25 megapixels)
-const MAX_DIMENSION = 10240 // Maximum single dimension (failsafe for very thin images)
+const MAX_BLOB_SIZE = 1000 * 1000
+const MAX_PIXELS = 50_000_000 // Maximum total pixels (~50 megapixels)
+const MAX_DIMENSION = 12288 // Maximum single dimension (failsafe for very thin images)
+const MIN_DIMENSION = 256 // Minimum dimension before giving up on encoding
+const RESIZE_FACTOR = 0.75 // Scale factor when retrying after encoding failure
 // cqLevel: 0-63, lower is better quality (like CRF)
 const CQ_LEVEL_START = 20 // Starting quality (good balance)
 const CQ_LEVEL_MAX = 50 // Maximum cqLevel (lower quality) to try before failing
+
+/** Error thrown when AVIF encoding fails due to resource constraints */
+class EncodingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EncodingError'
+  }
+}
 
 // Supported input image types
 const SUPPORTED_TYPES = new Set([
@@ -177,7 +186,8 @@ function getImageData(
 }
 
 /**
- * Encode ImageData to AVIF with quality adjustment to meet size limit
+ * Encode ImageData to AVIF with quality adjustment to meet size limit.
+ * Throws EncodingError if the WASM encoder fails (e.g., due to memory constraints).
  */
 async function encodeToAvif(
   imageData: ImageData,
@@ -192,10 +202,16 @@ async function encodeToAvif(
   while (cqLevel <= CQ_LEVEL_MAX) {
     onProgress?.(Math.round(((cqLevel - CQ_LEVEL_START) / (CQ_LEVEL_MAX - CQ_LEVEL_START)) * 50))
 
-    encoded = await encodeAvif(imageData, {
-      cqLevel,
-      speed: 6, // Balance between speed and compression (0-10, higher = faster)
-    })
+    try {
+      encoded = await encodeAvif(imageData, {
+        cqLevel,
+        speed: 6, // Balance between speed and compression (0-10, higher = faster)
+      })
+    } catch (err) {
+      // WASM encoder failed - likely due to memory constraints with large images
+      const message = err instanceof Error ? err.message : String(err)
+      throw new EncodingError(`AVIF encoding failed: ${message}`)
+    }
 
     if (encoded.byteLength <= MAX_BLOB_SIZE) {
       onProgress?.(100)
@@ -278,18 +294,48 @@ export async function processAndUploadImage(
   }
   onProgress?.({ stage: 'validating', progress: 100, filename })
 
-  // Stage 2: Load and resize
+  // Stage 2: Load image
   onProgress?.({ stage: 'resizing', progress: 0, filename })
   const img = await loadImage(file)
-  const { width, height } = calculateResizedDimensions(img.width, img.height)
-  const imageData = getImageData(img, width, height)
-  onProgress?.({ stage: 'resizing', progress: 100, filename })
+  let { width, height } = calculateResizedDimensions(img.width, img.height)
 
-  // Stage 3: Encode to AVIF
-  onProgress?.({ stage: 'encoding', progress: 0, filename })
-  const encoded = await encodeToAvif(imageData, (p) => {
-    onProgress?.({ stage: 'encoding', progress: p, filename })
-  })
+  // Stage 3: Encode to AVIF with progressive resizing fallback
+  let encoded: ArrayBuffer | null = null
+  let lastError: Error | null = null
+
+  while (width >= MIN_DIMENSION && height >= MIN_DIMENSION) {
+    onProgress?.({ stage: 'resizing', progress: 50, filename })
+    const imageData = getImageData(img, width, height)
+    onProgress?.({ stage: 'resizing', progress: 100, filename })
+
+    onProgress?.({ stage: 'encoding', progress: 0, filename })
+    try {
+      encoded = await encodeToAvif(imageData, (p) => {
+        onProgress?.({ stage: 'encoding', progress: p, filename })
+      })
+      break // Success!
+    } catch (err) {
+      if (err instanceof EncodingError) {
+        // Encoding failed, try with smaller dimensions
+        lastError = err
+        width = Math.round(width * RESIZE_FACTOR)
+        height = Math.round(height * RESIZE_FACTOR)
+        console.warn(
+          `AVIF encoding failed, retrying with smaller dimensions: ${width}x${height}`
+        )
+        continue
+      }
+      // Non-encoding error (e.g., size limit), rethrow
+      throw err
+    }
+  }
+
+  if (!encoded) {
+    throw new Error(
+      `Could not encode image even at minimum dimensions. ` +
+        `Original error: ${lastError?.message || 'Unknown encoding error'}`
+    )
+  }
 
   // Stage 4: Upload to PDS
   onProgress?.({ stage: 'uploading', progress: 0, filename })
