@@ -9,7 +9,7 @@ function crossOriginIsolationPlugin(): Plugin {
   return {
     name: 'cross-origin-isolation',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
+      server.middlewares.use((_req, res, next) => {
         // Apply COOP/COEP to all responses to support client-side navigation to editor pages
         // Use 'credentialless' instead of 'require-corp' to allow loading external images
         res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless')
