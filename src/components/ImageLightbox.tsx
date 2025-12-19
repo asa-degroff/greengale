@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import { getLabelWarningText } from '@/lib/image-labels'
@@ -13,11 +13,26 @@ interface ImageLightboxProps {
 export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps) {
   const [acknowledged, setAcknowledged] = useState(false)
   const hasLabels = labels && labels.length > 0
-  // Close on Escape key
+
+  // Zoom and pan state
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
+  const [isHeightConstrained, setIsHeightConstrained] = useState(false)
+  const [isHovering, setIsHovering] = useState(false)
+
+  const imageRef = useRef<HTMLImageElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Close on Escape key, reset zoom on 'r'
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose()
+      } else if (e.key === 'r' || e.key === 'R') {
+        setZoom(1)
+        setPan({ x: 0, y: 0 })
       }
     },
     [onClose]
@@ -34,12 +49,92 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     }
   }, [handleKeyDown])
 
+  // Determine if image is height-constrained
+  const checkConstraint = useCallback(() => {
+    const img = imageRef.current
+    if (!img || !img.naturalWidth || !img.naturalHeight) return
+
+    const windowAspect = window.innerWidth / window.innerHeight
+    const imageAspect = img.naturalWidth / img.naturalHeight
+
+    // If image aspect ratio is taller than window, it's height-constrained
+    setIsHeightConstrained(imageAspect < windowAspect)
+  }, [])
+
+  useEffect(() => {
+    const img = imageRef.current
+    if (img) {
+      if (img.complete) {
+        checkConstraint()
+      } else {
+        img.addEventListener('load', checkConstraint)
+        return () => img.removeEventListener('load', checkConstraint)
+      }
+    }
+  }, [checkConstraint])
+
+  useEffect(() => {
+    window.addEventListener('resize', checkConstraint)
+    return () => window.removeEventListener('resize', checkConstraint)
+  }, [checkConstraint])
+
+  // Handle scroll wheel zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    setZoom((prev) => Math.min(Math.max(prev * delta, 0.5), 10))
+  }, [])
+
+  // Handle drag start
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return // Only left click
+    e.preventDefault()
+    setIsDragging(true)
+    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
+  }, [pan])
+
+  // Handle drag move
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging) return
+    setPan({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    })
+  }, [isDragging, dragStart])
+
+  // Handle drag end
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false)
+  }, [])
+
+  // Reset zoom and pan when closing
+  const handleClose = useCallback(() => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+    onClose()
+  }, [onClose])
+
+  // Handle background click (close only if not dragging and zoom is 1)
+  const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
+    if (e.target === e.currentTarget && !isDragging) {
+      if (zoom === 1) {
+        handleClose()
+      } else {
+        // Reset zoom on background click when zoomed
+        setZoom(1)
+        setPan({ x: 0, y: 0 })
+      }
+    }
+  }, [isDragging, zoom, handleClose])
+
   // Show content warning screen if image has labels
   if (hasLabels && !acknowledged) {
     return createPortal(
       <div
         className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       >
         <div
           className="text-center p-8 max-w-md"
@@ -70,7 +165,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
 
           <div className="flex gap-4 justify-center">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
             >
               Cancel
@@ -88,15 +183,23 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     )
   }
 
+  const showAltText = alt && (!isHeightConstrained || isHovering)
+
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm"
-      onClick={onClose}
+      ref={containerRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm select-none"
+      onClick={handleBackgroundClick}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      onMouseEnter={() => setIsHovering(true)}
+      style={{ cursor: isDragging ? 'grabbing' : zoom > 1 ? 'grab' : 'default' }}
     >
       {/* Close button */}
       <button
-        onClick={onClose}
-        className="absolute top-4 right-4 p-2 text-white/80 hover:text-white transition-colors rounded-full hover:bg-white/10"
+        onClick={handleClose}
+        className="absolute top-4 right-4 p-2 text-white/80 hover:text-white transition-colors rounded-full hover:bg-white/10 z-10"
         aria-label="Close"
       >
         <svg
@@ -112,24 +215,51 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
         </svg>
       </button>
 
+      {/* Zoom indicator */}
+      {zoom !== 1 && (
+        <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/50 text-white/80 text-sm rounded-full z-10">
+          {Math.round(zoom * 100)}%
+        </div>
+      )}
+
       {/* Image container */}
       <figure
-        className="max-w-[95vw] max-h-[95vh] p-4"
-        onClick={(e) => e.stopPropagation()}
+        className="w-full h-full flex items-center justify-center overflow-hidden"
         role="group"
         aria-label={alt ? `Image: ${alt}` : 'Image'}
+        onWheel={handleWheel}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
       >
         <img
+          ref={imageRef}
           src={src}
           alt={alt || ''}
-          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+          className="max-w-full max-h-full object-contain"
+          style={{
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+          }}
+          onMouseDown={handleMouseDown}
+          draggable={false}
         />
+
+        {/* Alt text overlay */}
         {alt && (
-          <figcaption className="mt-3 bg-black/50 rounded-lg max-w-2xl mx-auto max-h-32 overflow-y-auto">
-            <span className="block text-xs font-medium text-white/50 uppercase tracking-wide px-3 pt-3 pb-1 sticky top-0 bg-black/80 backdrop-blur-sm rounded-t-lg">
-              Image description
-            </span>
-            <p className="text-white/90 text-sm leading-relaxed px-3 pb-3">{alt}</p>
+          <figcaption
+            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent pt-12 pb-4 px-4 transition-opacity duration-200 ${
+              showAltText ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            onWheel={(e) => e.stopPropagation()}
+          >
+            <div className="max-w-2xl mx-auto">
+              <span className="block text-xs font-medium text-white/50 uppercase tracking-wide mb-1">
+                Image description
+              </span>
+              <p className="text-white/90 text-sm leading-relaxed max-h-24 overflow-y-auto">
+                {alt}
+              </p>
+            </div>
           </figcaption>
         )}
       </figure>
