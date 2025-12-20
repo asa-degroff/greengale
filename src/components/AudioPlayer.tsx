@@ -1,7 +1,7 @@
 /**
  * Audio Player Component
  *
- * Fixed bottom bar for TTS playback with play/pause, progress, speed control.
+ * Fixed bottom bar for TTS playback with play/pause, current sentence, and speed control.
  */
 
 import type { TTSState, PlaybackRate } from '@/lib/tts'
@@ -21,12 +21,6 @@ interface AudioPlayerProps {
   onPlaybackRateChange: (rate: PlaybackRate) => void
 }
 
-function formatTime(seconds: number): string {
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
-}
-
 export function AudioPlayer({
   state,
   playbackState,
@@ -35,9 +29,6 @@ export function AudioPlayer({
   onStop,
   onPlaybackRateChange,
 }: AudioPlayerProps) {
-  const progress =
-    playbackState.duration > 0 ? (playbackState.currentTime / playbackState.duration) * 100 : 0
-
   const isGenerating = state.status === 'generating'
   const isPlaying = state.status === 'playing'
   const isPaused = state.status === 'paused'
@@ -63,40 +54,15 @@ export function AudioPlayer({
           )}
         </button>
 
-        {/* Progress Section */}
-        <div className="audio-player-progress-section">
-          {/* Progress Bar */}
-          <div className="audio-player-progress-bar">
-            <div
-              className="audio-player-progress-fill"
-              style={{ width: `${progress}%` }}
-            />
-            {/* Buffer indicator when generating */}
-            {isGenerating && (
-              <div
-                className="audio-player-progress-buffer"
-                style={{ width: `${state.generationProgress}%` }}
-              />
-            )}
-          </div>
-
-          {/* Current Sentence */}
-          <div className="audio-player-sentence">
-            {state.currentSentence ? (
-              <span className="truncate">{state.currentSentence}</span>
-            ) : isGenerating ? (
-              <span className="text-[var(--theme-text-secondary)]">Generating audio...</span>
-            ) : (
-              <span className="text-[var(--theme-text-secondary)]">Ready to play</span>
-            )}
-          </div>
-        </div>
-
-        {/* Time Display */}
-        <div className="audio-player-time">
-          <span>{formatTime(playbackState.currentTime)}</span>
-          <span className="text-[var(--theme-text-secondary)]"> / </span>
-          <span>{formatTime(playbackState.duration)}</span>
+        {/* Current Sentence Display */}
+        <div className="audio-player-sentence-display">
+          {state.currentSentence ? (
+            <span className="audio-player-sentence-text">{state.currentSentence}</span>
+          ) : isGenerating ? (
+            <span className="audio-player-sentence-placeholder">Generating audio...</span>
+          ) : (
+            <span className="audio-player-sentence-placeholder">Ready to play</span>
+          )}
         </div>
 
         {/* Speed Control */}

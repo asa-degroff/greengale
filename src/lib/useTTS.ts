@@ -37,7 +37,7 @@ interface UseTTSReturn {
 }
 
 // Minimum chunks to buffer before starting playback
-const MIN_BUFFER_CHUNKS = 2
+const MIN_BUFFER_CHUNKS = 1
 
 export function useTTS(): UseTTSReturn {
   const [state, setState] = useState<TTSState>(initialTTSState)
@@ -63,6 +63,7 @@ export function useTTS(): UseTTSReturn {
   const pendingGenerationRef = useRef<PendingGeneration | null>(null)
   const schedulerIntervalRef = useRef<number | null>(null)
   const generationCompleteRef = useRef(false)
+  const sentenceTimeoutsRef = useRef<number[]>([])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -71,6 +72,10 @@ export function useTTS(): UseTTSReturn {
         clearInterval(schedulerIntervalRef.current)
         schedulerIntervalRef.current = null
       }
+      for (const timeoutId of sentenceTimeoutsRef.current) {
+        clearTimeout(timeoutId)
+      }
+      sentenceTimeoutsRef.current = []
       if (workerRef.current) {
         workerRef.current.terminate()
         workerRef.current = null
@@ -129,21 +134,33 @@ export function useTTS(): UseTTSReturn {
       scheduledEndTimeRef.current = startTime + duration
       totalScheduledDurationRef.current += duration
 
-      // Update current sentence when this chunk starts playing
+      // Update current sentence when this chunk actually starts playing (not when scheduled)
       const chunkText = chunk.text
       const chunkIndex = chunk.sentenceIndex
+      const delayUntilStart = (startTime - currentTime) * 1000 // Convert to milliseconds
+
+      // Schedule the sentence update for when the audio actually starts
+      const timeoutId = window.setTimeout(() => {
+        // Remove this timeout from tracking
+        const idx = sentenceTimeoutsRef.current.indexOf(timeoutId)
+        if (idx > -1) sentenceTimeoutsRef.current.splice(idx, 1)
+
+        // Only update if we're still playing and not paused
+        if (isPlayingRef.current && !isPausedRef.current) {
+          setState((prev) => ({
+            ...prev,
+            currentSentence: chunkText,
+            sentenceIndex: chunkIndex,
+          }))
+        }
+      }, Math.max(0, delayUntilStart))
+      sentenceTimeoutsRef.current.push(timeoutId)
+
       source.onended = () => {
         // Remove from scheduled sources
         const idx = scheduledSourcesRef.current.indexOf(source)
         if (idx > -1) scheduledSourcesRef.current.splice(idx, 1)
       }
-
-      // Update state with current sentence
-      setState((prev) => ({
-        ...prev,
-        currentSentence: chunkText,
-        sentenceIndex: chunkIndex,
-      }))
     }
 
     // Update playback time based on audio context time
@@ -234,13 +251,13 @@ export function useTTS(): UseTTSReturn {
           break
 
         case 'generation-progress':
+          // Only update generation progress, not currentSentence
+          // currentSentence is updated in scheduleChunks when audio actually plays
           setState((prev) => ({
             ...prev,
             status: prev.status === 'playing' ? 'playing' : 'generating',
             generationProgress: message.progress,
-            sentenceIndex: message.sentenceIndex,
             totalSentences: message.totalSentences,
-            currentSentence: message.currentSentence,
           }))
           break
 
@@ -377,6 +394,12 @@ export function useTTS(): UseTTSReturn {
     // Stop the scheduler
     stopScheduler()
 
+    // Clear pending sentence timeouts
+    for (const timeoutId of sentenceTimeoutsRef.current) {
+      clearTimeout(timeoutId)
+    }
+    sentenceTimeoutsRef.current = []
+
     // Suspend audio context (this pauses all scheduled sources)
     if (audioContextRef.current) {
       audioContextRef.current.suspend()
@@ -405,6 +428,12 @@ export function useTTS(): UseTTSReturn {
   const stop = useCallback(() => {
     // Stop the scheduler
     stopScheduler()
+
+    // Clear pending sentence timeouts
+    for (const timeoutId of sentenceTimeoutsRef.current) {
+      clearTimeout(timeoutId)
+    }
+    sentenceTimeoutsRef.current = []
 
     // Stop the worker
     if (workerRef.current) {
