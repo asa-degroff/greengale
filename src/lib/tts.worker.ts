@@ -24,6 +24,35 @@ let currentVoice = DEFAULT_VOICE
 let isGenerating = false
 let stopRequested = false
 
+/**
+ * Trim trailing silence from audio data.
+ * Keeps a small amount of silence for natural speech rhythm.
+ */
+function trimTrailingSilence(audio: Float32Array, sampleRate: number): Float32Array {
+  const silenceThreshold = 0.01 // Amplitude below this is considered silence
+  const minTrailingSamples = Math.floor(sampleRate * 0.1) // Keep 100ms of trailing audio
+
+  // Find the last non-silent sample
+  let lastNonSilentIndex = audio.length - 1
+  for (let i = audio.length - 1; i >= 0; i--) {
+    if (Math.abs(audio[i]) > silenceThreshold) {
+      lastNonSilentIndex = i
+      break
+    }
+  }
+
+  // Keep some trailing samples for natural rhythm, but trim excessive silence
+  const endIndex = Math.min(audio.length, lastNonSilentIndex + minTrailingSamples)
+
+  // Only trim if we're saving a significant amount (more than 200ms)
+  const trimThreshold = Math.floor(sampleRate * 0.2)
+  if (audio.length - endIndex > trimThreshold) {
+    return audio.slice(0, endIndex)
+  }
+
+  return audio
+}
+
 function postMessage(message: WorkerMessage, transfer?: Transferable[]) {
   if (transfer) {
     self.postMessage(message, { transfer })
@@ -194,10 +223,14 @@ async function generateAudio(text: string, voice?: string) {
       }
 
       const audioData = result.audio as Float32Array
-      console.log('[TTS Worker] Audio data length:', audioData.length, 'sample rate:', result.sampling_rate)
+      const sampleRate = result.sampling_rate || 24000
+
+      // Trim trailing silence to avoid long pauses between sentences
+      const trimmedAudio = trimTrailingSilence(audioData, sampleRate)
+      console.log('[TTS Worker] Audio data length:', audioData.length, '-> trimmed:', trimmedAudio.length, 'sample rate:', sampleRate)
 
       // Clone the audio data before transferring since RawAudio might hold references
-      const audioClone = new Float32Array(audioData)
+      const audioClone = new Float32Array(trimmedAudio)
 
       postMessage(
         {

@@ -235,17 +235,41 @@ export function extractTextForTTS(markdown: string): string {
 
 /**
  * Split text into sentences for streaming TTS.
- * Handles common abbreviations and edge cases.
+ * Handles paragraph breaks, list items, and common edge cases.
  */
 export function splitIntoSentences(text: string): string[] {
-  // Simple sentence splitting - split on . ! ? followed by space or end
-  // This is a basic implementation; could be enhanced with NLP if needed
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
+  const sentences: string[] = []
 
-  return sentences.length > 0 ? sentences : [text]
+  // Split on newlines first to handle list items and paragraph breaks
+  const lines = text.split(/\n/).map((l) => l.trim()).filter((l) => l.length > 0)
+
+  for (const line of lines) {
+    // Normalize whitespace within the line
+    const normalized = line.replace(/\s+/g, ' ').trim()
+    if (!normalized) continue
+
+    // Check if this line ends with a colon (like "Here's what happens:")
+    // If so, treat it as its own sentence
+    if (normalized.endsWith(':')) {
+      sentences.push(normalized)
+      continue
+    }
+
+    // Split on sentence-ending punctuation followed by space
+    const lineSentences = normalized
+      .split(/(?<=[.!?])\s+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+
+    // If no sentences found (e.g., a list item without period), use the whole line
+    if (lineSentences.length === 0 && normalized.length > 0) {
+      sentences.push(normalized)
+    } else {
+      sentences.push(...lineSentences)
+    }
+  }
+
+  return sentences.length > 0 ? sentences : [text.replace(/\s+/g, ' ').trim()]
 }
 
 // ==================== CONSTANTS ====================
