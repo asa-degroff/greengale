@@ -36,7 +36,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ['@jsquash/avif'],
+    exclude: ['@jsquash/avif', 'kokoro-js', 'onnxruntime-web'],
   },
   worker: {
     format: 'es',

@@ -987,3 +987,269 @@ html {
 .markdown-body .image-with-alt-container .alt-badge {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
+
+/* ==================== Audio Player ==================== */
+
+.audio-player {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--theme-bg);
+  border-top: 1px solid var(--theme-border);
+  padding: 0.75rem 1rem;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Account for sidebar on larger screens */
+@media (min-width: 1024px) {
+  .audio-player {
+    left: 16rem;
+  }
+}
+
+.audio-player-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 64rem;
+  margin: 0 auto;
+}
+
+.audio-player-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 1px solid var(--theme-border);
+  background: transparent;
+  color: var(--theme-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.audio-player-button:hover:not(:disabled) {
+  background: var(--theme-code-bg);
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+.audio-player-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.audio-player-play {
+  background: var(--theme-accent);
+  border-color: var(--theme-accent);
+  color: white;
+}
+
+.audio-player-play:hover:not(:disabled) {
+  background: var(--theme-accent);
+  opacity: 0.9;
+  color: white;
+}
+
+.audio-player-close {
+  width: 2rem;
+  height: 2rem;
+}
+
+.audio-player-progress-section {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.audio-player-progress-bar {
+  position: relative;
+  height: 4px;
+  background: var(--theme-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.audio-player-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--theme-accent);
+  border-radius: 2px;
+  transition: width 0.1s ease;
+}
+
+.audio-player-progress-buffer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--theme-text-secondary);
+  opacity: 0.3;
+  border-radius: 2px;
+}
+
+.audio-player-sentence {
+  font-size: 0.75rem;
+  color: var(--theme-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-player-time {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.audio-player-speed {
+  flex-shrink: 0;
+}
+
+.audio-player-speed-select {
+  appearance: none;
+  background: var(--theme-code-bg);
+  border: 1px solid var(--theme-border);
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--theme-text);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.audio-player-speed-select:hover {
+  border-color: var(--theme-text-secondary);
+}
+
+.audio-player-speed-select:focus {
+  outline: none;
+  border-color: var(--theme-accent);
+}
+
+/* Mobile layout */
+@media (max-width: 640px) {
+  .audio-player-content {
+    flex-wrap: wrap;
+  }
+
+  .audio-player-progress-section {
+    order: 3;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .audio-player-time {
+    order: 2;
+  }
+}
+
+/* ==================== TTS Download Modal ==================== */
+
+.tts-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  padding: 1rem;
+}
+
+.tts-modal {
+  background: var(--theme-bg);
+  border: 1px solid var(--theme-border);
+  border-radius: 1rem;
+  padding: 2rem;
+  max-width: 24rem;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+}
+
+.tts-modal-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.tts-modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--theme-text);
+  margin-bottom: 0.5rem;
+}
+
+.tts-modal-status {
+  font-size: 0.875rem;
+  color: var(--theme-text-secondary);
+  margin-bottom: 1rem;
+}
+
+.tts-modal-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.tts-modal-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--theme-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tts-modal-progress-fill {
+  height: 100%;
+  background: var(--theme-accent);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.tts-modal-progress-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--theme-text);
+  min-width: 3rem;
+  text-align: right;
+}
+
+.tts-modal-note {
+  font-size: 0.75rem;
+  color: var(--theme-text-secondary);
+  margin-bottom: 1.5rem;
+}
+
+.tts-modal-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--theme-border);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tts-modal-cancel:hover {
+  border-color: var(--theme-text-secondary);
+  color: var(--theme-text);
+}
