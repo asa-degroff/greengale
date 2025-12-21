@@ -36,8 +36,10 @@ interface UseTTSReturn {
   setPlaybackRate: (rate: PlaybackRate) => void
 }
 
-// Minimum chunks to buffer before starting playback
-const MIN_BUFFER_CHUNKS = 1
+// Minimum seconds of audio to buffer before starting playback
+// This helps prevent gaps when short sentences are followed by long ones
+const MIN_BUFFER_SECONDS = 20
+const SAMPLE_RATE_FOR_CALC = 24000
 
 export function useTTS(): UseTTSReturn {
   const [state, setState] = useState<TTSState>(initialTTSState)
@@ -110,8 +112,8 @@ export function useTTS(): UseTTSReturn {
     const queue = audioQueueRef.current
     const currentTime = ctx.currentTime
 
-    // Schedule all available chunks ahead of time (up to 2 seconds ahead)
-    const scheduleAheadTime = 2.0
+    // Schedule all available chunks ahead of time (up to 10 seconds ahead)
+    const scheduleAheadTime = 10.0
     while (queue.length > 0 && scheduledEndTimeRef.current < currentTime + scheduleAheadTime) {
       const chunk = queue.shift()
       if (!chunk) break
@@ -200,8 +202,20 @@ export function useTTS(): UseTTSReturn {
   }, [])
 
   const tryStartPlayback = useCallback(() => {
+    if (isPlayingRef.current) return
+
     const queue = audioQueueRef.current
-    if (queue.length >= MIN_BUFFER_CHUNKS && !isPlayingRef.current) {
+    if (queue.length === 0) return
+
+    // Calculate total buffered duration
+    const bufferedSamples = queue.reduce((sum, chunk) => sum + chunk.audio.length, 0)
+    const bufferedSeconds = bufferedSamples / SAMPLE_RATE_FOR_CALC
+
+    // Start playback if we have enough buffer OR if generation is complete
+    const hasEnoughBuffer = bufferedSeconds >= MIN_BUFFER_SECONDS
+    const generationDone = generationCompleteRef.current
+
+    if (hasEnoughBuffer || generationDone) {
       isPlayingRef.current = true
       isPausedRef.current = false
       const ctx = getOrCreateAudioContext()
@@ -283,6 +297,12 @@ export function useTTS(): UseTTSReturn {
             ...prev,
             generationProgress: 100,
           }))
+
+          // If we have buffered audio but haven't started playing yet
+          // (content was shorter than MIN_BUFFER_SECONDS), start now
+          if (!isPlayingRef.current && audioQueueRef.current.length > 0) {
+            tryStartPlayback()
+          }
 
           // If queue is empty and we're not playing, we're done
           if (audioQueueRef.current.length === 0 && !isPlayingRef.current) {
