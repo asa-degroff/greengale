@@ -261,6 +261,7 @@ export interface PresetColors {
   background: string
   text: string
   accent: string
+  link: string
   codeBackground: string
 }
 
@@ -269,42 +270,49 @@ const PRESET_COLORS: Record<Exclude<ThemePreset, 'default' | 'custom'>, PresetCo
     background: '#ffffff',
     text: '#24292f',
     accent: '#0969da',
+    link: '#0969da',
     codeBackground: '#f6f8fa',
   },
   'github-dark': {
     background: '#0d1117',
     text: '#c9d1d9',
     accent: '#58a6ff',
+    link: '#58a6ff',
     codeBackground: '#161b22',
   },
   dracula: {
     background: '#282a36',
     text: '#f8f8f2',
     accent: '#bd93f9',
+    link: '#8be9fd',
     codeBackground: '#1e1f29',
   },
   nord: {
     background: '#2e3440',
     text: '#eceff4',
     accent: '#88c0d0',
+    link: '#88c0d0',
     codeBackground: '#3b4252',
   },
   'solarized-light': {
     background: '#fdf6e3',
     text: '#657b83',
     accent: '#268bd2',
+    link: '#268bd2',
     codeBackground: '#eee8d5',
   },
   'solarized-dark': {
     background: '#002b36',
     text: '#839496',
     accent: '#268bd2',
+    link: '#268bd2',
     codeBackground: '#073642',
   },
   monokai: {
     background: '#272822',
     text: '#f8f8f2',
     accent: '#a6e22e',
+    link: '#66d9ef',
     codeBackground: '#1e1f1c',
   },
 }

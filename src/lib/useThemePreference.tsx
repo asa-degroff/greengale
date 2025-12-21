@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { ThemePreset, CustomColors } from './themes'
-import { deriveFullSiteColors } from './themes'
+import { deriveFullSiteColors, getPresetColors } from './themes'
 
 // Background colors for each theme preset (used for theme-color meta tag)
 // For 'default', we check the site theme (light/dark) separately
@@ -149,12 +149,15 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.setAttribute('data-active-theme', effectiveTheme)
 
-    // Apply custom theme colors to document root
+    // Apply theme colors to document root as inline styles
+    // This ensures CSS variables are set with highest priority for all theme types
     const customColorProps: string[] = []
+    const style = document.documentElement.style
+
     if (effectiveTheme === 'custom' && effectiveCustomColors) {
+      // Custom theme: derive colors from user's custom colors
       const colors = deriveFullSiteColors(effectiveCustomColors)
       if (colors) {
-        const style = document.documentElement.style
         // Site-wide variables
         style.setProperty('--site-bg', colors.background)
         style.setProperty('--site-bg-secondary', colors.bgSecondary)
@@ -194,7 +197,21 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       } else {
         updateThemeColor(effectiveTheme)
       }
+    } else if (effectiveTheme !== 'default') {
+      // Preset theme: apply preset colors as inline styles to ensure they take priority
+      // This fixes issues where TTS highlighting and other features need --theme-link
+      const presetColors = getPresetColors(effectiveTheme)
+      style.setProperty('--theme-link', presetColors.link)
+      style.setProperty('--theme-accent', presetColors.accent)
+      customColorProps.push('--theme-link', '--theme-accent')
+
+      updateThemeColor(effectiveTheme)
     } else {
+      // Default theme: CSS handles it via var(--site-accent)
+      // Clear any leftover inline theme properties
+      style.removeProperty('--theme-link')
+      style.removeProperty('--theme-accent')
+
       updateThemeColor(effectiveTheme)
     }
 
