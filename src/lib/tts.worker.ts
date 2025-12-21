@@ -88,9 +88,9 @@ async function initializeModel(device: 'webgpu' | 'wasm', _dtype: 'fp32' | 'q8',
         device: config.device,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         progress_callback: (progress: any) => {
-          // Progress can be various types depending on the stage
+          // Progress is already 0-100 from transformers.js
           const percent = typeof progress?.progress === 'number'
-            ? Math.round(progress.progress * 100)
+            ? Math.min(100, Math.round(progress.progress))
             : 0
           postMessage({
             type: 'model-progress',
