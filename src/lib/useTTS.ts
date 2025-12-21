@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { WorkerRequest, WorkerMessage, TTSState, PlaybackRate } from './tts'
-import { initialTTSState, detectCapabilities, SAMPLE_RATE, DEFAULT_VOICE } from './tts'
+import { initialTTSState, detectCapabilities, SAMPLE_RATE, DEFAULT_VOICE, splitIntoSentences } from './tts'
 import TTSWorker from './tts.worker?worker'
 
 interface AudioChunk {
@@ -34,6 +34,7 @@ interface UseTTSReturn {
   resume: () => void
   stop: () => void
   setPlaybackRate: (rate: PlaybackRate) => void
+  seek: (sentenceText: string) => void
 }
 
 // Minimum seconds of audio to buffer before starting playback
@@ -54,6 +55,7 @@ export function useTTS(): UseTTSReturn {
   const audioContextRef = useRef<AudioContext | null>(null)
   const gainNodeRef = useRef<GainNode | null>(null)
   const audioQueueRef = useRef<AudioChunk[]>([])
+  const allChunksRef = useRef<AudioChunk[]>([]) // Store all generated chunks for seeking
   const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
   const scheduledEndTimeRef = useRef<number>(0)
   const isPlayingRef = useRef(false)
@@ -66,6 +68,8 @@ export function useTTS(): UseTTSReturn {
   const schedulerIntervalRef = useRef<number | null>(null)
   const generationCompleteRef = useRef(false)
   const sentenceTimeoutsRef = useRef<number[]>([])
+  const originalTextRef = useRef<string>('') // Store original text for seeking to un-generated sentences
+  const allSentencesRef = useRef<string[]>([]) // Store all sentences for seeking
 
   // Cleanup on unmount
   useEffect(() => {
@@ -275,12 +279,14 @@ export function useTTS(): UseTTSReturn {
           }))
           break
 
-        case 'audio-chunk':
-          audioQueueRef.current.push({
+        case 'audio-chunk': {
+          const chunk: AudioChunk = {
             audio: message.audio,
             text: message.text,
             sentenceIndex: message.sentenceIndex,
-          })
+          }
+          audioQueueRef.current.push(chunk)
+          allChunksRef.current.push(chunk) // Store for seeking
 
           // Try to start playback if we have enough buffered
           tryStartPlayback()
@@ -290,6 +296,7 @@ export function useTTS(): UseTTSReturn {
             scheduleChunks()
           }
           break
+        }
 
         case 'generation-complete':
           generationCompleteRef.current = true
@@ -345,6 +352,9 @@ export function useTTS(): UseTTSReturn {
       // Reset state
       setState({ ...initialTTSState, status: 'loading-model' })
       audioQueueRef.current = []
+      allChunksRef.current = [] // Clear stored chunks for new session
+      originalTextRef.current = text // Store for seeking
+      allSentencesRef.current = splitIntoSentences(text) // Pre-split for seeking
       totalScheduledDurationRef.current = 0
       playbackStartTimeRef.current = 0
       scheduledEndTimeRef.current = 0
@@ -507,6 +517,147 @@ export function useTTS(): UseTTSReturn {
     }
   }, [])
 
+  // Seek to a specific sentence by its text content
+  const seek = useCallback(
+    async (sentenceText: string) => {
+      // Normalize the search text for comparison
+      const normalizedSearch = sentenceText.replace(/\s+/g, ' ').trim().toLowerCase()
+      if (!normalizedSearch) return
+
+      // Find the matching chunk in allChunks (already generated)
+      const chunkIndex = allChunksRef.current.findIndex((chunk) => {
+        const normalizedChunk = chunk.text.replace(/\s+/g, ' ').trim().toLowerCase()
+        return normalizedChunk.includes(normalizedSearch) || normalizedSearch.includes(normalizedChunk)
+      })
+
+      // Stop the scheduler and clear pending sentence timeouts
+      stopScheduler()
+      for (const timeoutId of sentenceTimeoutsRef.current) {
+        clearTimeout(timeoutId)
+      }
+      sentenceTimeoutsRef.current = []
+
+      // Stop all currently scheduled audio sources
+      for (const source of scheduledSourcesRef.current) {
+        try {
+          source.stop()
+        } catch {
+          // Source may have already ended
+        }
+      }
+      scheduledSourcesRef.current = []
+
+      if (chunkIndex !== -1) {
+        // Sentence already generated - seek to it
+        console.log('[TTS] Seeking to generated sentence at index', chunkIndex)
+
+        // Rebuild the audio queue from the selected sentence onwards
+        audioQueueRef.current = allChunksRef.current.slice(chunkIndex).map((chunk) => ({
+          audio: chunk.audio,
+          text: chunk.text,
+          sentenceIndex: chunk.sentenceIndex,
+        }))
+
+        // Reset playback timing
+        const ctx = audioContextRef.current
+        if (ctx) {
+          totalScheduledDurationRef.current = 0
+          playbackStartTimeRef.current = ctx.currentTime
+          scheduledEndTimeRef.current = ctx.currentTime
+
+          // If paused, resume the audio context
+          if (isPausedRef.current) {
+            isPausedRef.current = false
+            ctx.resume()
+          }
+
+          // Ensure we're in playing state
+          isPlayingRef.current = true
+          setState((prev) => ({ ...prev, status: 'playing' }))
+          setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
+
+          // Start the scheduler and schedule chunks immediately
+          startScheduler()
+          scheduleChunks()
+        }
+      } else {
+        // Sentence not yet generated - find it in allSentences and restart generation
+        const sentenceIndex = allSentencesRef.current.findIndex((sentence) => {
+          const normalizedSentence = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
+          return normalizedSentence.includes(normalizedSearch) || normalizedSearch.includes(normalizedSentence)
+        })
+
+        if (sentenceIndex === -1) {
+          console.log('[TTS] Cannot seek - sentence not found in text')
+          return
+        }
+
+        console.log('[TTS] Seeking to un-generated sentence at index', sentenceIndex, '- restarting generation')
+
+        // Stop the current worker
+        if (workerRef.current) {
+          workerRef.current.terminate()
+          workerRef.current = null
+        }
+
+        // Clear audio state but keep the AudioContext
+        audioQueueRef.current = []
+        allChunksRef.current = []
+        totalScheduledDurationRef.current = 0
+        generationCompleteRef.current = false
+        isPlayingRef.current = false
+
+        // Update UI state
+        setState((prev) => ({
+          ...prev,
+          status: 'generating',
+          currentSentence: null,
+          sentenceIndex: 0,
+          generationProgress: 0,
+        }))
+
+        // Get the text from the target sentence onwards
+        const remainingSentences = allSentencesRef.current.slice(sentenceIndex)
+        const remainingText = remainingSentences.join(' ')
+
+        // Update allSentencesRef to reflect the new starting point
+        allSentencesRef.current = remainingSentences
+
+        // Detect capabilities and create new worker
+        const capabilities = await detectCapabilities()
+
+        workerRef.current = new TTSWorker()
+        workerRef.current.onmessage = handleWorkerMessage
+
+        // Store the pending generation
+        pendingGenerationRef.current = { text: remainingText }
+
+        // Initialize model (will trigger generation when ready)
+        const initRequest: WorkerRequest = {
+          type: 'initialize',
+          options: {
+            device: capabilities.recommended.device,
+            dtype: capabilities.recommended.dtype,
+            voice: DEFAULT_VOICE,
+          },
+        }
+        workerRef.current.postMessage(initRequest)
+
+        // Reset playback timing for when audio starts
+        const ctx = audioContextRef.current
+        if (ctx) {
+          playbackStartTimeRef.current = ctx.currentTime
+          scheduledEndTimeRef.current = ctx.currentTime
+          if (isPausedRef.current) {
+            isPausedRef.current = false
+            ctx.resume()
+          }
+        }
+      }
+    },
+    [stopScheduler, startScheduler, scheduleChunks, handleWorkerMessage]
+  )
+
   return {
     state,
     playbackState,
@@ -515,5 +666,6 @@ export function useTTS(): UseTTSReturn {
     resume,
     stop,
     setPlaybackRate,
+    seek,
   }
 }

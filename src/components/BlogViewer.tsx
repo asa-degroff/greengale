@@ -203,6 +203,7 @@ export function BlogViewer({
               enableLatex={latex}
               blobs={blobs}
               currentSentence={tts.state.currentSentence}
+              onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
             />
           </div>
         )}

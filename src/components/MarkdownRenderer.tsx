@@ -23,6 +23,8 @@ interface MarkdownRendererProps {
   blobs?: BlogEntry['blobs']
   /** Current sentence being spoken by TTS (for highlighting) */
   currentSentence?: string | null
+  /** Callback when user clicks on a sentence (for TTS seek) */
+  onSentenceClick?: (text: string) => void
 }
 
 // Normalize text for comparison (collapse whitespace, lowercase)
@@ -38,6 +40,7 @@ export function MarkdownRenderer({
   disableLightbox = false,
   blobs,
   currentSentence,
+  onSentenceClick,
 }: MarkdownRendererProps) {
   const [rendered, setRendered] = useState<ReactNode>(null)
   const [error, setError] = useState<string | null>(null)
@@ -77,19 +80,34 @@ export function MarkdownRenderer({
     revealedImagesRef.current.add(src)
   }, [])
 
-  // Handle clicks on images to open lightbox
+  // Handle clicks on images to open lightbox and text blocks for TTS seek
   const handleContentClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (disableLightbox) return
-
       const target = e.target as HTMLElement
-      if (target.tagName === 'IMG') {
+
+      // Handle image clicks for lightbox
+      if (target.tagName === 'IMG' && !disableLightbox) {
         const img = target as HTMLImageElement
         e.preventDefault()
         openLightbox(img.src, img.alt || '')
+        return
+      }
+
+      // Handle text clicks for TTS seek
+      if (onSentenceClick) {
+        // Find the closest block-level element
+        const blockElement = target.closest(
+          'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd'
+        )
+        if (blockElement) {
+          const text = blockElement.textContent?.trim()
+          if (text) {
+            onSentenceClick(text)
+          }
+        }
       }
     },
-    [disableLightbox, openLightbox]
+    [disableLightbox, openLightbox, onSentenceClick]
   )
 
   // Create custom img component that wraps labeled images
@@ -252,9 +270,9 @@ export function MarkdownRenderer({
     <>
       <div
         ref={contentRef}
-        className={`markdown-body ${className}`}
+        className={`markdown-body ${className} ${onSentenceClick ? 'tts-seekable' : ''}`}
         onClick={handleContentClick}
-        style={disableLightbox ? undefined : { cursor: 'default' }}
+        style={disableLightbox && !onSentenceClick ? undefined : { cursor: 'default' }}
       >
         {rendered}
       </div>

@@ -1026,6 +1026,66 @@ html {
   }
 }
 
+/* TTS Seekable - show clickable cursor on text blocks */
+.markdown-body.tts-seekable p,
+.markdown-body.tts-seekable li,
+.markdown-body.tts-seekable h1,
+.markdown-body.tts-seekable h2,
+.markdown-body.tts-seekable h3,
+.markdown-body.tts-seekable h4,
+.markdown-body.tts-seekable h5,
+.markdown-body.tts-seekable h6,
+.markdown-body.tts-seekable blockquote,
+.markdown-body.tts-seekable td,
+.markdown-body.tts-seekable th {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.markdown-body.tts-seekable p:hover,
+.markdown-body.tts-seekable li:hover,
+.markdown-body.tts-seekable h1:hover,
+.markdown-body.tts-seekable h2:hover,
+.markdown-body.tts-seekable h3:hover,
+.markdown-body.tts-seekable h4:hover,
+.markdown-body.tts-seekable h5:hover,
+.markdown-body.tts-seekable h6:hover,
+.markdown-body.tts-seekable blockquote:hover,
+.markdown-body.tts-seekable td:hover,
+.markdown-body.tts-seekable th:hover {
+  background: color-mix(in srgb, var(--theme-link) 8%, transparent);
+  border-radius: 4px;
+}
+
+@supports not (background: color-mix(in srgb, red 50%, blue)) {
+  .markdown-body.tts-seekable p:hover,
+  .markdown-body.tts-seekable li:hover,
+  .markdown-body.tts-seekable h1:hover,
+  .markdown-body.tts-seekable h2:hover,
+  .markdown-body.tts-seekable h3:hover,
+  .markdown-body.tts-seekable h4:hover,
+  .markdown-body.tts-seekable h5:hover,
+  .markdown-body.tts-seekable h6:hover,
+  .markdown-body.tts-seekable blockquote:hover,
+  .markdown-body.tts-seekable td:hover,
+  .markdown-body.tts-seekable th:hover {
+    background: rgba(59, 130, 246, 0.08);
+  }
+}
+
+/* Don't show hover effect on currently highlighted item */
+.markdown-body.tts-seekable .tts-highlight:hover {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--theme-link) 15%, transparent),
+    color-mix(in srgb, var(--theme-link) 10%, transparent)
+  );
+}
+
+.markdown-body.tts-seekable li.tts-highlight:hover {
+  background: color-mix(in srgb, var(--theme-link) 12%, transparent);
+}
+
 /* ==================== Audio Player ==================== */
 
 .audio-player {
