@@ -524,16 +524,31 @@ export function useTTS(): UseTTSReturn {
       const normalizedSearch = sentenceText.replace(/\s+/g, ' ').trim().toLowerCase()
       if (!normalizedSearch) return
 
-      // Helper to check if two texts match (one contains the other, or significant word overlap)
+      // Strip trailing punctuation (TTS adds periods to list items that don't have them)
+      const stripPunctuation = (text: string) => text.replace(/[.!?:]+$/, '')
+
+      // Helper to check if two texts match
       const textsMatch = (text1: string, text2: string): boolean => {
+        // Try includes check with and without trailing punctuation
+        const text1NoPunct = stripPunctuation(text1)
+        const text2NoPunct = stripPunctuation(text2)
+
         if (text1.includes(text2) || text2.includes(text1)) return true
-        // Check for significant word overlap (at least 60% of words match)
-        const words1 = text1.split(' ').filter(w => w.length > 2)
-        const words2 = text2.split(' ').filter(w => w.length > 2)
+        if (text1NoPunct.includes(text2NoPunct) || text2NoPunct.includes(text1NoPunct)) return true
+        if (text1NoPunct === text2NoPunct) return true
+
+        // Check for significant word overlap using UNIQUE words only
+        // (prevents "the" appearing twice from inflating the match ratio)
+        const words1 = [...new Set(text1NoPunct.split(' ').filter(w => w.length > 2))]
+        const words2 = [...new Set(text2NoPunct.split(' ').filter(w => w.length > 2))]
         if (words1.length === 0 || words2.length === 0) return false
+
         const matchingWords = words1.filter(w => words2.includes(w))
         const overlapRatio = matchingWords.length / Math.min(words1.length, words2.length)
-        return overlapRatio >= 0.6
+
+        // Require higher overlap for short phrases (they're more likely to have false matches)
+        const minRatio = words1.length <= 4 ? 0.8 : 0.6
+        return overlapRatio >= minRatio
       }
 
       // Find the matching chunk in allChunks (already generated)
