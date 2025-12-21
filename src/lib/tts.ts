@@ -230,6 +230,15 @@ export function extractTextForTTS(markdown: string): string {
       .replace(/\$\$[\s\S]*?\$\$/g, '')
       // Remove inline LaTeX
       .replace(/\$[^$\n]+\$/g, '')
+      // Convert parentheses to commas for natural pauses in TTS
+      // (parenthetical content) → , parenthetical content,
+      .replace(/\(/g, ', ')
+      .replace(/\)/g, ', ')
+      // Clean up comma artifacts from parentheses conversion
+      .replace(/,\s*,/g, ',') // collapse double commas
+      .replace(/,\s*([.!?])/g, '$1') // remove comma before sentence-ending punctuation
+      .replace(/,\s*:/g, ':') // remove comma before colon
+      .replace(/(^|[\n])(\s*),\s*/g, '$1$2') // remove leading comma at line/sentence start
       // Normalize multiple newlines to double (paragraph breaks)
       .replace(/\n{3,}/g, '\n\n')
       // Normalize whitespace
