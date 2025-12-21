@@ -50,7 +50,8 @@ src/
 │   ├── ImageWithAlt.tsx     # Image display with alt text badge
 │   ├── ContentWarningImage.tsx # Blurred preview for sensitive images
 │   ├── ImageLightbox.tsx    # Full-screen image viewer
-│   └── ImageMetadataEditor.tsx # Alt text and content label editor
+│   ├── ImageMetadataEditor.tsx # Alt text and content label editor
+│   └── AudioPlayer.tsx      # TTS playback controls
 ├── pages/
 │   ├── Home.tsx             # Recent posts feed
 │   ├── Author.tsx           # /:handle - author's posts
@@ -68,7 +69,10 @@ src/
 │   ├── useDarkMode.ts       # Site light/dark mode hook
 │   ├── useThemePreference.tsx # Post theme override context
 │   ├── image-upload.ts      # Image processing and PDS upload
-│   └── image-labels.ts      # Alt text and content label utilities
+│   ├── image-labels.ts      # Alt text and content label utilities
+│   ├── tts.ts               # TTS types, text extraction, utilities
+│   ├── tts.worker.ts        # Web Worker for Kokoro TTS model
+│   └── useTTS.ts            # React hook for TTS playback
 ├── App.tsx                  # Router + providers
 └── index.css                # Global styles + theme CSS vars
 
@@ -176,6 +180,59 @@ Labeled images display blurred with a warning overlay until the user acknowledge
 **Limitation:** Image uploads only work with GreenGale format posts (not WhiteWind compatibility mode).
 
 **Implementation:** `src/lib/image-upload.ts` (processing), `src/lib/image-labels.ts` (utilities), `src/components/ImageMetadataEditor.tsx` (editor UI).
+
+### Text-to-Speech (TTS)
+
+Blog posts can be read aloud using the Kokoro TTS model running entirely in the browser via WebGPU or WebAssembly.
+
+**Features:**
+- **Streaming playback**: Audio generates sentence-by-sentence with buffering for smooth playback
+- **Sentence highlighting**: Current sentence is highlighted in the post content
+- **Seek support**: Click any paragraph to jump to that position
+- **Speed control**: Playback rates from 0.5x to 2x with pitch preservation
+- **Offline capable**: Model cached in IndexedDB after first download
+
+**Architecture:**
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  useTTS     │────▶│  tts.worker.ts   │────▶│  Kokoro TTS     │
+│  (React)    │     │  (Web Worker)    │     │  (ONNX model)   │
+└─────────────┘     └──────────────────┘     └─────────────────┘
+      │                     │
+      ▼                     ▼
+┌─────────────┐     ┌──────────────────┐
+│ AudioPlayer │     │  Audio chunks    │
+│ (UI)        │     │  (Float32Array)  │
+└─────────────┘     └──────────────────┘
+```
+
+**Device Selection:**
+- **macOS**: WebGPU enabled by default (GPU acceleration, ~326 MB model)
+- **Other platforms**: WebAssembly with quantized model (~92 MB model)
+- **Manual override**: `localStorage.setItem('tts-force-webgpu', 'true')`
+
+**Text Processing:**
+1. Markdown stripped (code blocks, LaTeX removed)
+2. Images with alt text read as "Image: {alt text}"
+3. Split into sentences for streaming
+4. Parentheses converted to commas for natural pauses
+5. List items get trailing periods for sentence boundaries
+
+```typescript
+// Usage in components
+const tts = useTTS()
+await tts.start(markdownContent)  // Begin playback
+tts.pause() / tts.resume()        // Control playback
+tts.seek(sentenceText)            // Jump to sentence
+tts.setPlaybackRate(1.5)          // Change speed
+tts.stop()                        // Stop and cleanup
+```
+
+**Model:** `onnx-community/Kokoro-82M-v1.0-ONNX` via Hugging Face Transformers.js
+
+**Known Issue:** WebGPU produces garbled audio on some Linux configurations. Tracked in [transformers.js#1320](https://github.com/huggingface/transformers.js/issues/1320).
+
+**Implementation:** `src/lib/tts.ts` (types/utilities), `src/lib/tts.worker.ts` (Web Worker), `src/lib/useTTS.ts` (React hook), `src/components/AudioPlayer.tsx` (UI).
 
 ### Data Fetching
 
