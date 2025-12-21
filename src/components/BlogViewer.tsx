@@ -100,7 +100,7 @@ export function BlogViewer({
       style={customStyles}
       className="min-h-screen text-[var(--theme-text)]"
     >
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className={`max-w-3xl mx-auto px-4 py-8 ${isTTSActive && !isTTSLoading ? 'pb-24' : ''}`}>
         {/* Header */}
         <header className="mb-8">
           {title && (
