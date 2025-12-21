@@ -1215,20 +1215,54 @@ html {
   }
 }
 
-/* Progress bar at top of player */
+/* Progress bar track (base styles) */
 .audio-player-progress-track {
   position: absolute;
-  top: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 4px;
   background: var(--theme-border);
 }
 
+/* Progress bar at top (for model loading) */
+.audio-player-progress-top {
+  top: 0;
+}
+
+/* Progress bar at bottom (for playback/buffer) */
+.audio-player-progress-bottom {
+  bottom: 0;
+}
+
+/* Model loading progress fill */
 .audio-player-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
   background: var(--theme-accent);
   transition: width 0.2s ease;
+}
+
+/* Buffer progress (lighter, behind playback) */
+.audio-player-buffer-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--theme-text-secondary);
+  opacity: 0.3;
+  transition: width 0.3s ease;
+}
+
+/* Playback progress (accent, in front) */
+.audio-player-playback-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--theme-accent);
+  transition: width 0.15s ease;
 }
 
 /* Loading icon (reuses button sizing) */

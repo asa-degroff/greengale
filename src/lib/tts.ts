@@ -46,9 +46,14 @@ export interface InitializeRequest {
   }
 }
 
+export interface IndexedSentence {
+  index: number // Original sentence index in the full document
+  text: string
+}
+
 export interface GenerateRequest {
   type: 'generate'
-  text: string
+  sentences: IndexedSentence[] // Sentences with their original indices
   voice?: string
 }
 

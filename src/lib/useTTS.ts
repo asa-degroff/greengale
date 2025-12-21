@@ -25,8 +25,13 @@ interface AudioChunk {
   duration: number // in seconds
 }
 
-interface PendingGeneration {
+interface IndexedSentence {
+  index: number
   text: string
+}
+
+interface PendingGeneration {
+  sentences: IndexedSentence[]
   voice?: string
 }
 
@@ -37,6 +42,8 @@ interface UseTTSReturn {
     currentTime: number
     duration: number
     playbackRate: PlaybackRate
+    playbackProgress: number
+    bufferProgress: number
   }
   start: (text: string) => Promise<void>
   pause: () => void
@@ -57,13 +64,15 @@ export function useTTS(): UseTTSReturn {
     currentTime: 0,
     duration: 0,
     playbackRate: 1.0 as PlaybackRate,
+    playbackProgress: 0, // 0-100, based on sentence position
+    bufferProgress: 0, // 0-100, based on chunks generated
   })
 
   const workerRef = useRef<Worker | null>(null)
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const audioQueueRef = useRef<AudioChunk[]>([])
-  const allChunksRef = useRef<AudioChunk[]>([]) // Store all generated chunks for seeking
-  const currentChunkIndexRef = useRef<number>(0) // Index into allChunksRef for current playback position
+  const allChunksRef = useRef<Map<number, AudioChunk>>(new Map()) // Map of sentenceIndex -> chunk (persists across seeks)
+  const currentChunkIndexRef = useRef<number>(0) // Current sentence index being played
   const isPlayingRef = useRef(false)
   const playbackRateRef = useRef<PlaybackRate>(1.0)
   const isPausedRef = useRef(false)
@@ -95,28 +104,56 @@ export function useTTS(): UseTTSReturn {
     }
   }, [])
 
-  // Play the next chunk in the queue
+  // Play the next chunk in sequence
   const playNextChunk = useCallback(() => {
     if (!isPlayingRef.current || isPausedRef.current) return
 
     const queue = audioQueueRef.current
-    if (queue.length === 0) {
-      // No more chunks to play
-      if (generationCompleteRef.current) {
-        // All done
-        isPlayingRef.current = false
-        setState((prev) => ({ ...prev, status: 'idle', currentSentence: null }))
-        setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
-        if (playbackIntervalRef.current) {
-          clearInterval(playbackIntervalRef.current)
-          playbackIntervalRef.current = null
-        }
+    const expectedIndex = currentChunkIndexRef.current
+    const totalSentences = allSentencesRef.current.length
+
+    // Check if we've finished all sentences
+    if (expectedIndex >= totalSentences) {
+      // Pause at the end instead of closing - keeps buffer available for seeking back
+      isPlayingRef.current = false
+      isPausedRef.current = true
+      setState((prev) => ({ ...prev, status: 'paused', currentSentence: 'Finished - click text to seek' }))
+      setPlaybackState((prev) => ({ ...prev, isPlaying: false, playbackProgress: 100 }))
+      if (playbackIntervalRef.current) {
+        clearInterval(playbackIntervalRef.current)
+        playbackIntervalRef.current = null
       }
       return
     }
 
-    const chunk = queue.shift()!
-    currentChunkIndexRef.current = chunk.sentenceIndex
+    // Find chunk for the expected sentence index
+    // First check queue (for pre-loaded chunks from seek)
+    let chunk: AudioChunk | undefined
+    const queueIndex = queue.findIndex((c) => c.sentenceIndex === expectedIndex)
+    if (queueIndex !== -1) {
+      chunk = queue.splice(queueIndex, 1)[0]
+    } else {
+      // Check the Map for newly generated chunks
+      const mapChunk = allChunksRef.current.get(expectedIndex)
+      if (mapChunk) {
+        // Create fresh blob URL for playback
+        const wavBlob = float32ToWavBlob(mapChunk.audio, SAMPLE_RATE)
+        const blobUrl = URL.createObjectURL(wavBlob)
+        chunk = { ...mapChunk, blobUrl }
+      }
+    }
+
+    if (!chunk) {
+      // Chunk not yet available
+      if (generationCompleteRef.current) {
+        // Generation is done but chunk not found - skip to next
+        console.log('[TTS] Chunk', expectedIndex, 'not found, skipping')
+        currentChunkIndexRef.current = expectedIndex + 1
+        playNextChunk()
+      }
+      // Otherwise, wait for generation - the audio-chunk handler will trigger playback
+      return
+    }
 
     const audio = getOrCreateAudioElement()
 
@@ -129,7 +166,9 @@ export function useTTS(): UseTTSReturn {
     audio.src = chunk.blobUrl
     audio.playbackRate = playbackRateRef.current
 
-    // Update current sentence
+    // Update current sentence and playback progress
+    const playbackProgress = totalSentences > 0 ? (chunk.sentenceIndex / totalSentences) * 100 : 0
+
     setState((prev) => ({
       ...prev,
       status: 'playing',
@@ -137,21 +176,26 @@ export function useTTS(): UseTTSReturn {
       sentenceIndex: chunk.sentenceIndex,
     }))
 
+    setPlaybackState((prev) => ({ ...prev, playbackProgress }))
+
     // Handle chunk end
     audio.onended = () => {
       playedDurationRef.current += chunk.duration
       cleanupBlobUrl(chunk.blobUrl)
+      currentChunkIndexRef.current = expectedIndex + 1
       playNextChunk()
     }
 
     audio.onerror = () => {
       console.error('[TTS] Audio playback error')
       cleanupBlobUrl(chunk.blobUrl)
+      currentChunkIndexRef.current = expectedIndex + 1
       playNextChunk() // Try next chunk
     }
 
     audio.play().catch((err) => {
       console.error('[TTS] Failed to play audio:', err)
+      currentChunkIndexRef.current = expectedIndex + 1
       playNextChunk()
     })
   }, [getOrCreateAudioElement, cleanupBlobUrl])
@@ -219,11 +263,11 @@ export function useTTS(): UseTTSReturn {
             isModelCached: message.cachedFromIndexedDB,
           }))
 
-          // Send pending generation request
+          // Send pending generation request with indexed sentences
           if (pendingGenerationRef.current && workerRef.current) {
             const generateRequest: WorkerRequest = {
               type: 'generate',
-              text: pendingGenerationRef.current.text,
+              sentences: pendingGenerationRef.current.sentences,
               voice: pendingGenerationRef.current.voice,
             }
             workerRef.current.postMessage(generateRequest)
@@ -254,12 +298,33 @@ export function useTTS(): UseTTSReturn {
             duration,
           }
 
-          audioQueueRef.current.push(chunk)
-          allChunksRef.current.push(chunk)
-          totalDurationRef.current += duration
+          // Store in Map by sentenceIndex for persistent buffer across seeks
+          // (don't store blob URL in Map since we create fresh ones on demand)
+          allChunksRef.current.set(message.sentenceIndex, {
+            ...chunk,
+            blobUrl: '', // Will be created fresh when needed
+          })
 
-          // Try to start playback if we have enough buffered
-          tryStartPlayback()
+          // Add to queue for immediate playback if this is the next expected chunk
+          // or if we're doing initial generation (no seeking)
+          if (message.sentenceIndex === currentChunkIndexRef.current || !isPlayingRef.current) {
+            audioQueueRef.current.push(chunk)
+          }
+
+          // Update buffer progress based on unique sentences generated
+          const totalSentences = allSentencesRef.current.length
+          if (totalSentences > 0) {
+            const bufferProgress = (allChunksRef.current.size / totalSentences) * 100
+            setPlaybackState((prev) => ({ ...prev, bufferProgress }))
+          }
+
+          // If we're playing and waiting for this chunk, trigger playback
+          if (isPlayingRef.current && message.sentenceIndex === currentChunkIndexRef.current) {
+            playNextChunk()
+          } else {
+            // Try to start playback if we have enough buffered
+            tryStartPlayback()
+          }
           break
         }
 
@@ -275,9 +340,10 @@ export function useTTS(): UseTTSReturn {
             tryStartPlayback()
           }
 
-          // If queue is empty and we're not playing, we're done
+          // If queue is empty and we're not playing, we're done - but keep paused to allow seeking
           if (audioQueueRef.current.length === 0 && !isPlayingRef.current) {
-            setState((prev) => ({ ...prev, status: 'idle' }))
+            isPausedRef.current = true
+            setState((prev) => ({ ...prev, status: 'paused', currentSentence: 'Finished - click text to seek' }))
           }
           break
 
@@ -298,7 +364,7 @@ export function useTTS(): UseTTSReturn {
           break
       }
     },
-    [tryStartPlayback]
+    [tryStartPlayback, playNextChunk]
   )
 
   // Cleanup on unmount
@@ -323,7 +389,7 @@ export function useTTS(): UseTTSReturn {
       for (const chunk of audioQueueRef.current) {
         cleanupBlobUrl(chunk.blobUrl)
       }
-      for (const chunk of allChunksRef.current) {
+      for (const chunk of allChunksRef.current.values()) {
         cleanupBlobUrl(chunk.blobUrl)
       }
     }
@@ -338,12 +404,12 @@ export function useTTS(): UseTTSReturn {
       for (const chunk of audioQueueRef.current) {
         cleanupBlobUrl(chunk.blobUrl)
       }
-      for (const chunk of allChunksRef.current) {
+      for (const chunk of allChunksRef.current.values()) {
         cleanupBlobUrl(chunk.blobUrl)
       }
 
       audioQueueRef.current = []
-      allChunksRef.current = []
+      allChunksRef.current.clear()
       originalTextRef.current = text
       allSentencesRef.current = splitIntoSentences(text)
       generationCompleteRef.current = false
@@ -372,6 +438,8 @@ export function useTTS(): UseTTSReturn {
         currentTime: 0,
         duration: 0,
         playbackRate: playbackRateRef.current,
+        playbackProgress: 0,
+        bufferProgress: 0,
       })
 
       // Detect browser capabilities
@@ -393,8 +461,14 @@ export function useTTS(): UseTTSReturn {
       workerRef.current = new TTSWorker()
       workerRef.current.onmessage = handleWorkerMessage
 
-      // Store pending generation
-      pendingGenerationRef.current = { text }
+      // Create indexed sentences for the worker
+      const indexedSentences: IndexedSentence[] = allSentencesRef.current.map((text, index) => ({
+        index,
+        text,
+      }))
+
+      // Store pending generation with indexed sentences
+      pendingGenerationRef.current = { sentences: indexedSentences }
 
       // Initialize model
       const initRequest: WorkerRequest = {
@@ -470,13 +544,13 @@ export function useTTS(): UseTTSReturn {
     for (const chunk of audioQueueRef.current) {
       cleanupBlobUrl(chunk.blobUrl)
     }
-    for (const chunk of allChunksRef.current) {
+    for (const chunk of allChunksRef.current.values()) {
       cleanupBlobUrl(chunk.blobUrl)
     }
 
     // Reset state
     audioQueueRef.current = []
-    allChunksRef.current = []
+    allChunksRef.current.clear()
     isPlayingRef.current = false
     isPausedRef.current = false
     generationCompleteRef.current = false
@@ -490,6 +564,8 @@ export function useTTS(): UseTTSReturn {
       currentTime: 0,
       duration: 0,
       playbackRate: playbackRateRef.current,
+      playbackProgress: 0,
+      bufferProgress: 0,
     })
   }, [cleanupBlobUrl])
 
@@ -602,23 +678,29 @@ export function useTTS(): UseTTSReturn {
         return overlapRatio * lengthRatio * 60 // Max 60 for word overlap matches
       }
 
-      // Find the best matching chunk (highest score above threshold)
-      let bestChunkIndex = -1
-      let bestScore = 0
+      // Find the best matching sentence in the full document
       const MIN_SCORE = 25 // Minimum score to consider a match
+      let bestSentenceIndex = -1
+      let bestSentenceScore = 0
 
-      for (let i = 0; i < allChunksRef.current.length; i++) {
-        const chunk = allChunksRef.current[i]
-        const normalizedChunk = chunk.text.replace(/\s+/g, ' ').trim().toLowerCase()
-        const score = scoreMatch(normalizedChunk, normalizedSearch)
+      for (let i = 0; i < allSentencesRef.current.length; i++) {
+        const sentence = allSentencesRef.current[i]
+        const normalizedSentence = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
+        const score = scoreMatch(normalizedSentence, normalizedSearch)
 
-        if (score > bestScore && score >= MIN_SCORE) {
-          bestScore = score
-          bestChunkIndex = i
+        if (score > bestSentenceScore && score >= MIN_SCORE) {
+          bestSentenceScore = score
+          bestSentenceIndex = i
         }
       }
 
-      const chunkIndex = bestChunkIndex
+      if (bestSentenceIndex === -1) {
+        console.log('[TTS] Cannot seek - sentence not found in text')
+        return
+      }
+
+      const targetIndex = bestSentenceIndex
+      console.log('[TTS] Seeking to sentence', targetIndex)
 
       // Stop current playback
       if (audioElementRef.current) {
@@ -626,94 +708,87 @@ export function useTTS(): UseTTSReturn {
         audioElementRef.current.onended = null
       }
 
-      if (chunkIndex !== -1) {
-        // Sentence already generated - seek to it
-        console.log('[TTS] Seeking to chunk', chunkIndex)
+      // Stop current worker generation
+      if (workerRef.current) {
+        const stopRequest: WorkerRequest = { type: 'stop' }
+        workerRef.current.postMessage(stopRequest)
+        workerRef.current.terminate()
+        workerRef.current = null
+      }
 
-        // Rebuild the audio queue from the selected sentence onwards
-        // We need to recreate blob URLs since they may have been revoked
-        audioQueueRef.current = allChunksRef.current.slice(chunkIndex).map((chunk) => {
-          // Create a new blob URL if the old one was revoked
-          const wavBlob = float32ToWavBlob(chunk.audio, SAMPLE_RATE)
+      // Clean up current audio queue blob URLs (but NOT allChunksRef - keep the buffer!)
+      for (const chunk of audioQueueRef.current) {
+        cleanupBlobUrl(chunk.blobUrl)
+      }
+      audioQueueRef.current = []
+
+      // Build the playback queue from targetIndex onwards
+      // Use existing buffered chunks where available
+      const newQueue: AudioChunk[] = []
+      const missingSentences: IndexedSentence[] = []
+
+      for (let i = targetIndex; i < allSentencesRef.current.length; i++) {
+        const existingChunk = allChunksRef.current.get(i)
+        if (existingChunk) {
+          // Use the existing buffered chunk - create a fresh blob URL
+          const wavBlob = float32ToWavBlob(existingChunk.audio, SAMPLE_RATE)
           const blobUrl = URL.createObjectURL(wavBlob)
-          return {
-            ...chunk,
+          newQueue.push({
+            ...existingChunk,
             blobUrl,
-          }
-        })
+          })
+        } else {
+          // Need to generate this sentence
+          missingSentences.push({
+            index: i,
+            text: allSentencesRef.current[i],
+          })
+        }
+      }
 
-        // Calculate played duration up to this point
-        playedDurationRef.current = allChunksRef.current
-          .slice(0, chunkIndex)
-          .reduce((sum, c) => sum + c.duration, 0)
+      audioQueueRef.current = newQueue
 
-        currentChunkIndexRef.current = chunkIndex
+      // Calculate played duration up to target (using buffered chunks where available)
+      playedDurationRef.current = 0
+      for (let i = 0; i < targetIndex; i++) {
+        const chunk = allChunksRef.current.get(i)
+        if (chunk) {
+          playedDurationRef.current += chunk.duration
+        }
+      }
 
-        // Resume playback
+      currentChunkIndexRef.current = targetIndex
+
+      // Update playback progress
+      const totalSentences = allSentencesRef.current.length
+      const playbackProgress = totalSentences > 0 ? (targetIndex / totalSentences) * 100 : 0
+      setPlaybackState((prev) => ({ ...prev, playbackProgress }))
+
+      // If we have audio in the queue, start playing
+      if (newQueue.length > 0) {
         isPlayingRef.current = true
         isPausedRef.current = false
         setState((prev) => ({ ...prev, status: 'playing' }))
         setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
         playNextChunk()
-      } else {
-        // Sentence not yet generated - find best match in allSentences and restart generation
-        let bestSentenceIndex = -1
-        let bestSentenceScore = 0
+      }
 
-        for (let i = 0; i < allSentencesRef.current.length; i++) {
-          const sentence = allSentencesRef.current[i]
-          const normalizedSentence = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
-          const score = scoreMatch(normalizedSentence, normalizedSearch)
+      // If there are missing sentences, start generating them
+      if (missingSentences.length > 0) {
+        console.log('[TTS] Need to generate', missingSentences.length, 'missing sentences')
 
-          if (score > bestSentenceScore && score >= MIN_SCORE) {
-            bestSentenceScore = score
-            bestSentenceIndex = i
-          }
+        // Update state to show generation if not already playing
+        if (newQueue.length === 0) {
+          setState((prev) => ({
+            ...prev,
+            status: 'generating',
+            currentSentence: null,
+            generationProgress: 0,
+          }))
+          isPlayingRef.current = false
         }
 
-        const sentenceIndex = bestSentenceIndex
-
-        if (sentenceIndex === -1) {
-          console.log('[TTS] Cannot seek - sentence not found in text')
-          return
-        }
-
-        console.log('[TTS] Seeking to sentence', sentenceIndex, '- restarting generation')
-
-        // Stop the current worker
-        if (workerRef.current) {
-          workerRef.current.terminate()
-          workerRef.current = null
-        }
-
-        // Clean up blob URLs
-        for (const chunk of audioQueueRef.current) {
-          cleanupBlobUrl(chunk.blobUrl)
-        }
-        for (const chunk of allChunksRef.current) {
-          cleanupBlobUrl(chunk.blobUrl)
-        }
-
-        // Clear audio state
-        audioQueueRef.current = []
-        allChunksRef.current = []
-        totalDurationRef.current = 0
-        playedDurationRef.current = 0
         generationCompleteRef.current = false
-        isPlayingRef.current = false
-
-        // Update UI state
-        setState((prev) => ({
-          ...prev,
-          status: 'generating',
-          currentSentence: null,
-          sentenceIndex: 0,
-          generationProgress: 0,
-        }))
-
-        // Get the text from the target sentence onwards
-        const remainingSentences = allSentencesRef.current.slice(sentenceIndex)
-        const remainingText = remainingSentences.join(' ')
 
         // Detect capabilities and create new worker
         const capabilities = await detectCapabilities()
@@ -721,8 +796,8 @@ export function useTTS(): UseTTSReturn {
         workerRef.current = new TTSWorker()
         workerRef.current.onmessage = handleWorkerMessage
 
-        // Store the pending generation
-        pendingGenerationRef.current = { text: remainingText }
+        // Store the pending generation with only missing sentences
+        pendingGenerationRef.current = { sentences: missingSentences }
 
         // Initialize model
         const initRequest: WorkerRequest = {
@@ -734,6 +809,10 @@ export function useTTS(): UseTTSReturn {
           },
         }
         workerRef.current.postMessage(initRequest)
+      } else {
+        // All sentences already buffered
+        generationCompleteRef.current = true
+        console.log('[TTS] All sentences already buffered, no generation needed')
       }
     },
     [playNextChunk, handleWorkerMessage, cleanupBlobUrl]

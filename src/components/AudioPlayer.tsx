@@ -3,6 +3,7 @@
  *
  * Fixed bottom bar for TTS playback with play/pause, current sentence, and speed control.
  * Also handles model loading state with inline progress display.
+ * Shows dual progress bars: buffer progress (lighter) and playback progress (accent).
  */
 
 import type { TTSState, PlaybackRate } from '@/lib/tts'
@@ -15,6 +16,8 @@ interface AudioPlayerProps {
     currentTime: number
     duration: number
     playbackRate: PlaybackRate
+    playbackProgress: number
+    bufferProgress: number
   }
   onPause: () => void
   onResume: () => void
@@ -39,8 +42,8 @@ export function AudioPlayer({
   if (isLoading) {
     return (
       <div className="audio-player">
-        {/* Progress bar at top */}
-        <div className="audio-player-progress-track">
+        {/* Progress bar at top for model loading */}
+        <div className="audio-player-progress-track audio-player-progress-top">
           <div
             className="audio-player-progress-fill"
             style={{ width: `${state.modelProgress}%` }}
@@ -134,6 +137,20 @@ export function AudioPlayer({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
+      </div>
+
+      {/* Seek/Buffer Progress Bar at bottom */}
+      <div className="audio-player-progress-track audio-player-progress-bottom">
+        {/* Buffer progress (lighter, behind) */}
+        <div
+          className="audio-player-buffer-fill"
+          style={{ width: `${playbackState.bufferProgress}%` }}
+        />
+        {/* Playback progress (accent, in front) */}
+        <div
+          className="audio-player-playback-fill"
+          style={{ width: `${playbackState.playbackProgress}%` }}
+        />
       </div>
     </div>
   )

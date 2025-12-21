@@ -16,8 +16,9 @@ import type {
   GenerationCompleteMessage,
   ErrorMessage,
   StoppedMessage,
+  IndexedSentence,
 } from './tts'
-import { MODEL_ID, DEFAULT_VOICE, splitIntoSentences } from './tts'
+import { MODEL_ID, DEFAULT_VOICE } from './tts'
 
 let tts: KokoroTTS | null = null
 let currentVoice = DEFAULT_VOICE
@@ -154,7 +155,7 @@ async function initializeModel(device: 'webgpu' | 'wasm', _dtype: 'fp32' | 'q8',
   } satisfies ErrorMessage)
 }
 
-async function generateAudio(text: string, voice?: string) {
+async function generateAudio(sentences: IndexedSentence[], voice?: string) {
   console.log('[TTS Worker] generateAudio called, tts:', tts ? 'initialized' : 'null')
 
   if (!tts) {
@@ -173,9 +174,8 @@ async function generateAudio(text: string, voice?: string) {
   stopRequested = false
 
   try {
-    const sentences = splitIntoSentences(text)
-    const totalSentences = sentences.length
-    console.log('[TTS Worker] Generating', totalSentences, 'sentences with voice:', useVoice)
+    const totalToGenerate = sentences.length
+    console.log('[TTS Worker] Generating', totalToGenerate, 'sentences with voice:', useVoice)
 
     for (let i = 0; i < sentences.length; i++) {
       // Check if stop was requested
@@ -185,25 +185,25 @@ async function generateAudio(text: string, voice?: string) {
         return
       }
 
-      const sentence = sentences[i]
+      const { index: sentenceIndex, text: sentence } = sentences[i]
 
       postMessage({
         type: 'generation-progress',
-        progress: Math.round((i / totalSentences) * 100),
-        sentenceIndex: i,
-        totalSentences,
+        progress: Math.round(((i + 1) / totalToGenerate) * 100),
+        sentenceIndex,
+        totalSentences: totalToGenerate,
         currentSentence: sentence,
       } satisfies GenerationProgressMessage)
 
       // Generate audio for this sentence
       // Cast voice to any since the type is a specific union that we validate at runtime
-      console.log('[TTS Worker] Generating sentence', i + 1, '/', totalSentences, ':', sentence.substring(0, 50) + (sentence.length > 50 ? '...' : ''))
+      console.log('[TTS Worker] Generating sentence', sentenceIndex, ':', sentence.substring(0, 50) + (sentence.length > 50 ? '...' : ''))
 
       let result
       try {
         result = await tts.generate(sentence, { voice: useVoice as 'af_heart' })
       } catch (genError) {
-        console.error('[TTS Worker] Generation error for sentence', i, ':', genError)
+        console.error('[TTS Worker] Generation error for sentence', sentenceIndex, ':', genError)
         throw genError
       }
 
@@ -237,8 +237,8 @@ async function generateAudio(text: string, voice?: string) {
           type: 'audio-chunk',
           audio: audioClone,
           text: sentence,
-          sentenceIndex: i,
-          totalSentences,
+          sentenceIndex, // Use the original document index
+          totalSentences: totalToGenerate,
           isLast: i === sentences.length - 1,
         } satisfies AudioChunkMessage,
         [audioClone.buffer]
@@ -284,7 +284,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       break
 
     case 'generate':
-      await generateAudio(request.text, request.voice)
+      await generateAudio(request.sentences, request.voice)
       break
 
     case 'stop':
