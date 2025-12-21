@@ -42,6 +42,20 @@ interface UseTTSReturn {
 const MIN_BUFFER_SECONDS = 20
 const SAMPLE_RATE_FOR_CALC = 24000
 
+/**
+ * Calculate detune value (in cents) to compensate for pitch change from playback rate.
+ * When playback rate changes, pitch naturally shifts. This returns the detune needed
+ * to maintain the original pitch.
+ *
+ * Formula: detune = -1200 * log2(playbackRate)
+ * - At 2x speed, pitch goes up 12 semitones, so we detune -1200 cents (down 12 semitones)
+ * - At 0.5x speed, pitch goes down 12 semitones, so we detune +1200 cents (up 12 semitones)
+ */
+function calculatePitchCompensation(playbackRate: number): number {
+  if (playbackRate <= 0 || playbackRate === 1) return 0
+  return -1200 * Math.log2(playbackRate)
+}
+
 export function useTTS(): UseTTSReturn {
   const [state, setState] = useState<TTSState>(initialTTSState)
   const [playbackState, setPlaybackState] = useState({
@@ -128,6 +142,8 @@ export function useTTS(): UseTTSReturn {
       const source = ctx.createBufferSource()
       source.buffer = buffer
       source.playbackRate.value = playbackRateRef.current
+      // Compensate pitch to maintain natural voice at different speeds
+      source.detune.value = calculatePitchCompensation(playbackRateRef.current)
       source.connect(gainNode)
 
       // Start at the end of previously scheduled audio, or now if nothing scheduled
@@ -511,9 +527,11 @@ export function useTTS(): UseTTSReturn {
     playbackRateRef.current = rate
     setPlaybackState((prev) => ({ ...prev, playbackRate: rate }))
 
-    // Update all scheduled sources
+    // Update all scheduled sources with new rate and pitch compensation
+    const detune = calculatePitchCompensation(rate)
     for (const source of scheduledSourcesRef.current) {
       source.playbackRate.value = rate
+      source.detune.value = detune
     }
   }, [])
 
