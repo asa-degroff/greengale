@@ -507,38 +507,118 @@ export function useTTS(): UseTTSReturn {
   const seek = useCallback(
     async (sentenceText: string) => {
       // Normalize the search text for comparison
-      const normalizedSearch = sentenceText.replace(/\s+/g, ' ').trim().toLowerCase()
+      let normalizedSearch = sentenceText.replace(/\s+/g, ' ').trim().toLowerCase()
       if (!normalizedSearch) return
+
+      // If the search text contains multiple sentences (user clicked on a paragraph),
+      // extract just the first sentence to find the right starting point
+      const sentenceEndMatch = normalizedSearch.match(/^[^.!?]+[.!?]/)
+      if (sentenceEndMatch) {
+        const firstSentence = sentenceEndMatch[0].trim()
+        // Only use the first sentence if it's substantial (not just a word or two)
+        if (firstSentence.length > 20) {
+          normalizedSearch = firstSentence
+        }
+      }
 
       // Strip trailing punctuation (TTS adds periods to list items that don't have them)
       const stripPunctuation = (text: string) => text.replace(/[.!?:]+$/, '')
 
-      // Helper to check if two texts match
-      const textsMatch = (text1: string, text2: string): boolean => {
-        const text1NoPunct = stripPunctuation(text1)
-        const text2NoPunct = stripPunctuation(text2)
+      // Normalize text to match TTS transformations (parentheses → commas)
+      const normalizeTTSText = (text: string) =>
+        text
+          .replace(/\(/g, ', ')
+          .replace(/\)/g, ', ')
+          .replace(/,\s*,/g, ',')
+          .replace(/,\s*([.!?])/g, '$1')
+          .replace(/,\s*:/g, ':')
+          .replace(/(^|[\n])(\s*),\s*/g, '$1$2')
+          .replace(/\s+/g, ' ')
+          .trim()
 
-        if (text1.includes(text2) || text2.includes(text1)) return true
-        if (text1NoPunct.includes(text2NoPunct) || text2NoPunct.includes(text1NoPunct)) return true
-        if (text1NoPunct === text2NoPunct) return true
+      // Score how well two texts match (higher = better match)
+      // Returns 0 for no match, up to 100 for exact match
+      const scoreMatch = (chunkText: string, searchText: string): number => {
+        const chunkNoPunct = stripPunctuation(chunkText)
+        const searchTextNoPunct = stripPunctuation(searchText)
 
-        // Check for significant word overlap using UNIQUE words only
-        const words1 = [...new Set(text1NoPunct.split(' ').filter((w) => w.length > 2))]
-        const words2 = [...new Set(text2NoPunct.split(' ').filter((w) => w.length > 2))]
-        if (words1.length === 0 || words2.length === 0) return false
+        // Also try TTS-normalized versions (handles parentheses → commas transformation)
+        const searchNormalized = normalizeTTSText(searchTextNoPunct).toLowerCase()
+        const chunkNormalized = normalizeTTSText(chunkNoPunct).toLowerCase()
+
+        // Exact match = perfect score
+        if (chunkText === searchText || chunkNoPunct === searchTextNoPunct) {
+          return 100
+        }
+
+        // Exact match after TTS normalization
+        if (chunkNormalized === searchNormalized) {
+          return 100
+        }
+
+        // One contains the other = very high score, weighted by length similarity
+        // Check with TTS normalization too
+        if (chunkNoPunct.includes(searchTextNoPunct) || chunkNormalized.includes(searchNormalized)) {
+          const lengthRatio = searchTextNoPunct.length / chunkNoPunct.length
+          return 90 * lengthRatio // Prefer when lengths are similar
+        }
+        if (searchTextNoPunct.includes(chunkNoPunct) || searchNormalized.includes(chunkNormalized)) {
+          const lengthRatio = chunkNoPunct.length / searchTextNoPunct.length
+          return 90 * lengthRatio
+        }
+
+        // Check if search starts with chunk or vice versa (partial match at beginning)
+        // Use both raw and normalized versions
+        const chunkPrefix = chunkNoPunct.slice(0, 50)
+        const searchPrefix = searchTextNoPunct.slice(0, 50)
+        const chunkNormalizedPrefix = chunkNormalized.slice(0, 50)
+        const searchNormalizedPrefix = searchNormalized.slice(0, 50)
+
+        if (
+          chunkNoPunct.startsWith(searchPrefix) ||
+          searchTextNoPunct.startsWith(chunkPrefix) ||
+          chunkNormalized.startsWith(searchNormalizedPrefix) ||
+          searchNormalized.startsWith(chunkNormalizedPrefix)
+        ) {
+          return 70
+        }
+
+        // Word overlap with length penalty
+        // Normalize to handle TTS transformations in word matching
+        const words1 = [...new Set(chunkNormalized.split(' ').filter((w) => w.length > 2))]
+        const words2 = [...new Set(searchNormalized.split(' ').filter((w) => w.length > 2))]
+        if (words1.length === 0 || words2.length === 0) return 0
 
         const matchingWords = words1.filter((w) => words2.includes(w))
-        const overlapRatio = matchingWords.length / Math.min(words1.length, words2.length)
+        const overlapRatio = matchingWords.length / Math.max(words1.length, words2.length)
 
-        const minRatio = words1.length <= 4 ? 0.8 : 0.6
-        return overlapRatio >= minRatio
+        // Length similarity factor (penalize big length differences)
+        const lengthRatio = Math.min(words1.length, words2.length) / Math.max(words1.length, words2.length)
+
+        // Combined score: overlap * length similarity
+        // Lower threshold since TTS normalization helps match better
+        if (overlapRatio < 0.4) return 0
+
+        return overlapRatio * lengthRatio * 60 // Max 60 for word overlap matches
       }
 
-      // Find the matching chunk in allChunks (already generated)
-      const chunkIndex = allChunksRef.current.findIndex((chunk) => {
+      // Find the best matching chunk (highest score above threshold)
+      let bestChunkIndex = -1
+      let bestScore = 0
+      const MIN_SCORE = 25 // Minimum score to consider a match
+
+      for (let i = 0; i < allChunksRef.current.length; i++) {
+        const chunk = allChunksRef.current[i]
         const normalizedChunk = chunk.text.replace(/\s+/g, ' ').trim().toLowerCase()
-        return textsMatch(normalizedChunk, normalizedSearch)
-      })
+        const score = scoreMatch(normalizedChunk, normalizedSearch)
+
+        if (score > bestScore && score >= MIN_SCORE) {
+          bestScore = score
+          bestChunkIndex = i
+        }
+      }
+
+      const chunkIndex = bestChunkIndex
 
       // Stop current playback
       if (audioElementRef.current) {
@@ -548,7 +628,7 @@ export function useTTS(): UseTTSReturn {
 
       if (chunkIndex !== -1) {
         // Sentence already generated - seek to it
-        console.log('[TTS] Seeking to generated sentence at index', chunkIndex)
+        console.log('[TTS] Seeking to chunk', chunkIndex)
 
         // Rebuild the audio queue from the selected sentence onwards
         // We need to recreate blob URLs since they may have been revoked
@@ -576,22 +656,29 @@ export function useTTS(): UseTTSReturn {
         setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
         playNextChunk()
       } else {
-        // Sentence not yet generated - find it in allSentences and restart generation
-        const sentenceIndex = allSentencesRef.current.findIndex((sentence) => {
+        // Sentence not yet generated - find best match in allSentences and restart generation
+        let bestSentenceIndex = -1
+        let bestSentenceScore = 0
+
+        for (let i = 0; i < allSentencesRef.current.length; i++) {
+          const sentence = allSentencesRef.current[i]
           const normalizedSentence = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
-          return textsMatch(normalizedSentence, normalizedSearch)
-        })
+          const score = scoreMatch(normalizedSentence, normalizedSearch)
+
+          if (score > bestSentenceScore && score >= MIN_SCORE) {
+            bestSentenceScore = score
+            bestSentenceIndex = i
+          }
+        }
+
+        const sentenceIndex = bestSentenceIndex
 
         if (sentenceIndex === -1) {
           console.log('[TTS] Cannot seek - sentence not found in text')
           return
         }
 
-        console.log(
-          '[TTS] Seeking to un-generated sentence at index',
-          sentenceIndex,
-          '- restarting generation'
-        )
+        console.log('[TTS] Seeking to sentence', sentenceIndex, '- restarting generation')
 
         // Stop the current worker
         if (workerRef.current) {
