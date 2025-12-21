@@ -615,12 +615,14 @@ export function useTTS(): UseTTSReturn {
       if (!normalizedSearch) return
 
       // If the search text contains multiple sentences (user clicked on a paragraph),
-      // extract just the first sentence to find the right starting point
-      const sentenceEndMatch = normalizedSearch.match(/^[^.!?]+[.!?]/)
+      // extract just the first sentence to find the right starting point.
+      // Require punctuation to be followed by space or end-of-string to avoid
+      // splitting on decimal numbers (9.6) or abbreviations (Dr. Smith).
+      const sentenceEndMatch = normalizedSearch.match(/^.+?[.!?](?=\s|$)/)
       if (sentenceEndMatch) {
         const firstSentence = sentenceEndMatch[0].trim()
-        // Use the first sentence if it's a valid sentence (at least 2 chars for "i.")
-        if (firstSentence.length >= 2) {
+        // Use the first sentence if it's meaningful (not just an abbreviation)
+        if (firstSentence.length >= 5) {
           normalizedSearch = firstSentence
         }
       }
