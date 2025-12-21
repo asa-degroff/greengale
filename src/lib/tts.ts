@@ -216,9 +216,14 @@ export function extractTextForTTS(markdown: string): string {
       .replace(/^>\s+/gm, '')
       // Remove horizontal rules
       .replace(/^[-*_]{3,}$/gm, '')
-      // Remove list markers but keep text
-      .replace(/^[\s]*[-*+]\s+/gm, '')
-      .replace(/^[\s]*\d+\.\s+/gm, '')
+      // Convert list items to sentences (add period if no sentence-ending punctuation)
+      // This ensures each list item becomes a separate TTS sentence
+      .replace(/^([\s]*[-*+]\s+)(.+?)([.!?])?$/gm, (_, _marker, text, punct) => {
+        return punct ? text + punct : text + '.'
+      })
+      .replace(/^([\s]*\d+\.\s+)(.+?)([.!?])?$/gm, (_, _marker, text, punct) => {
+        return punct ? text + punct : text + '.'
+      })
       // Remove HTML tags
       .replace(/<[^>]+>/g, '')
       // Remove LaTeX block delimiters
