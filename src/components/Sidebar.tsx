@@ -257,7 +257,7 @@ export function Sidebar({ children }: SidebarProps) {
     bg: [0.02, 0.01, 0.03],
   })
   const middleClickCount = useRef(0)
-  const middleClickTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const middleClickTimer = useRef<number | undefined>(undefined)
 
   // Check WebGPU support on mount
   useEffect(() => {

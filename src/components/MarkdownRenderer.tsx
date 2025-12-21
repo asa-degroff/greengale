@@ -21,6 +21,35 @@ interface MarkdownRendererProps {
   disableLightbox?: boolean
   /** Blob metadata for image labels and alt text */
   blobs?: BlogEntry['blobs']
+  /** Current sentence being spoken by TTS (for highlighting) */
+  currentSentence?: string | null
+  /** Callback when user clicks on a sentence (for TTS seek) */
+  onSentenceClick?: (text: string) => void
+}
+
+// Normalize text for comparison (collapse whitespace, lowercase)
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+// Strip trailing punctuation for comparison (periods added by TTS extraction)
+function stripTrailingPunctuation(text: string): string {
+  return text.replace(/[.!?:]+$/, '')
+}
+
+// Apply TTS text transformations for matching (same as extractTextForTTS in tts.ts)
+// This normalizes DOM text to match how TTS processes it (parentheses → commas, etc.)
+function normalizeTTSText(text: string): string {
+  return text
+    .replace(/\(/g, ', ')
+    .replace(/\)/g, ', ')
+    .replace(/,\s*,/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/,\s*:/g, ':')
+    .replace(/(^|[\n])(\s*),\s*/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
 }
 
 export function MarkdownRenderer({
@@ -30,6 +59,8 @@ export function MarkdownRenderer({
   className = '',
   disableLightbox = false,
   blobs,
+  currentSentence,
+  onSentenceClick,
 }: MarkdownRendererProps) {
   const [rendered, setRendered] = useState<ReactNode>(null)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +69,7 @@ export function MarkdownRenderer({
     alt: string
     labels?: ContentLabelValue[]
   } | null>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
 
   // Track which images have been revealed by the user (to skip warning in lightbox)
   const revealedImagesRef = useRef<Set<string>>(new Set())
@@ -68,19 +100,34 @@ export function MarkdownRenderer({
     revealedImagesRef.current.add(src)
   }, [])
 
-  // Handle clicks on images to open lightbox
+  // Handle clicks on images to open lightbox and text blocks for TTS seek
   const handleContentClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (disableLightbox) return
-
       const target = e.target as HTMLElement
-      if (target.tagName === 'IMG') {
+
+      // Handle image clicks for lightbox
+      if (target.tagName === 'IMG' && !disableLightbox) {
         const img = target as HTMLImageElement
         e.preventDefault()
         openLightbox(img.src, img.alt || '')
+        return
+      }
+
+      // Handle text clicks for TTS seek
+      if (onSentenceClick) {
+        // Find the closest block-level element
+        const blockElement = target.closest(
+          'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd'
+        )
+        if (blockElement) {
+          const text = blockElement.textContent?.trim()
+          if (text) {
+            onSentenceClick(text)
+          }
+        }
       }
     },
-    [disableLightbox, openLightbox]
+    [disableLightbox, openLightbox, onSentenceClick]
   )
 
   // Create custom img component that wraps labeled images
@@ -165,6 +212,79 @@ export function MarkdownRenderer({
     }
   }, [rendered])
 
+  // Highlight the current sentence being spoken by TTS
+  useEffect(() => {
+    const container = contentRef.current
+    if (!container || !currentSentence) {
+      // Clear any existing highlights when no sentence
+      if (container) {
+        container.querySelectorAll('.tts-highlight').forEach((el) => {
+          el.classList.remove('tts-highlight')
+        })
+      }
+      return
+    }
+
+    const normalizedSentence = normalizeText(currentSentence)
+    if (!normalizedSentence) return
+
+    // Also prepare sentence without trailing punctuation (for list items where
+    // extractTextForTTS adds periods that aren't in the original markdown)
+    const sentenceNoPunct = stripTrailingPunctuation(normalizedSentence)
+
+    // Find block-level elements that could contain the sentence
+    const blockElements = container.querySelectorAll(
+      'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd'
+    )
+
+    let bestMatch: Element | null = null
+    let bestScore = 0
+
+    for (const element of blockElements) {
+      const textContent = element.textContent || ''
+      const normalizedContent = normalizeText(textContent)
+      const contentNoPunct = stripTrailingPunctuation(normalizedContent)
+
+      // Also normalize DOM content with TTS transformations (parentheses → commas)
+      // This allows matching TTS text against original DOM text
+      const ttsNormalizedContent = normalizeTTSText(textContent)
+      const ttsContentNoPunct = stripTrailingPunctuation(ttsNormalizedContent)
+
+      // Check if this element contains the sentence (try multiple matching strategies)
+      const matches =
+        normalizedContent.includes(normalizedSentence) || // exact match
+        normalizedContent.includes(sentenceNoPunct) || // sentence without trailing punct
+        contentNoPunct === sentenceNoPunct || // exact match after stripping punct from both
+        ttsNormalizedContent.includes(normalizedSentence) || // match with TTS normalization
+        ttsNormalizedContent.includes(sentenceNoPunct) || // TTS normalized without punct
+        ttsContentNoPunct === sentenceNoPunct // TTS normalized exact match
+
+      if (matches) {
+        // Prefer shorter matches (more specific)
+        const score = 1 / textContent.length
+        if (score > bestScore) {
+          bestScore = score
+          bestMatch = element
+        }
+      }
+    }
+
+    // Clear previous highlights
+    container.querySelectorAll('.tts-highlight').forEach((el) => {
+      el.classList.remove('tts-highlight')
+    })
+
+    // Apply new highlight and scroll into view
+    if (bestMatch) {
+      bestMatch.classList.add('tts-highlight')
+      // Scroll into view with some margin from top
+      bestMatch.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    }
+  }, [currentSentence])
+
   if (error) {
     return (
       <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
@@ -187,9 +307,10 @@ export function MarkdownRenderer({
   return (
     <>
       <div
-        className={`markdown-body ${className}`}
+        ref={contentRef}
+        className={`markdown-body ${className} ${onSentenceClick ? 'tts-seekable' : ''}`}
         onClick={handleContentClick}
-        style={disableLightbox ? undefined : { cursor: 'default' }}
+        style={disableLightbox && !onSentenceClick ? undefined : { cursor: 'default' }}
       >
         {rendered}
       </div>
