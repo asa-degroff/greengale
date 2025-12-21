@@ -524,10 +524,22 @@ export function useTTS(): UseTTSReturn {
       const normalizedSearch = sentenceText.replace(/\s+/g, ' ').trim().toLowerCase()
       if (!normalizedSearch) return
 
+      // Helper to check if two texts match (one contains the other, or significant word overlap)
+      const textsMatch = (text1: string, text2: string): boolean => {
+        if (text1.includes(text2) || text2.includes(text1)) return true
+        // Check for significant word overlap (at least 60% of words match)
+        const words1 = text1.split(' ').filter(w => w.length > 2)
+        const words2 = text2.split(' ').filter(w => w.length > 2)
+        if (words1.length === 0 || words2.length === 0) return false
+        const matchingWords = words1.filter(w => words2.includes(w))
+        const overlapRatio = matchingWords.length / Math.min(words1.length, words2.length)
+        return overlapRatio >= 0.6
+      }
+
       // Find the matching chunk in allChunks (already generated)
       const chunkIndex = allChunksRef.current.findIndex((chunk) => {
         const normalizedChunk = chunk.text.replace(/\s+/g, ' ').trim().toLowerCase()
-        return normalizedChunk.includes(normalizedSearch) || normalizedSearch.includes(normalizedChunk)
+        return textsMatch(normalizedChunk, normalizedSearch)
       })
 
       // Stop the scheduler and clear pending sentence timeouts
@@ -584,7 +596,7 @@ export function useTTS(): UseTTSReturn {
         // Sentence not yet generated - find it in allSentences and restart generation
         const sentenceIndex = allSentencesRef.current.findIndex((sentence) => {
           const normalizedSentence = sentence.replace(/\s+/g, ' ').trim().toLowerCase()
-          return normalizedSentence.includes(normalizedSearch) || normalizedSearch.includes(normalizedSentence)
+          return textsMatch(normalizedSentence, normalizedSearch)
         })
 
         if (sentenceIndex === -1) {
@@ -617,11 +629,9 @@ export function useTTS(): UseTTSReturn {
         }))
 
         // Get the text from the target sentence onwards
+        // Keep allSentencesRef intact so we can seek back to earlier sentences
         const remainingSentences = allSentencesRef.current.slice(sentenceIndex)
         const remainingText = remainingSentences.join(' ')
-
-        // Update allSentencesRef to reflect the new starting point
-        allSentencesRef.current = remainingSentences
 
         // Detect capabilities and create new worker
         const capabilities = await detectCapabilities()
