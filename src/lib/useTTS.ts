@@ -76,6 +76,7 @@ export function useTTS(): UseTTSReturn {
   const isPlayingRef = useRef(false)
   const playbackRateRef = useRef<PlaybackRate>(1.0)
   const isPausedRef = useRef(false)
+  const isStartingChunkRef = useRef(false) // Guard against concurrent playNextChunk calls
   const pendingGenerationRef = useRef<PendingGeneration | null>(null)
   const generationCompleteRef = useRef(false)
   const originalTextRef = useRef<string>('')
@@ -108,6 +109,10 @@ export function useTTS(): UseTTSReturn {
   const playNextChunk = useCallback(() => {
     if (!isPlayingRef.current || isPausedRef.current) return
 
+    // Guard against concurrent calls - if we're already starting a chunk, skip
+    if (isStartingChunkRef.current) return
+    isStartingChunkRef.current = true
+
     const queue = audioQueueRef.current
     const expectedIndex = currentChunkIndexRef.current
     const totalSentences = allSentencesRef.current.length
@@ -117,6 +122,7 @@ export function useTTS(): UseTTSReturn {
       // Pause at the end instead of closing - keeps buffer available for seeking back
       isPlayingRef.current = false
       isPausedRef.current = true
+      isStartingChunkRef.current = false
       setState((prev) => ({ ...prev, status: 'paused', currentSentence: 'Finished - click text to seek' }))
       setPlaybackState((prev) => ({ ...prev, isPlaying: false, playbackProgress: 100 }))
       if (playbackIntervalRef.current) {
@@ -145,6 +151,7 @@ export function useTTS(): UseTTSReturn {
 
     if (!chunk) {
       // Chunk not yet available
+      isStartingChunkRef.current = false
       if (generationCompleteRef.current) {
         // Generation is done but chunk not found - skip to next
         console.log('[TTS] Chunk', expectedIndex, 'not found, skipping')
@@ -183,6 +190,7 @@ export function useTTS(): UseTTSReturn {
       playedDurationRef.current += chunk.duration
       cleanupBlobUrl(chunk.blobUrl)
       currentChunkIndexRef.current = expectedIndex + 1
+      isStartingChunkRef.current = false
       playNextChunk()
     }
 
@@ -190,14 +198,27 @@ export function useTTS(): UseTTSReturn {
       console.error('[TTS] Audio playback error')
       cleanupBlobUrl(chunk.blobUrl)
       currentChunkIndexRef.current = expectedIndex + 1
+      isStartingChunkRef.current = false
       playNextChunk() // Try next chunk
     }
 
-    audio.play().catch((err) => {
-      console.error('[TTS] Failed to play audio:', err)
-      currentChunkIndexRef.current = expectedIndex + 1
-      playNextChunk()
-    })
+    audio.play()
+      .then(() => {
+        // Audio started successfully, clear the guard
+        isStartingChunkRef.current = false
+      })
+      .catch((err) => {
+        isStartingChunkRef.current = false
+        // AbortError means the audio source was changed (e.g., by a seek or new playNextChunk call)
+        // This is not a real error - just ignore it as something else is handling playback
+        if (err.name === 'AbortError') {
+          console.log('[TTS] Play aborted (audio source changed)')
+          return
+        }
+        console.error('[TTS] Failed to play audio:', err)
+        currentChunkIndexRef.current = expectedIndex + 1
+        playNextChunk()
+      })
   }, [getOrCreateAudioElement, cleanupBlobUrl])
 
   // Try to start playback when we have enough buffered audio
@@ -415,6 +436,7 @@ export function useTTS(): UseTTSReturn {
       generationCompleteRef.current = false
       isPlayingRef.current = false
       isPausedRef.current = false
+      isStartingChunkRef.current = false
       totalDurationRef.current = 0
       playedDurationRef.current = 0
       currentChunkIndexRef.current = 0
@@ -553,6 +575,7 @@ export function useTTS(): UseTTSReturn {
     allChunksRef.current.clear()
     isPlayingRef.current = false
     isPausedRef.current = false
+    isStartingChunkRef.current = false
     generationCompleteRef.current = false
     pendingGenerationRef.current = null
     totalDurationRef.current = 0
@@ -758,6 +781,7 @@ export function useTTS(): UseTTSReturn {
       }
 
       currentChunkIndexRef.current = targetIndex
+      isStartingChunkRef.current = false // Reset guard for fresh start
 
       // Update playback progress
       const totalSentences = allSentencesRef.current.length
