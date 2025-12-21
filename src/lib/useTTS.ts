@@ -1,19 +1,28 @@
 /**
  * React hook for Text-to-Speech using Kokoro TTS
  *
- * Manages Web Worker lifecycle, audio playback via Web Audio API,
- * and streaming audio chunk buffering.
+ * Manages Web Worker lifecycle and audio playback via HTMLAudioElement
+ * with preservesPitch for pitch-compensated speed changes.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { WorkerRequest, WorkerMessage, TTSState, PlaybackRate } from './tts'
-import { initialTTSState, detectCapabilities, SAMPLE_RATE, DEFAULT_VOICE, splitIntoSentences } from './tts'
+import {
+  initialTTSState,
+  detectCapabilities,
+  SAMPLE_RATE,
+  DEFAULT_VOICE,
+  splitIntoSentences,
+  float32ToWavBlob,
+} from './tts'
 import TTSWorker from './tts.worker?worker'
 
 interface AudioChunk {
   audio: Float32Array
+  blobUrl: string
   text: string
   sentenceIndex: number
+  duration: number // in seconds
 }
 
 interface PendingGeneration {
@@ -38,23 +47,8 @@ interface UseTTSReturn {
 }
 
 // Minimum seconds of audio to buffer before starting playback
-// This helps prevent gaps when short sentences are followed by long ones
 const MIN_BUFFER_SECONDS = 20
 const SAMPLE_RATE_FOR_CALC = 24000
-
-/**
- * Calculate detune value (in cents) to compensate for pitch change from playback rate.
- * When playback rate changes, pitch naturally shifts. This returns the detune needed
- * to maintain the original pitch.
- *
- * Formula: detune = -1200 * log2(playbackRate)
- * - At 2x speed, pitch goes up 12 semitones, so we detune -1200 cents (down 12 semitones)
- * - At 0.5x speed, pitch goes down 12 semitones, so we detune +1200 cents (up 12 semitones)
- */
-function calculatePitchCompensation(playbackRate: number): number {
-  if (playbackRate <= 0 || playbackRate === 1) return 0
-  return -1200 * Math.log2(playbackRate)
-}
 
 export function useTTS(): UseTTSReturn {
   const [state, setState] = useState<TTSState>(initialTTSState)
@@ -66,161 +60,103 @@ export function useTTS(): UseTTSReturn {
   })
 
   const workerRef = useRef<Worker | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const gainNodeRef = useRef<GainNode | null>(null)
+  const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const audioQueueRef = useRef<AudioChunk[]>([])
   const allChunksRef = useRef<AudioChunk[]>([]) // Store all generated chunks for seeking
-  const scheduledSourcesRef = useRef<AudioBufferSourceNode[]>([])
-  const scheduledEndTimeRef = useRef<number>(0)
+  const currentChunkIndexRef = useRef<number>(0) // Index into allChunksRef for current playback position
   const isPlayingRef = useRef(false)
-  const playbackStartTimeRef = useRef(0)
-  const totalScheduledDurationRef = useRef(0)
   const playbackRateRef = useRef<PlaybackRate>(1.0)
   const isPausedRef = useRef(false)
-  const pausedAtRef = useRef(0)
   const pendingGenerationRef = useRef<PendingGeneration | null>(null)
-  const schedulerIntervalRef = useRef<number | null>(null)
   const generationCompleteRef = useRef(false)
-  const sentenceTimeoutsRef = useRef<number[]>([])
-  const originalTextRef = useRef<string>('') // Store original text for seeking to un-generated sentences
-  const allSentencesRef = useRef<string[]>([]) // Store all sentences for seeking
+  const originalTextRef = useRef<string>('')
+  const allSentencesRef = useRef<string[]>([])
+  const totalDurationRef = useRef<number>(0)
+  const playedDurationRef = useRef<number>(0)
+  const playbackIntervalRef = useRef<number | null>(null)
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (schedulerIntervalRef.current) {
-        clearInterval(schedulerIntervalRef.current)
-        schedulerIntervalRef.current = null
-      }
-      for (const timeoutId of sentenceTimeoutsRef.current) {
-        clearTimeout(timeoutId)
-      }
-      sentenceTimeoutsRef.current = []
-      if (workerRef.current) {
-        workerRef.current.terminate()
-        workerRef.current = null
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
-        audioContextRef.current = null
-      }
+  // Get or create audio element
+  const getOrCreateAudioElement = useCallback(() => {
+    if (!audioElementRef.current) {
+      const audio = new Audio()
+      audio.preservesPitch = true
+      // Also set vendor-prefixed versions for broader compatibility
+      ;(audio as HTMLAudioElement & { mozPreservesPitch?: boolean }).mozPreservesPitch = true
+      ;(audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true
+      audioElementRef.current = audio
+    }
+    return audioElementRef.current
+  }, [])
+
+  // Cleanup blob URLs
+  const cleanupBlobUrl = useCallback((url: string) => {
+    if (url.startsWith('blob:')) {
+      URL.revokeObjectURL(url)
     }
   }, [])
 
-  const getOrCreateAudioContext = useCallback(() => {
-    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      audioContextRef.current = new AudioContextClass({ sampleRate: SAMPLE_RATE })
-      gainNodeRef.current = audioContextRef.current.createGain()
-      gainNodeRef.current.connect(audioContextRef.current.destination)
-    }
-    return audioContextRef.current
-  }, [])
-
-  // Schedule chunks continuously - called by interval
-  const scheduleChunks = useCallback(() => {
+  // Play the next chunk in the queue
+  const playNextChunk = useCallback(() => {
     if (!isPlayingRef.current || isPausedRef.current) return
 
-    const ctx = audioContextRef.current
-    const gainNode = gainNodeRef.current
-    if (!ctx || !gainNode || ctx.state === 'closed') return
-
     const queue = audioQueueRef.current
-    const currentTime = ctx.currentTime
-
-    // Schedule all available chunks ahead of time (up to 10 seconds ahead)
-    const scheduleAheadTime = 10.0
-    while (queue.length > 0 && scheduledEndTimeRef.current < currentTime + scheduleAheadTime) {
-      const chunk = queue.shift()
-      if (!chunk) break
-
-      const buffer = ctx.createBuffer(1, chunk.audio.length, SAMPLE_RATE)
-      buffer.getChannelData(0).set(chunk.audio)
-
-      const source = ctx.createBufferSource()
-      source.buffer = buffer
-      source.playbackRate.value = playbackRateRef.current
-      // Compensate pitch to maintain natural voice at different speeds
-      source.detune.value = calculatePitchCompensation(playbackRateRef.current)
-      source.connect(gainNode)
-
-      // Start at the end of previously scheduled audio, or now if nothing scheduled
-      const startTime = Math.max(currentTime + 0.01, scheduledEndTimeRef.current)
-      const duration = buffer.duration / playbackRateRef.current
-
-      source.start(startTime)
-      scheduledSourcesRef.current.push(source)
-
-      scheduledEndTimeRef.current = startTime + duration
-      totalScheduledDurationRef.current += duration
-
-      // Update current sentence when this chunk actually starts playing (not when scheduled)
-      const chunkText = chunk.text
-      const chunkIndex = chunk.sentenceIndex
-      const delayUntilStart = (startTime - currentTime) * 1000 // Convert to milliseconds
-
-      // Schedule the sentence update for when the audio actually starts
-      const timeoutId = window.setTimeout(() => {
-        // Remove this timeout from tracking
-        const idx = sentenceTimeoutsRef.current.indexOf(timeoutId)
-        if (idx > -1) sentenceTimeoutsRef.current.splice(idx, 1)
-
-        // Only update if we're still playing and not paused
-        if (isPlayingRef.current && !isPausedRef.current) {
-          setState((prev) => ({
-            ...prev,
-            currentSentence: chunkText,
-            sentenceIndex: chunkIndex,
-          }))
-        }
-      }, Math.max(0, delayUntilStart))
-      sentenceTimeoutsRef.current.push(timeoutId)
-
-      source.onended = () => {
-        // Remove from scheduled sources
-        const idx = scheduledSourcesRef.current.indexOf(source)
-        if (idx > -1) scheduledSourcesRef.current.splice(idx, 1)
-      }
-    }
-
-    // Update playback time based on audio context time
-    if (playbackStartTimeRef.current > 0) {
-      const elapsed = (currentTime - playbackStartTimeRef.current) * playbackRateRef.current
-      setPlaybackState((prev) => ({
-        ...prev,
-        currentTime: Math.min(elapsed, totalScheduledDurationRef.current),
-        duration: totalScheduledDurationRef.current,
-        isPlaying: true,
-      }))
-    }
-
-    // Check if we're done (no more chunks and generation complete)
-    if (queue.length === 0 && generationCompleteRef.current) {
-      // Check if all scheduled audio has finished playing
-      if (currentTime >= scheduledEndTimeRef.current) {
-        stopScheduler()
-        setState((prev) => ({ ...prev, status: 'idle' }))
-        setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
+    if (queue.length === 0) {
+      // No more chunks to play
+      if (generationCompleteRef.current) {
+        // All done
         isPlayingRef.current = false
+        setState((prev) => ({ ...prev, status: 'idle', currentSentence: null }))
+        setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
+        if (playbackIntervalRef.current) {
+          clearInterval(playbackIntervalRef.current)
+          playbackIntervalRef.current = null
+        }
       }
+      return
     }
-  }, [])
 
-  const startScheduler = useCallback(() => {
-    if (schedulerIntervalRef.current) return
-    // Run scheduler every 100ms to check for new chunks
-    schedulerIntervalRef.current = window.setInterval(scheduleChunks, 100)
-  }, [scheduleChunks])
+    const chunk = queue.shift()!
+    currentChunkIndexRef.current = chunk.sentenceIndex
 
-  const stopScheduler = useCallback(() => {
-    if (schedulerIntervalRef.current) {
-      clearInterval(schedulerIntervalRef.current)
-      schedulerIntervalRef.current = null
+    const audio = getOrCreateAudioElement()
+
+    // Clean up previous blob URL
+    if (audio.src && audio.src.startsWith('blob:')) {
+      cleanupBlobUrl(audio.src)
     }
-  }, [])
 
+    // Set up the new audio
+    audio.src = chunk.blobUrl
+    audio.playbackRate = playbackRateRef.current
+
+    // Update current sentence
+    setState((prev) => ({
+      ...prev,
+      status: 'playing',
+      currentSentence: chunk.text,
+      sentenceIndex: chunk.sentenceIndex,
+    }))
+
+    // Handle chunk end
+    audio.onended = () => {
+      playedDurationRef.current += chunk.duration
+      cleanupBlobUrl(chunk.blobUrl)
+      playNextChunk()
+    }
+
+    audio.onerror = () => {
+      console.error('[TTS] Audio playback error')
+      cleanupBlobUrl(chunk.blobUrl)
+      playNextChunk() // Try next chunk
+    }
+
+    audio.play().catch((err) => {
+      console.error('[TTS] Failed to play audio:', err)
+      playNextChunk()
+    })
+  }, [getOrCreateAudioElement, cleanupBlobUrl])
+
+  // Try to start playback when we have enough buffered audio
   const tryStartPlayback = useCallback(() => {
     if (isPlayingRef.current) return
 
@@ -228,8 +164,7 @@ export function useTTS(): UseTTSReturn {
     if (queue.length === 0) return
 
     // Calculate total buffered duration
-    const bufferedSamples = queue.reduce((sum, chunk) => sum + chunk.audio.length, 0)
-    const bufferedSeconds = bufferedSamples / SAMPLE_RATE_FOR_CALC
+    const bufferedSeconds = queue.reduce((sum, chunk) => sum + chunk.duration, 0)
 
     // Start playback if we have enough buffer OR if generation is complete
     const hasEnoughBuffer = bufferedSeconds >= MIN_BUFFER_SECONDS
@@ -238,19 +173,31 @@ export function useTTS(): UseTTSReturn {
     if (hasEnoughBuffer || generationDone) {
       isPlayingRef.current = true
       isPausedRef.current = false
-      const ctx = getOrCreateAudioContext()
-      if (ctx.state === 'suspended') {
-        ctx.resume()
-      }
-      playbackStartTimeRef.current = ctx.currentTime
-      scheduledEndTimeRef.current = ctx.currentTime
       setState((prev) => ({ ...prev, status: 'playing' }))
       setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
-      startScheduler()
-      scheduleChunks() // Schedule immediately
-    }
-  }, [getOrCreateAudioContext, startScheduler, scheduleChunks])
 
+      // Start playback time tracking
+      if (!playbackIntervalRef.current) {
+        playbackIntervalRef.current = window.setInterval(() => {
+          const audio = audioElementRef.current
+          if (audio && isPlayingRef.current && !isPausedRef.current) {
+            const currentChunkTime = audio.currentTime / playbackRateRef.current
+            const totalTime = playedDurationRef.current + currentChunkTime
+            setPlaybackState((prev) => ({
+              ...prev,
+              currentTime: totalTime,
+              duration: totalDurationRef.current,
+              isPlaying: true,
+            }))
+          }
+        }, 100)
+      }
+
+      playNextChunk()
+    }
+  }, [playNextChunk])
+
+  // Handle messages from the TTS worker
   const handleWorkerMessage = useCallback(
     (event: MessageEvent<WorkerMessage>) => {
       const message = event.data
@@ -272,7 +219,7 @@ export function useTTS(): UseTTSReturn {
             isModelCached: message.cachedFromIndexedDB,
           }))
 
-          // Now that model is ready, send the pending generation request
+          // Send pending generation request
           if (pendingGenerationRef.current && workerRef.current) {
             const generateRequest: WorkerRequest = {
               type: 'generate',
@@ -285,8 +232,6 @@ export function useTTS(): UseTTSReturn {
           break
 
         case 'generation-progress':
-          // Only update generation progress, not currentSentence
-          // currentSentence is updated in scheduleChunks when audio actually plays
           setState((prev) => ({
             ...prev,
             status: prev.status === 'playing' ? 'playing' : 'generating',
@@ -296,21 +241,25 @@ export function useTTS(): UseTTSReturn {
           break
 
         case 'audio-chunk': {
+          // Convert Float32Array to WAV blob
+          const wavBlob = float32ToWavBlob(message.audio, SAMPLE_RATE)
+          const blobUrl = URL.createObjectURL(wavBlob)
+          const duration = message.audio.length / SAMPLE_RATE_FOR_CALC
+
           const chunk: AudioChunk = {
             audio: message.audio,
+            blobUrl,
             text: message.text,
             sentenceIndex: message.sentenceIndex,
+            duration,
           }
+
           audioQueueRef.current.push(chunk)
-          allChunksRef.current.push(chunk) // Store for seeking
+          allChunksRef.current.push(chunk)
+          totalDurationRef.current += duration
 
           // Try to start playback if we have enough buffered
           tryStartPlayback()
-
-          // If already playing, try to schedule more chunks immediately
-          if (isPlayingRef.current && !isPausedRef.current) {
-            scheduleChunks()
-          }
           break
         }
 
@@ -321,8 +270,7 @@ export function useTTS(): UseTTSReturn {
             generationProgress: 100,
           }))
 
-          // If we have buffered audio but haven't started playing yet
-          // (content was shorter than MIN_BUFFER_SECONDS), start now
+          // Start playback if we have audio but haven't started yet
           if (!isPlayingRef.current && audioQueueRef.current.length > 0) {
             tryStartPlayback()
           }
@@ -350,43 +298,74 @@ export function useTTS(): UseTTSReturn {
           break
       }
     },
-    [tryStartPlayback, scheduleChunks]
+    [tryStartPlayback]
   )
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (playbackIntervalRef.current) {
+        clearInterval(playbackIntervalRef.current)
+        playbackIntervalRef.current = null
+      }
+      if (workerRef.current) {
+        workerRef.current.terminate()
+        workerRef.current = null
+      }
+      if (audioElementRef.current) {
+        audioElementRef.current.pause()
+        if (audioElementRef.current.src) {
+          cleanupBlobUrl(audioElementRef.current.src)
+        }
+        audioElementRef.current = null
+      }
+      // Clean up any remaining blob URLs
+      for (const chunk of audioQueueRef.current) {
+        cleanupBlobUrl(chunk.blobUrl)
+      }
+      for (const chunk of allChunksRef.current) {
+        cleanupBlobUrl(chunk.blobUrl)
+      }
+    }
+  }, [cleanupBlobUrl])
 
   const start = useCallback(
     async (text: string) => {
-      // IMPORTANT: Create AudioContext immediately during user gesture
-      // Modern browsers require this to be done during user interaction
-      const ctx = getOrCreateAudioContext()
-      if (ctx.state === 'suspended') {
-        await ctx.resume()
-      }
-
-      // Stop any existing scheduler
-      stopScheduler()
-
       // Reset state
       setState({ ...initialTTSState, status: 'loading-model' })
+
+      // Clean up existing blob URLs
+      for (const chunk of audioQueueRef.current) {
+        cleanupBlobUrl(chunk.blobUrl)
+      }
+      for (const chunk of allChunksRef.current) {
+        cleanupBlobUrl(chunk.blobUrl)
+      }
+
       audioQueueRef.current = []
-      allChunksRef.current = [] // Clear stored chunks for new session
-      originalTextRef.current = text // Store for seeking
-      allSentencesRef.current = splitIntoSentences(text) // Pre-split for seeking
-      totalScheduledDurationRef.current = 0
-      playbackStartTimeRef.current = 0
-      scheduledEndTimeRef.current = 0
+      allChunksRef.current = []
+      originalTextRef.current = text
+      allSentencesRef.current = splitIntoSentences(text)
       generationCompleteRef.current = false
       isPlayingRef.current = false
       isPausedRef.current = false
+      totalDurationRef.current = 0
+      playedDurationRef.current = 0
+      currentChunkIndexRef.current = 0
 
-      // Stop any scheduled sources
-      for (const source of scheduledSourcesRef.current) {
-        try {
-          source.stop()
-        } catch {
-          // Source may have already ended
-        }
+      if (playbackIntervalRef.current) {
+        clearInterval(playbackIntervalRef.current)
+        playbackIntervalRef.current = null
       }
-      scheduledSourcesRef.current = []
+
+      // Stop existing audio
+      if (audioElementRef.current) {
+        audioElementRef.current.pause()
+        if (audioElementRef.current.src) {
+          cleanupBlobUrl(audioElementRef.current.src)
+        }
+        audioElementRef.current.src = ''
+      }
 
       setPlaybackState({
         isPlaying: false,
@@ -414,7 +393,7 @@ export function useTTS(): UseTTSReturn {
       workerRef.current = new TTSWorker()
       workerRef.current.onmessage = handleWorkerMessage
 
-      // Store the pending generation - will be sent when model is ready
+      // Store pending generation
       pendingGenerationRef.current = { text }
 
       // Initialize model
@@ -428,58 +407,47 @@ export function useTTS(): UseTTSReturn {
       }
       workerRef.current.postMessage(initRequest)
     },
-    [handleWorkerMessage, stopScheduler, getOrCreateAudioContext]
+    [handleWorkerMessage, cleanupBlobUrl]
   )
 
   const pause = useCallback(() => {
     if (!isPlayingRef.current || isPausedRef.current) return
 
     isPausedRef.current = true
-    pausedAtRef.current = audioContextRef.current?.currentTime || 0
-
-    // Stop the scheduler
-    stopScheduler()
-
-    // Clear pending sentence timeouts
-    for (const timeoutId of sentenceTimeoutsRef.current) {
-      clearTimeout(timeoutId)
-    }
-    sentenceTimeoutsRef.current = []
-
-    // Suspend audio context (this pauses all scheduled sources)
-    if (audioContextRef.current) {
-      audioContextRef.current.suspend()
+    const audio = audioElementRef.current
+    if (audio) {
+      audio.pause()
     }
 
     setState((prev) => ({ ...prev, status: 'paused' }))
     setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
-  }, [stopScheduler])
+  }, [])
 
   const resume = useCallback(() => {
     if (!isPausedRef.current) return
 
     isPausedRef.current = false
+    const audio = audioElementRef.current
 
-    if (audioContextRef.current) {
-      audioContextRef.current.resume().then(() => {
+    if (audio && audio.src) {
+      audio.play().then(() => {
         setState((prev) => ({ ...prev, status: 'playing' }))
         setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
-        // Restart the scheduler
-        startScheduler()
-        scheduleChunks()
       })
+    } else {
+      // No current audio, try to play next chunk
+      setState((prev) => ({ ...prev, status: 'playing' }))
+      setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
+      playNextChunk()
     }
-  }, [startScheduler, scheduleChunks])
+  }, [playNextChunk])
 
   const stop = useCallback(() => {
-    // Stop the scheduler
-    stopScheduler()
-
-    // Clear pending sentence timeouts
-    for (const timeoutId of sentenceTimeoutsRef.current) {
-      clearTimeout(timeoutId)
+    // Stop playback interval
+    if (playbackIntervalRef.current) {
+      clearInterval(playbackIntervalRef.current)
+      playbackIntervalRef.current = null
     }
-    sentenceTimeoutsRef.current = []
 
     // Stop the worker
     if (workerRef.current) {
@@ -489,30 +457,32 @@ export function useTTS(): UseTTSReturn {
       workerRef.current = null
     }
 
-    // Stop all scheduled audio sources
-    for (const source of scheduledSourcesRef.current) {
-      try {
-        source.stop()
-      } catch {
-        // Source may have already ended
+    // Stop audio
+    if (audioElementRef.current) {
+      audioElementRef.current.pause()
+      if (audioElementRef.current.src) {
+        cleanupBlobUrl(audioElementRef.current.src)
       }
+      audioElementRef.current.src = ''
     }
-    scheduledSourcesRef.current = []
 
-    if (audioContextRef.current) {
-      audioContextRef.current.close()
-      audioContextRef.current = null
+    // Clean up blob URLs
+    for (const chunk of audioQueueRef.current) {
+      cleanupBlobUrl(chunk.blobUrl)
+    }
+    for (const chunk of allChunksRef.current) {
+      cleanupBlobUrl(chunk.blobUrl)
     }
 
     // Reset state
     audioQueueRef.current = []
+    allChunksRef.current = []
     isPlayingRef.current = false
     isPausedRef.current = false
-    totalScheduledDurationRef.current = 0
-    playbackStartTimeRef.current = 0
-    scheduledEndTimeRef.current = 0
     generationCompleteRef.current = false
     pendingGenerationRef.current = null
+    totalDurationRef.current = 0
+    playedDurationRef.current = 0
 
     setState(initialTTSState)
     setPlaybackState({
@@ -521,17 +491,15 @@ export function useTTS(): UseTTSReturn {
       duration: 0,
       playbackRate: playbackRateRef.current,
     })
-  }, [stopScheduler])
+  }, [cleanupBlobUrl])
 
   const setPlaybackRate = useCallback((rate: PlaybackRate) => {
     playbackRateRef.current = rate
     setPlaybackState((prev) => ({ ...prev, playbackRate: rate }))
 
-    // Update all scheduled sources with new rate and pitch compensation
-    const detune = calculatePitchCompensation(rate)
-    for (const source of scheduledSourcesRef.current) {
-      source.playbackRate.value = rate
-      source.detune.value = detune
+    // Update current audio element's playback rate
+    if (audioElementRef.current) {
+      audioElementRef.current.playbackRate = rate
     }
   }, [])
 
@@ -547,7 +515,6 @@ export function useTTS(): UseTTSReturn {
 
       // Helper to check if two texts match
       const textsMatch = (text1: string, text2: string): boolean => {
-        // Try includes check with and without trailing punctuation
         const text1NoPunct = stripPunctuation(text1)
         const text2NoPunct = stripPunctuation(text2)
 
@@ -556,15 +523,13 @@ export function useTTS(): UseTTSReturn {
         if (text1NoPunct === text2NoPunct) return true
 
         // Check for significant word overlap using UNIQUE words only
-        // (prevents "the" appearing twice from inflating the match ratio)
-        const words1 = [...new Set(text1NoPunct.split(' ').filter(w => w.length > 2))]
-        const words2 = [...new Set(text2NoPunct.split(' ').filter(w => w.length > 2))]
+        const words1 = [...new Set(text1NoPunct.split(' ').filter((w) => w.length > 2))]
+        const words2 = [...new Set(text2NoPunct.split(' ').filter((w) => w.length > 2))]
         if (words1.length === 0 || words2.length === 0) return false
 
-        const matchingWords = words1.filter(w => words2.includes(w))
+        const matchingWords = words1.filter((w) => words2.includes(w))
         const overlapRatio = matchingWords.length / Math.min(words1.length, words2.length)
 
-        // Require higher overlap for short phrases (they're more likely to have false matches)
         const minRatio = words1.length <= 4 ? 0.8 : 0.6
         return overlapRatio >= minRatio
       }
@@ -575,56 +540,41 @@ export function useTTS(): UseTTSReturn {
         return textsMatch(normalizedChunk, normalizedSearch)
       })
 
-      // Stop the scheduler and clear pending sentence timeouts
-      stopScheduler()
-      for (const timeoutId of sentenceTimeoutsRef.current) {
-        clearTimeout(timeoutId)
+      // Stop current playback
+      if (audioElementRef.current) {
+        audioElementRef.current.pause()
+        audioElementRef.current.onended = null
       }
-      sentenceTimeoutsRef.current = []
-
-      // Stop all currently scheduled audio sources
-      for (const source of scheduledSourcesRef.current) {
-        try {
-          source.stop()
-        } catch {
-          // Source may have already ended
-        }
-      }
-      scheduledSourcesRef.current = []
 
       if (chunkIndex !== -1) {
         // Sentence already generated - seek to it
         console.log('[TTS] Seeking to generated sentence at index', chunkIndex)
 
         // Rebuild the audio queue from the selected sentence onwards
-        audioQueueRef.current = allChunksRef.current.slice(chunkIndex).map((chunk) => ({
-          audio: chunk.audio,
-          text: chunk.text,
-          sentenceIndex: chunk.sentenceIndex,
-        }))
-
-        // Reset playback timing
-        const ctx = audioContextRef.current
-        if (ctx) {
-          totalScheduledDurationRef.current = 0
-          playbackStartTimeRef.current = ctx.currentTime
-          scheduledEndTimeRef.current = ctx.currentTime
-
-          // If paused, resume the audio context
-          if (isPausedRef.current) {
-            isPausedRef.current = false
-            ctx.resume()
+        // We need to recreate blob URLs since they may have been revoked
+        audioQueueRef.current = allChunksRef.current.slice(chunkIndex).map((chunk) => {
+          // Create a new blob URL if the old one was revoked
+          const wavBlob = float32ToWavBlob(chunk.audio, SAMPLE_RATE)
+          const blobUrl = URL.createObjectURL(wavBlob)
+          return {
+            ...chunk,
+            blobUrl,
           }
+        })
 
-          // Ensure we're in playing state
-          isPlayingRef.current = true
-          setState((prev) => ({ ...prev, status: 'playing' }))
-          setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
+        // Calculate played duration up to this point
+        playedDurationRef.current = allChunksRef.current
+          .slice(0, chunkIndex)
+          .reduce((sum, c) => sum + c.duration, 0)
 
-          // Start the scheduler and schedule chunks immediately
-          startScheduler()
-          scheduleChunks()
-        }
+        currentChunkIndexRef.current = chunkIndex
+
+        // Resume playback
+        isPlayingRef.current = true
+        isPausedRef.current = false
+        setState((prev) => ({ ...prev, status: 'playing' }))
+        setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
+        playNextChunk()
       } else {
         // Sentence not yet generated - find it in allSentences and restart generation
         const sentenceIndex = allSentencesRef.current.findIndex((sentence) => {
@@ -637,7 +587,11 @@ export function useTTS(): UseTTSReturn {
           return
         }
 
-        console.log('[TTS] Seeking to un-generated sentence at index', sentenceIndex, '- restarting generation')
+        console.log(
+          '[TTS] Seeking to un-generated sentence at index',
+          sentenceIndex,
+          '- restarting generation'
+        )
 
         // Stop the current worker
         if (workerRef.current) {
@@ -645,10 +599,19 @@ export function useTTS(): UseTTSReturn {
           workerRef.current = null
         }
 
-        // Clear audio state but keep the AudioContext
+        // Clean up blob URLs
+        for (const chunk of audioQueueRef.current) {
+          cleanupBlobUrl(chunk.blobUrl)
+        }
+        for (const chunk of allChunksRef.current) {
+          cleanupBlobUrl(chunk.blobUrl)
+        }
+
+        // Clear audio state
         audioQueueRef.current = []
         allChunksRef.current = []
-        totalScheduledDurationRef.current = 0
+        totalDurationRef.current = 0
+        playedDurationRef.current = 0
         generationCompleteRef.current = false
         isPlayingRef.current = false
 
@@ -662,7 +625,6 @@ export function useTTS(): UseTTSReturn {
         }))
 
         // Get the text from the target sentence onwards
-        // Keep allSentencesRef intact so we can seek back to earlier sentences
         const remainingSentences = allSentencesRef.current.slice(sentenceIndex)
         const remainingText = remainingSentences.join(' ')
 
@@ -675,7 +637,7 @@ export function useTTS(): UseTTSReturn {
         // Store the pending generation
         pendingGenerationRef.current = { text: remainingText }
 
-        // Initialize model (will trigger generation when ready)
+        // Initialize model
         const initRequest: WorkerRequest = {
           type: 'initialize',
           options: {
@@ -685,20 +647,9 @@ export function useTTS(): UseTTSReturn {
           },
         }
         workerRef.current.postMessage(initRequest)
-
-        // Reset playback timing for when audio starts
-        const ctx = audioContextRef.current
-        if (ctx) {
-          playbackStartTimeRef.current = ctx.currentTime
-          scheduledEndTimeRef.current = ctx.currentTime
-          if (isPausedRef.current) {
-            isPausedRef.current = false
-            ctx.resume()
-          }
-        }
       }
     },
-    [stopScheduler, startScheduler, scheduleChunks, handleWorkerMessage]
+    [playNextChunk, handleWorkerMessage, cleanupBlobUrl]
   )
 
   return {

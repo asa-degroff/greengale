@@ -294,3 +294,63 @@ export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 
 export const PLAYBACK_RATES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const
 export type PlaybackRate = (typeof PLAYBACK_RATES)[number]
+
+// ==================== WAV ENCODING ====================
+
+/**
+ * Convert Float32Array audio samples to a WAV Blob.
+ * Used for HTMLAudioElement playback with preservesPitch support.
+ */
+export function float32ToWavBlob(samples: Float32Array, sampleRate: number = SAMPLE_RATE): Blob {
+  const numChannels = 1
+  const bitsPerSample = 16
+  const bytesPerSample = bitsPerSample / 8
+  const blockAlign = numChannels * bytesPerSample
+
+  // Calculate sizes
+  const dataSize = samples.length * bytesPerSample
+  const headerSize = 44
+  const fileSize = headerSize + dataSize
+
+  // Create buffer
+  const buffer = new ArrayBuffer(fileSize)
+  const view = new DataView(buffer)
+
+  // Write WAV header
+  // "RIFF" chunk descriptor
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, fileSize - 8, true) // file size - 8
+  writeString(view, 8, 'WAVE')
+
+  // "fmt " sub-chunk
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true) // sub-chunk size (16 for PCM)
+  view.setUint16(20, 1, true) // audio format (1 = PCM)
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * blockAlign, true) // byte rate
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, bitsPerSample, true)
+
+  // "data" sub-chunk
+  writeString(view, 36, 'data')
+  view.setUint32(40, dataSize, true)
+
+  // Write audio data (convert float32 to int16)
+  let offset = 44
+  for (let i = 0; i < samples.length; i++) {
+    // Clamp to [-1, 1] and convert to int16
+    const sample = Math.max(-1, Math.min(1, samples[i]))
+    const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+    view.setInt16(offset, int16, true)
+    offset += 2
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' })
+}
+
+function writeString(view: DataView, offset: number, str: string): void {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i))
+  }
+}
