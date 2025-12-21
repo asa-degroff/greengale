@@ -198,7 +198,12 @@ export function BlogViewer({
           </pre>
         ) : (
           <div className="prose max-w-none">
-            <MarkdownRenderer content={content} enableLatex={latex} blobs={blobs} />
+            <MarkdownRenderer
+              content={content}
+              enableLatex={latex}
+              blobs={blobs}
+              currentSentence={tts.state.currentSentence}
+            />
           </div>
         )}
 
