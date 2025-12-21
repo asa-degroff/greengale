@@ -79,6 +79,7 @@ export function useTTS(): UseTTSReturn {
   const isStartingChunkRef = useRef(false) // Guard against concurrent playNextChunk calls
   const pendingGenerationRef = useRef<PendingGeneration | null>(null)
   const generationCompleteRef = useRef(false)
+  const modelLoadedOnceRef = useRef(false) // Track if model has been loaded at least once
   const originalTextRef = useRef<string>('')
   const allSentencesRef = useRef<string[]>([])
   const totalDurationRef = useRef<number>(0)
@@ -269,17 +270,21 @@ export function useTTS(): UseTTSReturn {
 
       switch (message.type) {
         case 'model-progress':
-          setState((prev) => ({
-            ...prev,
-            status: 'loading-model',
-            modelProgress: message.progress,
-          }))
+          // Only show loading UI on initial load, not during seeks (model is cached)
+          if (!modelLoadedOnceRef.current) {
+            setState((prev) => ({
+              ...prev,
+              status: 'loading-model',
+              modelProgress: message.progress,
+            }))
+          }
           break
 
         case 'model-ready':
+          modelLoadedOnceRef.current = true
           setState((prev) => ({
             ...prev,
-            status: 'generating',
+            status: prev.status === 'playing' ? 'playing' : 'generating',
             modelProgress: 100,
             isModelCached: message.cachedFromIndexedDB,
           }))
