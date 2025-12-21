@@ -1215,102 +1215,25 @@ html {
   }
 }
 
-/* ==================== TTS Download Modal ==================== */
-
-.tts-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  padding: 1rem;
-}
-
-.tts-modal {
-  background: var(--theme-bg);
-  border: 1px solid var(--theme-border);
-  border-radius: 1rem;
-  padding: 2rem;
-  max-width: 24rem;
-  width: 100%;
-  text-align: center;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-}
-
-.tts-modal-icon {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 1rem;
-}
-
-.tts-modal-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--theme-text);
-  margin-bottom: 0.5rem;
-}
-
-.tts-modal-status {
-  font-size: 0.875rem;
-  color: var(--theme-text-secondary);
-  margin-bottom: 1rem;
-}
-
-.tts-modal-progress-container {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.tts-modal-progress-bar {
-  flex: 1;
-  height: 8px;
+/* Progress bar at top of player */
+.audio-player-progress-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
   background: var(--theme-border);
-  border-radius: 4px;
-  overflow: hidden;
 }
 
-.tts-modal-progress-fill {
+.audio-player-progress-fill {
   height: 100%;
   background: var(--theme-accent);
-  border-radius: 4px;
   transition: width 0.2s ease;
 }
 
-.tts-modal-progress-text {
-  font-size: 0.875rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--theme-text);
-  min-width: 3rem;
-  text-align: right;
+/* Loading icon (reuses button sizing) */
+.audio-player-loading-icon {
+  color: var(--theme-accent);
+  cursor: default;
 }
 
-.tts-modal-note {
-  font-size: 0.75rem;
-  color: var(--theme-text-secondary);
-  margin-bottom: 1.5rem;
-}
-
-.tts-modal-cancel {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1.5rem;
-  font-size: 0.875rem;
-  border: 1px solid var(--theme-border);
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--theme-text-secondary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.tts-modal-cancel:hover {
-  border-color: var(--theme-text-secondary);
-  color: var(--theme-text);
-}

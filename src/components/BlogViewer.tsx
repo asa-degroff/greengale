@@ -5,7 +5,6 @@ import { TableOfContents } from './TableOfContents'
 import { TableOfContentsMobile } from './TableOfContentsMobile'
 import { BlueskyInteractions } from './BlueskyInteractions'
 import { AudioPlayer } from './AudioPlayer'
-import { TTSDownloadModal } from './TTSDownloadModal'
 import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { extractHeadings } from '@/lib/extractHeadings'
@@ -100,7 +99,7 @@ export function BlogViewer({
       style={customStyles}
       className="min-h-screen text-[var(--theme-text)]"
     >
-      <div className={`max-w-3xl mx-auto px-4 py-8 ${isTTSActive && !isTTSLoading ? 'pb-24' : ''}`}>
+      <div className={`max-w-3xl mx-auto px-4 py-8 ${isTTSActive ? 'pb-24' : ''}`}>
         {/* Header */}
         <header className="mb-8">
           {title && (
@@ -228,16 +227,8 @@ export function BlogViewer({
         </div>
       )}
 
-      {/* TTS Download Modal */}
-      {isTTSLoading && (
-        <TTSDownloadModal
-          progress={tts.state.modelProgress}
-          onCancel={tts.stop}
-        />
-      )}
-
-      {/* Audio Player */}
-      {isTTSActive && !isTTSLoading && (
+      {/* Audio Player (also handles loading state) */}
+      {isTTSActive && (
         <AudioPlayer
           state={tts.state}
           playbackState={tts.playbackState}
