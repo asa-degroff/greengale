@@ -619,8 +619,8 @@ export function useTTS(): UseTTSReturn {
       const sentenceEndMatch = normalizedSearch.match(/^[^.!?]+[.!?]/)
       if (sentenceEndMatch) {
         const firstSentence = sentenceEndMatch[0].trim()
-        // Only use the first sentence if it's substantial (not just a word or two)
-        if (firstSentence.length > 20) {
+        // Use the first sentence if it's a valid sentence (at least 2 chars for "i.")
+        if (firstSentence.length >= 2) {
           normalizedSearch = firstSentence
         }
       }
