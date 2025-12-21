@@ -37,6 +37,21 @@ function stripTrailingPunctuation(text: string): string {
   return text.replace(/[.!?:]+$/, '')
 }
 
+// Apply TTS text transformations for matching (same as extractTextForTTS in tts.ts)
+// This normalizes DOM text to match how TTS processes it (parentheses → commas, etc.)
+function normalizeTTSText(text: string): string {
+  return text
+    .replace(/\(/g, ', ')
+    .replace(/\)/g, ', ')
+    .replace(/,\s*,/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/,\s*:/g, ':')
+    .replace(/(^|[\n])(\s*),\s*/g, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
 export function MarkdownRenderer({
   content,
   enableLatex = false,
@@ -230,11 +245,19 @@ export function MarkdownRenderer({
       const normalizedContent = normalizeText(textContent)
       const contentNoPunct = stripTrailingPunctuation(normalizedContent)
 
+      // Also normalize DOM content with TTS transformations (parentheses → commas)
+      // This allows matching TTS text against original DOM text
+      const ttsNormalizedContent = normalizeTTSText(textContent)
+      const ttsContentNoPunct = stripTrailingPunctuation(ttsNormalizedContent)
+
       // Check if this element contains the sentence (try multiple matching strategies)
       const matches =
         normalizedContent.includes(normalizedSentence) || // exact match
         normalizedContent.includes(sentenceNoPunct) || // sentence without trailing punct
-        contentNoPunct === sentenceNoPunct // exact match after stripping punct from both
+        contentNoPunct === sentenceNoPunct || // exact match after stripping punct from both
+        ttsNormalizedContent.includes(normalizedSentence) || // match with TTS normalization
+        ttsNormalizedContent.includes(sentenceNoPunct) || // TTS normalized without punct
+        ttsContentNoPunct === sentenceNoPunct // TTS normalized exact match
 
       if (matches) {
         // Prefer shorter matches (more specific)
