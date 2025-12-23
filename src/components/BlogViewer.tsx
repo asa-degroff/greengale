@@ -214,15 +214,16 @@ export function BlogViewer({
       </div>
 
       {/* Desktop Table of Contents - only show when there's enough room */}
+      {/* At 1700px+: content (768px) centered in main area (viewport-256px sidebar) leaves enough space */}
       {headings.length > 0 && (
-        <aside className="hidden 2xl:block fixed right-8 top-24 w-64 toc-desktop">
+        <aside className="hidden min-[1610px]:block fixed right-8 top-24 w-64 toc-desktop">
           <TableOfContents headings={headings} activeId={activeId} />
         </aside>
       )}
 
-      {/* Mobile Table of Contents - respect sidebar on lg+ screens */}
+      {/* Mobile Table of Contents - show when desktop TOC is hidden */}
       {headings.length > 0 && (
-        <div className="2xl:hidden">
+        <div className="min-[1610px]:hidden">
           <TableOfContentsMobile headings={headings} activeId={activeId} />
         </div>
       )}
