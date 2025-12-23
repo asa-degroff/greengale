@@ -214,7 +214,7 @@ export function BlogViewer({
       </div>
 
       {/* Desktop Table of Contents - only show when there's enough room */}
-      {/* At 1700px+: content (768px) centered in main area (viewport-256px sidebar) leaves enough space */}
+      {/* Above breakpoint: content (768px) centered in main area (viewport-256px sidebar) leaves enough space */}
       {headings.length > 0 && (
         <aside className="hidden min-[1610px]:block fixed right-8 top-24 w-64 toc-desktop">
           <TableOfContents headings={headings} activeId={activeId} />
