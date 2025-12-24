@@ -99,7 +99,7 @@ export function BlogViewer({
       style={customStyles}
       className="min-h-screen text-[var(--theme-text)]"
     >
-      <div className={`max-w-3xl mx-auto px-4 py-8 ${isTTSActive ? 'pb-24' : ''}`}>
+      <div className={`max-w-3xl px-4 py-8 mx-auto ${headings.length > 0 ? 'min-[1350px]:max-[1609px]:mx-0 min-[1350px]:max-[1609px]:ml-[max(1rem,calc((100vw-1344px)/2))] min-[1350px]:max-[1609px]:mr-[320px]' : ''} ${isTTSActive ? 'pb-24' : ''}`}>
         {/* Header */}
         <header className="mb-8">
           {title && (
@@ -213,16 +213,18 @@ export function BlogViewer({
         )}
       </div>
 
-      {/* Desktop Table of Contents - only show when there's enough room */}
+      {/* Desktop Table of Contents - visible at 1350px+ */}
+      {/* Between 1350-1610px: content slides left to accommodate TOC */}
+      {/* Above 1610px: content centered with room for TOC */}
       {headings.length > 0 && (
-        <aside className="hidden 2xl:block fixed right-8 top-24 w-64 toc-desktop">
+        <aside className="hidden min-[1350px]:block fixed right-8 top-24 w-64 toc-desktop">
           <TableOfContents headings={headings} activeId={activeId} />
         </aside>
       )}
 
-      {/* Mobile Table of Contents - respect sidebar on lg+ screens */}
+      {/* Mobile Table of Contents - below 1350px when desktop TOC hidden */}
       {headings.length > 0 && (
-        <div className="2xl:hidden">
+        <div className="min-[1350px]:hidden">
           <TableOfContentsMobile headings={headings} activeId={activeId} />
         </div>
       )}
