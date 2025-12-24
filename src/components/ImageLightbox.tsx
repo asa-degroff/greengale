@@ -20,6 +20,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [isHeightConstrained, setIsHeightConstrained] = useState(false)
+  const [baseScale, setBaseScale] = useState(1)
   const [isHoveringAltZone, setIsHoveringAltZone] = useState(false)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
 
@@ -101,7 +102,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     }
   }, [handleKeyDown])
 
-  // Determine if image is height-constrained
+  // Determine if image is height-constrained and calculate base scale
   const checkConstraint = useCallback(() => {
     const img = imageRef.current
     if (!img || !img.naturalWidth || !img.naturalHeight) return
@@ -111,6 +112,14 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
 
     // If image aspect ratio is taller than window, it's height-constrained
     setIsHeightConstrained(imageAspect < windowAspect)
+
+    // Calculate base scale (how much the image is scaled to fit viewport at zoom=1)
+    const scale = Math.min(
+      window.innerWidth / img.naturalWidth,
+      window.innerHeight / img.naturalHeight,
+      1
+    )
+    setBaseScale(scale)
   }, [])
 
   useEffect(() => {
@@ -431,12 +440,17 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
         </svg>
       </button>
 
-      {/* Zoom indicator */}
-      {zoom !== 1 && (
-        <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/50 text-white/80 text-sm rounded-full z-10">
-          {Math.round(zoom * 100)}%
-        </div>
-      )}
+      {/* Resolution indicator - shows image resolution relative to device display */}
+      {(() => {
+        const resolutionPercent = Math.round(baseScale * zoom * window.devicePixelRatio * 100)
+        // Show indicator when not at native resolution (allowing small tolerance for rounding)
+        if (Math.abs(resolutionPercent - 100) < 1) return null
+        return (
+          <div className="absolute top-4 left-4 px-3 py-1.5 bg-black/50 text-white/80 text-sm rounded-full z-10">
+            {resolutionPercent}%
+          </div>
+        )
+      })()}
 
       {/* Image container */}
       <figure
