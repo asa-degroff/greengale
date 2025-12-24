@@ -40,6 +40,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const figureRef = useRef<HTMLElement>(null)
+  const altTextRef = useRef<HTMLParagraphElement>(null)
 
   // Helper to clamp pan values to keep image visible
   const clampPan = useCallback((panX: number, panY: number, currentZoom: number) => {
@@ -188,6 +189,20 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     figure.addEventListener('wheel', handleWheel, { passive: false })
     return () => figure.removeEventListener('wheel', handleWheel)
   }, [handleWheel])
+
+  // Stop wheel events on alt text from propagating to zoom handler
+  useEffect(() => {
+    const altText = altTextRef.current
+    if (!altText) return
+
+    const handleAltTextWheel = (e: WheelEvent) => {
+      // Stop propagation so the figure's zoom handler doesn't run
+      e.stopPropagation()
+    }
+
+    altText.addEventListener('wheel', handleAltTextWheel, { passive: false })
+    return () => altText.removeEventListener('wheel', handleAltTextWheel)
+  }, [])
 
   // Handle drag start
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -478,13 +493,15 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
                 `,
                 WebkitMaskComposite: 'source-in',
               }}
-              onWheel={(e) => e.stopPropagation()}
             >
               <div>
                 <span className="block text-xs font-medium text-white/50 uppercase tracking-wide mb-1">
                   Image description
                 </span>
-                <p className="text-white/90 text-sm leading-relaxed max-h-24 overflow-y-auto">
+                <p
+                  ref={altTextRef}
+                  className="text-white/90 text-sm leading-relaxed max-h-24 overflow-y-auto"
+                >
                   {alt}
                 </p>
               </div>
