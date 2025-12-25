@@ -128,13 +128,13 @@ export function BlogViewer({
         </header>
 
         {/* Author and View Toggle */}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
           {author ? (
             <AuthorCard author={author} />
           ) : (
             <div /> /* Spacer when no author */
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {/* Listen Button */}
             <button
               onClick={handleListenClick}
