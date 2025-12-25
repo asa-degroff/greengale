@@ -66,6 +66,8 @@ const sanitizeSchema = {
     'animateMotion',
     'set',
     'mpath',
+    // Style element (for SVG internal stylesheets, already sanitized by remark-svg)
+    'style',
     // MathML elements (for accessibility)
     'math',
     'semantics',
@@ -93,7 +95,7 @@ const sanitizeSchema = {
   ],
   attributes: {
     ...defaultSchema.attributes,
-    '*': ['className', 'style'],
+    '*': ['className', 'style', 'transform'],
     span: ['className', 'style', 'aria-hidden', 'data-*'],
     code: ['className'],
     pre: ['className'],
@@ -147,6 +149,8 @@ const sanitizeSchema = {
     animateMotion: ['path', 'keyPoints', 'rotate', 'origin', 'dur', 'begin', 'end', 'min', 'max', 'restart', 'repeatCount', 'repeatDur', 'fill', 'calcMode', 'keyTimes', 'keySplines', 'additive', 'accumulate'],
     set: ['attributeName', 'attributeType', 'to', 'dur', 'begin', 'end', 'min', 'max', 'restart', 'repeatCount', 'repeatDur', 'fill'],
     mpath: ['href'],
+    // Style element (CSS type attribute)
+    style: ['type'],
     // MathML attributes
     math: ['xmlns', 'display', 'className', 'style'],
     mrow: ['className'],

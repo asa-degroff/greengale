@@ -16,6 +16,7 @@ const ALLOWED_ELEMENTS = new Set([
   'use',
   'title',
   'desc',
+  'style',
   // Shapes
   'circle',
   'ellipse',
@@ -193,6 +194,7 @@ const ELEMENT_ATTRIBUTES: Record<string, Set<string>> = {
   defs: new Set([]),
   title: new Set([]),
   desc: new Set([]),
+  style: new Set(['type']),
   // Animation elements
   animate: new Set([
     'attributename',
@@ -295,6 +297,18 @@ function isSafeStyle(value: string): boolean {
 }
 
 /**
+ * Sanitize CSS content from a <style> element
+ * Returns the sanitized CSS or null if it contains dangerous patterns
+ */
+function sanitizeCssContent(css: string): string | null {
+  if (!isSafeStyle(css)) {
+    console.warn('Dangerous pattern detected in SVG style element')
+    return null
+  }
+  return css
+}
+
+/**
  * Check if an href value is safe (only allows internal references)
  */
 function isSafeHref(value: string): boolean {
@@ -367,6 +381,18 @@ function sanitizeElement(element: Element): Element | null {
     if (isAllowedAttribute(tagName, attr.name, attr.value)) {
       cleanElement.setAttribute(attr.name, attr.value)
     }
+  }
+
+  // Special handling for <style> elements - sanitize CSS content
+  if (tagName === 'style') {
+    const cssContent = element.textContent || ''
+    const sanitizedCss = sanitizeCssContent(cssContent)
+    if (sanitizedCss === null) {
+      // Dangerous CSS detected, remove the entire style element
+      return null
+    }
+    cleanElement.textContent = sanitizedCss
+    return cleanElement
   }
 
   // Process children

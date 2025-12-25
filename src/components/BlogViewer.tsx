@@ -38,6 +38,11 @@ function hasSvgCodeBlock(content: string): boolean {
   return !!xmlBlockMatch
 }
 
+// Check if content has any fenced code blocks
+function hasCodeBlock(content: string): boolean {
+  return /^```\w*\s*$/m.test(content)
+}
+
 export function BlogViewer({
   content,
   title,
@@ -70,9 +75,9 @@ export function BlogViewer({
   }, [content, isTTSActive, tts])
 
   // Determine if this post has special content that benefits from a raw view
-  // Only show toggle for LaTeX or ```svg code blocks (content our plugins transform)
+  // Show toggle for LaTeX, SVG code blocks, or any code blocks
   const hasSpecialContent = useMemo(() => {
-    return latex || hasSvgCodeBlock(content)
+    return latex || hasSvgCodeBlock(content) || hasCodeBlock(content)
   }, [latex, content])
 
   // Extract headings for table of contents

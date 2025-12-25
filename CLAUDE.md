@@ -127,7 +127,7 @@ import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 
 ### Inline SVG
 
-Blog posts support inline SVG diagrams via fenced code blocks with the `svg` language:
+Blog posts support inline SVG diagrams via fenced code blocks with the `svg`, `xml`, or `html` language (content must start with `<svg`):
 
 ````markdown
 ```svg
@@ -138,7 +138,7 @@ Blog posts support inline SVG diagrams via fenced code blocks with the `svg` lan
 ```
 ````
 
-**Supported SVG elements:** Basic shapes (circle, rect, path, line, polygon, polyline, ellipse), text (text, tspan, textPath), gradients (linearGradient, radialGradient, stop), patterns, filters, clipPath, mask, markers, defs, g, use, symbol.
+**Supported SVG elements:** Basic shapes (circle, rect, path, line, polygon, polyline, ellipse), text (text, tspan, textPath), gradients (linearGradient, radialGradient, stop), patterns, filters, clipPath, mask, markers, defs, g, use, symbol, style (with CSS sanitization).
 
 **Security:** SVGs are sanitized before rendering. Blocked: script tags, event handlers (onclick, etc.), external references (only `#id` hrefs allowed), dangerous CSS patterns (url(), expression(), etc.). Size limit: 100KB.
 

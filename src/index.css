@@ -657,16 +657,19 @@ body {
 .markdown-body .svg-container {
   display: flex;
   justify-content: center;
+  align-items: center;
   margin: 1.5em 0;
   padding: 1em;
   background-color: var(--theme-code-bg);
   border-radius: 6px;
-  overflow-x: auto;
+  overflow: auto;
 }
 
 .markdown-body .svg-container svg {
+  display: block;
   max-width: 100%;
   height: auto;
+  flex-shrink: 0;
 }
 
 .markdown-body .svg-error {
