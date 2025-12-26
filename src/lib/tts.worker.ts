@@ -5,6 +5,11 @@
  * Streams audio chunks back to main thread for playback.
  */
 
+// Polyfill async iterator on ReadableStream for Safari compatibility
+// Safari doesn't natively support async iterators on ReadableStream in workers
+// See: https://github.com/hexgrad/kokoro/pull/242
+import '@sec-ant/readable-stream/polyfill/asyncIterator'
+
 import { KokoroTTS } from 'kokoro-js'
 import type {
   WorkerRequest,

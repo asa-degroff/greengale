@@ -167,19 +167,20 @@ export async function detectCapabilities(): Promise<BrowserCapabilities> {
   const indexedDB = typeof window.indexedDB !== 'undefined'
 
   // Determine optimal configuration
-  // NOTE: WebGPU produces garbled audio on some hardware configurations (mainly Linux)
+  // NOTE: WebGPU produces garbled audio on some hardware configurations (mainly Linux/Android)
   // (tracked in https://github.com/huggingface/transformers.js/issues/1320)
   // Fix is coming in PR #1382: https://github.com/huggingface/transformers.js/pull/1382
-  // macOS works reliably with WebGPU, so we enable it by default there.
+  // macOS (Chrome & Safari 26+) works reliably with WebGPU, so we enable it by default there.
   // Other platforms can enable via localStorage: localStorage.setItem('tts-force-webgpu', 'true')
   const forceWebGPU = typeof localStorage !== 'undefined' && localStorage.getItem('tts-force-webgpu') === 'true'
   const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
+  const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
   const useWebGPU = (forceWebGPU || isMac) && webgpu
   const device: 'webgpu' | 'wasm' = useWebGPU ? 'webgpu' : 'wasm'
   const dtype: 'fp32' | 'q8' = device === 'webgpu' ? 'fp32' : 'q8'
   const modelSize = dtype === 'fp32' ? '~326 MB' : '~92 MB'
 
-  console.log('[TTS] Detected capabilities:', { webgpu, wasm, device, dtype, isMac, forceWebGPU })
+  console.log('[TTS] Detected capabilities:', { webgpu, wasm, device, dtype, isMac, isSafari, forceWebGPU })
 
   return {
     webgpu,

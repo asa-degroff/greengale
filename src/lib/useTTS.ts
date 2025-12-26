@@ -426,6 +426,42 @@ export function useTTS(): UseTTSReturn {
       // Reset state
       setState({ ...initialTTSState, status: 'loading-model' })
 
+      // IMPORTANT: Unlock audio playback for Safari during user gesture
+      // Safari requires audio.play() to be called during a user interaction.
+      // We create the audio element and trigger a play attempt to "unlock" it
+      // before any async work, so later play() calls will succeed.
+      const audio = getOrCreateAudioElement()
+      // Use an AudioContext unlock as well - more reliable across browsers
+      try {
+        const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass()
+          // Create a silent buffer and play it to unlock
+          const buffer = ctx.createBuffer(1, 1, 22050)
+          const source = ctx.createBufferSource()
+          source.buffer = buffer
+          source.connect(ctx.destination)
+          source.start(0)
+          // Resume context if suspended (Safari suspends by default)
+          if (ctx.state === 'suspended') {
+            ctx.resume()
+          }
+          // Clean up after a short delay
+          setTimeout(() => ctx.close(), 100)
+        }
+      } catch (e) {
+        console.log('[TTS] AudioContext unlock failed:', e)
+      }
+      // Also do a non-blocking audio element unlock attempt
+      audio.muted = true
+      audio.play().then(() => {
+        audio.pause()
+        audio.muted = false
+      }).catch(() => {
+        audio.muted = false
+        console.log('[TTS] Audio element unlock attempt (may fail on some browsers)')
+      })
+
       // Clean up existing blob URLs
       for (const chunk of audioQueueRef.current) {
         cleanupBlobUrl(chunk.blobUrl)
@@ -449,15 +485,6 @@ export function useTTS(): UseTTSReturn {
       if (playbackIntervalRef.current) {
         clearInterval(playbackIntervalRef.current)
         playbackIntervalRef.current = null
-      }
-
-      // Stop existing audio
-      if (audioElementRef.current) {
-        audioElementRef.current.pause()
-        if (audioElementRef.current.src) {
-          cleanupBlobUrl(audioElementRef.current.src)
-        }
-        audioElementRef.current.src = ''
       }
 
       setPlaybackState({
@@ -508,7 +535,7 @@ export function useTTS(): UseTTSReturn {
       }
       workerRef.current.postMessage(initRequest)
     },
-    [handleWorkerMessage, cleanupBlobUrl]
+    [handleWorkerMessage, cleanupBlobUrl, getOrCreateAudioElement]
   )
 
   const pause = useCallback(() => {
