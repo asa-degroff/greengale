@@ -296,7 +296,7 @@ const PRESET_COLORS: Record<Exclude<ThemePreset, 'default' | 'custom'>, PresetCo
   },
   'solarized-light': {
     background: '#fdf6e3',
-    text: '#657b83',
+    text: '#586e75', // base01 - darker than base00 for WCAG AA compliance (4.9:1 contrast)
     accent: '#268bd2',
     link: '#268bd2',
     codeBackground: '#eee8d5',
