@@ -920,6 +920,10 @@ html {
   pointer-events: none;
 }
 
+.toc-mobile-toggle--audio-player {
+  bottom: 5rem; /* Move above audio player bar */
+}
+
 /* Also update overlay to respect sidebar on lg+ */
 @media (min-width: 1024px) {
   .toc-mobile-overlay {

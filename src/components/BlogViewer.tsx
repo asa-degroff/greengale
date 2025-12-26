@@ -230,7 +230,7 @@ export function BlogViewer({
       {/* Mobile Table of Contents - below 1350px when desktop TOC hidden */}
       {headings.length > 0 && (
         <div className="min-[1350px]:hidden">
-          <TableOfContentsMobile headings={headings} activeId={activeId} />
+          <TableOfContentsMobile headings={headings} activeId={activeId} audioPlayerVisible={isTTSActive} />
         </div>
       )}
 

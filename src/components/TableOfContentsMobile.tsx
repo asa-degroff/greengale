@@ -5,11 +5,13 @@ import type { TocHeading } from '@/lib/extractHeadings'
 interface TableOfContentsMobileProps {
   headings: TocHeading[]
   activeId: string | null
+  audioPlayerVisible?: boolean
 }
 
 export function TableOfContentsMobile({
   headings,
   activeId,
+  audioPlayerVisible = false,
 }: TableOfContentsMobileProps) {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -63,7 +65,7 @@ export function TableOfContentsMobile({
       {/* Toggle Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className={`toc-mobile-toggle ${isOpen ? 'toc-mobile-toggle--hidden' : ''}`}
+        className={`toc-mobile-toggle ${isOpen ? 'toc-mobile-toggle--hidden' : ''} ${audioPlayerVisible ? 'toc-mobile-toggle--audio-player' : ''}`}
         aria-label="Open table of contents"
         aria-expanded={isOpen}
       >
