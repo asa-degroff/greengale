@@ -663,48 +663,58 @@ export function EditorPage() {
         return
       }
 
-      // Get cursor position from textarea
+      // Get cursor position from textarea at drop time
       const textarea = textareaRef.current
       let cursorPosition = textarea?.selectionStart ?? content.length
 
       setUploadError(null)
 
+      // Process files with placeholder approach
       for (const file of files) {
-        try {
-          const result = await processAndUploadImage(
-            file,
-            (url, init) => session.fetchHandler(url, init),
-            pdsEndpoint,
-            session.did,
-            setUploadProgress
-          )
+        // Generate unique placeholder ID
+        const placeholderId = `uploading-${crypto.randomUUID()}`
+        const placeholderMarkdown = `![Uploading ${file.name}...](${placeholderId})`
+        const insertText = '\n' + placeholderMarkdown + '\n'
 
-          // Track uploaded blob for record save
-          setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
+        // Insert placeholder immediately at cursor position
+        setContent((currentContent) => {
+          const before = currentContent.slice(0, cursorPosition)
+          const after = currentContent.slice(cursorPosition)
+          return before + insertText + after
+        })
 
-          // Create local object URL for preview (avoids CORS issues with PDS)
-          const localPreviewUrl = URL.createObjectURL(file)
-          setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
+        // Update cursor position for next image
+        cursorPosition += insertText.length
 
-          // Generate markdown and insert at cursor position
-          // Use empty alt text - user should add meaningful alt text via metadata editor
-          const markdown = generateMarkdownImage('', result.markdownUrl)
+        // Process upload asynchronously
+        processAndUploadImage(
+          file,
+          (url, init) => session.fetchHandler(url, init),
+          pdsEndpoint,
+          session.did,
+          setUploadProgress
+        )
+          .then((result) => {
+            // Track uploaded blob for record save
+            setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
 
-          // Insert markdown at cursor position
-          const before = content.slice(0, cursorPosition)
-          const after = content.slice(cursorPosition)
-          const insertText = '\n' + markdown + '\n'
-          const newContent = before + insertText + after
-          setContent(newContent)
+            // Create local object URL for preview (avoids CORS issues with PDS)
+            const localPreviewUrl = URL.createObjectURL(file)
+            setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
 
-          // Update cursor position for next image
-          cursorPosition += insertText.length
-        } catch (err) {
-          setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
-        }
+            // Replace placeholder with actual markdown
+            const finalMarkdown = generateMarkdownImage('', result.markdownUrl)
+            setContent((currentContent) => currentContent.replace(placeholderMarkdown, finalMarkdown))
+          })
+          .catch((err) => {
+            // Remove placeholder on failure
+            setContent((currentContent) => currentContent.replace('\n' + placeholderMarkdown + '\n', ''))
+            setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
+          })
+          .finally(() => {
+            setUploadProgress(null)
+          })
       }
-
-      setUploadProgress(null)
     },
     [session, pdsEndpoint, content, isWhiteWind, isImageFile]
   )
@@ -729,48 +739,58 @@ export function EditorPage() {
         return
       }
 
-      // Get cursor position from textarea
+      // Get cursor position from textarea at selection time
       const textarea = textareaRef.current
       let cursorPosition = textarea?.selectionStart ?? content.length
 
       setUploadError(null)
 
+      // Process files with placeholder approach
       for (const file of imageFiles) {
-        try {
-          const result = await processAndUploadImage(
-            file,
-            (url, init) => session.fetchHandler(url, init),
-            pdsEndpoint,
-            session.did,
-            setUploadProgress
-          )
+        // Generate unique placeholder ID
+        const placeholderId = `uploading-${crypto.randomUUID()}`
+        const placeholderMarkdown = `![Uploading ${file.name}...](${placeholderId})`
+        const insertText = '\n' + placeholderMarkdown + '\n'
 
-          // Track uploaded blob for record save
-          setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
+        // Insert placeholder immediately at cursor position
+        setContent((currentContent) => {
+          const before = currentContent.slice(0, cursorPosition)
+          const after = currentContent.slice(cursorPosition)
+          return before + insertText + after
+        })
 
-          // Create local object URL for preview (avoids CORS issues with PDS)
-          const localPreviewUrl = URL.createObjectURL(file)
-          setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
+        // Update cursor position for next image
+        cursorPosition += insertText.length
 
-          // Generate markdown and insert at cursor position
-          // Use empty alt text - user should add meaningful alt text via metadata editor
-          const markdown = generateMarkdownImage('', result.markdownUrl)
+        // Process upload asynchronously
+        processAndUploadImage(
+          file,
+          (url, init) => session.fetchHandler(url, init),
+          pdsEndpoint,
+          session.did,
+          setUploadProgress
+        )
+          .then((result) => {
+            // Track uploaded blob for record save
+            setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
 
-          // Insert markdown at cursor position
-          const before = content.slice(0, cursorPosition)
-          const after = content.slice(cursorPosition)
-          const insertText = '\n' + markdown + '\n'
-          const newContent = before + insertText + after
-          setContent(newContent)
+            // Create local object URL for preview (avoids CORS issues with PDS)
+            const localPreviewUrl = URL.createObjectURL(file)
+            setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
 
-          // Update cursor position for next image
-          cursorPosition += insertText.length
-        } catch (err) {
-          setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
-        }
+            // Replace placeholder with actual markdown
+            const finalMarkdown = generateMarkdownImage('', result.markdownUrl)
+            setContent((currentContent) => currentContent.replace(placeholderMarkdown, finalMarkdown))
+          })
+          .catch((err) => {
+            // Remove placeholder on failure
+            setContent((currentContent) => currentContent.replace('\n' + placeholderMarkdown + '\n', ''))
+            setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
+          })
+          .finally(() => {
+            setUploadProgress(null)
+          })
       }
-
-      setUploadProgress(null)
     },
     [session, pdsEndpoint, content, isImageFile]
   )
