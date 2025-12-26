@@ -1,5 +1,5 @@
 // OG image generation using workers-og (Satori + resvg-wasm)
-import { ImageResponse } from 'workers-og'
+import { ImageResponse, loadGoogleFont } from 'workers-og'
 import { resolveThemeColors, isDarkTheme, type ThemeColors } from './theme-colors'
 
 export interface OGImageData {
@@ -18,35 +18,88 @@ const FONT_BASE_URL = 'https://greengale.app/fonts'
 const FONT_REGULAR_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Regular.ttf`
 const FONT_BOLD_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Bold.ttf`
 
-// Noto Sans SC for CJK (Chinese, Japanese, Korean) fallback
-// Hosted locally in public/fonts/ directory
-const NOTO_SANS_SC_REGULAR_URL = `${FONT_BASE_URL}/NotoSansSC-Regular.ttf`
-const NOTO_SANS_SC_BOLD_URL = `${FONT_BASE_URL}/NotoSansSC-Bold.ttf`
-
 // Cache fonts in memory to avoid re-fetching
 let fontRegularData: ArrayBuffer | null = null
 let fontBoldData: ArrayBuffer | null = null
-let notoRegularData: ArrayBuffer | null = null
-let notoBoldData: ArrayBuffer | null = null
 
 interface BaseFonts {
   regular: ArrayBuffer
   bold: ArrayBuffer
 }
 
+// Font configuration for different scripts
+interface FontSpec {
+  name: string
+  detect: (text: string) => boolean
+}
+
+// Define script detection patterns and their corresponding Google Fonts
+const SCRIPT_FONTS: FontSpec[] = [
+  {
+    // Arabic script (Arabic, Persian, Urdu, etc.)
+    // Using Cairo - good Satori compatibility
+    name: 'Cairo',
+    detect: (text: string) => /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text),
+  },
+  {
+    // Hebrew script
+    name: 'Noto Sans Hebrew',
+    detect: (text: string) => /[\u0590-\u05FF\uFB1D-\uFB4F]/.test(text),
+  },
+  {
+    // CJK (Chinese, Japanese, Korean)
+    // Using Noto Sans SC which has good coverage for all CJK
+    name: 'Noto Sans SC',
+    detect: (text: string) => /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u1100-\u11FF\u31F0-\u31FF]/.test(text),
+  },
+  {
+    // Thai script
+    name: 'Noto Sans Thai',
+    detect: (text: string) => /[\u0E00-\u0E7F]/.test(text),
+  },
+  {
+    // Devanagari (Hindi, Sanskrit, etc.)
+    name: 'Noto Sans Devanagari',
+    detect: (text: string) => /[\u0900-\u097F]/.test(text),
+  },
+  {
+    // Bengali script
+    name: 'Noto Sans Bengali',
+    detect: (text: string) => /[\u0980-\u09FF]/.test(text),
+  },
+  {
+    // Tamil script
+    name: 'Noto Sans Tamil',
+    detect: (text: string) => /[\u0B80-\u0BFF]/.test(text),
+  },
+  {
+    // Cyrillic (Russian, Ukrainian, etc.)
+    name: 'Noto Sans',
+    detect: (text: string) => /[\u0400-\u04FF]/.test(text),
+  },
+  {
+    // Greek script
+    name: 'Noto Sans',
+    detect: (text: string) => /[\u0370-\u03FF]/.test(text),
+  },
+]
+
 /**
- * Check if text contains CJK (Chinese, Japanese, Korean) characters
+ * Extract unique non-ASCII characters from text
  */
-function containsCJK(text: string): boolean {
-  // Unicode ranges for CJK characters:
-  // CJK Unified Ideographs: 4E00-9FFF
-  // CJK Unified Ideographs Extension A: 3400-4DBF
-  // Hiragana: 3040-309F
-  // Katakana: 30A0-30FF
-  // Hangul Syllables: AC00-D7AF
-  // Hangul Jamo: 1100-11FF
-  const cjkPattern = /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u1100-\u11FF]/
-  return cjkPattern.test(text)
+function getNonLatinChars(text: string): string {
+  // Match any character outside basic ASCII printable range
+  const nonLatin = text.match(/[^\x20-\x7E]/g)
+  if (!nonLatin) return ''
+  // Return unique characters
+  return [...new Set(nonLatin)].join('')
+}
+
+/**
+ * Detect which scripts are present in the text and need fallback fonts
+ */
+function detectRequiredFonts(text: string): FontSpec[] {
+  return SCRIPT_FONTS.filter(font => font.detect(text))
 }
 
 async function loadBaseFonts(): Promise<BaseFonts> {
@@ -61,24 +114,77 @@ async function loadBaseFonts(): Promise<BaseFonts> {
   return { regular, bold }
 }
 
-async function loadCJKFonts(): Promise<{ notoRegular: ArrayBuffer; notoBold: ArrayBuffer }> {
-  const [notoRegular, notoBold] = await Promise.all([
-    notoRegularData ?? fetch(NOTO_SANS_SC_REGULAR_URL).then(res => res.arrayBuffer()),
-    notoBoldData ?? fetch(NOTO_SANS_SC_BOLD_URL).then(res => res.arrayBuffer()),
-  ])
+interface FontEntry {
+  name: string
+  data: ArrayBuffer
+  weight: 400 | 700
+  style: 'normal'
+}
 
-  notoRegularData = notoRegular
-  notoBoldData = notoBold
+/**
+ * Load fallback fonts for non-Latin scripts using Google Fonts API with text subsetting
+ * This only downloads the glyphs needed for the specific text, keeping the font size small
+ */
+async function loadFallbackFonts(text: string): Promise<FontEntry[]> {
+  const nonLatinChars = getNonLatinChars(text)
+  if (!nonLatinChars) return []
 
-  return { notoRegular, notoBold }
+  const requiredFonts = detectRequiredFonts(text)
+  if (requiredFonts.length === 0) return []
+
+  const fonts: FontEntry[] = []
+
+  // Load each required font with text subsetting
+  await Promise.all(
+    requiredFonts.map(async (fontSpec) => {
+      try {
+        // Load regular weight (400)
+        const regularData = await loadGoogleFont({
+          family: fontSpec.name,
+          weight: 400,
+          text: nonLatinChars,
+        })
+
+        if (regularData) {
+          fonts.push({
+            name: fontSpec.name,
+            data: regularData,
+            weight: 400 as const,
+            style: 'normal' as const,
+          })
+        }
+
+        // Load bold weight (700)
+        const boldData = await loadGoogleFont({
+          family: fontSpec.name,
+          weight: 700,
+          text: nonLatinChars,
+        })
+
+        if (boldData) {
+          fonts.push({
+            name: fontSpec.name,
+            data: boldData,
+            weight: 700 as const,
+            style: 'normal' as const,
+          })
+        }
+      } catch (e) {
+        // Font loading failed, continue without this font
+        console.warn(`Failed to load font ${fontSpec.name}:`, e)
+      }
+    })
+  )
+
+  return fonts
 }
 
 /**
  * Build the fonts array for ImageResponse
- * Only includes CJK fonts if needed (to avoid loading 20MB of font data unnecessarily)
+ * Dynamically includes fallback fonts based on the text content
  */
-function buildFontsArray(baseFonts: BaseFonts, cjkFonts?: { notoRegular: ArrayBuffer; notoBold: ArrayBuffer }) {
-  const fonts = [
+async function buildFontsArray(baseFonts: BaseFonts, text: string): Promise<FontEntry[]> {
+  const fonts: FontEntry[] = [
     {
       name: 'iA Writer Quattro',
       data: baseFonts.regular,
@@ -93,22 +199,9 @@ function buildFontsArray(baseFonts: BaseFonts, cjkFonts?: { notoRegular: ArrayBu
     },
   ]
 
-  if (cjkFonts) {
-    fonts.push(
-      {
-        name: 'Noto Sans SC',
-        data: cjkFonts.notoRegular,
-        weight: 400 as const,
-        style: 'normal' as const,
-      },
-      {
-        name: 'Noto Sans SC',
-        data: cjkFonts.notoBold,
-        weight: 700 as const,
-        style: 'normal' as const,
-      },
-    )
-  }
+  // Load fallback fonts for any non-Latin characters
+  const fallbackFonts = await loadFallbackFonts(text)
+  fonts.push(...fallbackFonts)
 
   return fonts
 }
@@ -124,8 +217,14 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   const colors = resolveThemeColors(themePreset, customColors)
   const isDark = isDarkTheme(colors)
 
-  // Load base fonts (CJK fonts disabled - too large for worker limits)
+  // Load base fonts
   const baseFonts = await loadBaseFonts()
+
+  // Collect all text that might need fallback fonts
+  const allText = [title, subtitle, authorName, authorHandle].filter(Boolean).join('')
+
+  // Build fonts array with fallback fonts for non-Latin scripts
+  const fonts = await buildFontsArray(baseFonts, allText)
 
   // Build the image HTML using workers-og JSX-like syntax
   const html = buildImageHtml({
@@ -141,7 +240,7 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: buildFontsArray(baseFonts),
+    fonts,
   })
 }
 
@@ -154,14 +253,15 @@ export async function generateHomepageOGImage(): Promise<Response> {
   const colors = resolveThemeColors()
   const isDark = isDarkTheme(colors)
 
-  // Homepage only uses Latin text, no CJK needed
+  // Homepage only uses Latin text, no fallback fonts needed
   const baseFonts = await loadBaseFonts()
+  const fonts = await buildFontsArray(baseFonts, '')
   const html = buildHomepageHtml(colors, isDark)
 
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: buildFontsArray(baseFonts),
+    fonts,
   })
 }
 
@@ -182,14 +282,20 @@ export async function generateProfileOGImage(data: ProfileOGImageData): Promise<
   const colors = resolveThemeColors()
   const isDark = isDarkTheme(colors)
 
-  // Load base fonts (CJK fonts disabled - too large for worker limits)
+  // Load base fonts
   const baseFonts = await loadBaseFonts()
+
+  // Collect all text that might need fallback fonts
+  const allText = [data.displayName, data.handle, data.description].filter(Boolean).join('')
+
+  // Build fonts array with fallback fonts for non-Latin scripts
+  const fonts = await buildFontsArray(baseFonts, allText)
   const html = buildProfileHtml(data, colors, isDark)
 
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
-    fonts: buildFontsArray(baseFonts),
+    fonts,
   })
 }
 

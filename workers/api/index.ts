@@ -808,6 +808,41 @@ app.get('/xrpc/app.greengale.admin.listWhitelist', async (c) => {
   }
 })
 
+// Invalidate OG image cache (admin only)
+// Usage: POST /xrpc/app.greengale.admin.invalidateOGCache
+// Body: { "handle": "user.bsky.social", "rkey": "abc123" } for post OG
+// Or: { "handle": "user.bsky.social" } for profile OG
+// Or: { "type": "site" } for site OG
+app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const body = await c.req.json() as { handle?: string; rkey?: string; type?: string }
+    const { handle, rkey, type } = body
+
+    let cacheKey: string
+    if (type === 'site') {
+      cacheKey = 'og:site'
+    } else if (handle && rkey) {
+      cacheKey = `og:${handle}:${rkey}`
+    } else if (handle) {
+      cacheKey = `og:profile:${handle}`
+    } else {
+      return c.json({ error: 'Missing parameters: need handle+rkey, handle, or type=site' }, 400)
+    }
+
+    await c.env.CACHE.delete(cacheKey)
+
+    return c.json({ success: true, cacheKey, message: `Invalidated cache for ${cacheKey}` })
+  } catch (error) {
+    console.error('Error invalidating OG cache:', error)
+    return c.json({ error: 'Failed to invalidate cache' }, 500)
+  }
+})
+
 // Format post from DB row to API response
 function formatPost(row: Record<string, unknown>) {
   return {
