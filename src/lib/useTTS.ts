@@ -54,7 +54,7 @@ interface UseTTSReturn {
 }
 
 // Minimum seconds of audio to buffer before starting playback
-const MIN_BUFFER_SECONDS = 20
+const MIN_BUFFER_SECONDS = 5
 const SAMPLE_RATE_FOR_CALC = 24000
 
 export function useTTS(): UseTTSReturn {
