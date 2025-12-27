@@ -295,11 +295,11 @@ npx wrangler pages deploy dist --project-name greengale-app
 
 ## Theme System
 
-GreenGale has a two-level theme system:
+GreenGale themes can be applied to the entire site as a viewer, and also to individual posts as an author. Viewers can choose to view posts with either the post theme or their preferred site theme. 
 
 ### Site Theme (Light/Dark Mode)
 
-The site respects system preferences for light/dark mode, togglable via the sidebar.
+The site respects system preferences for light/dark mode, togglable via the sidebar. This applies when the default theme is selected (no alternative theme has been specified by the user). 
 
 ### Post Themes
 
@@ -355,12 +355,17 @@ GreenGale supports embedding images in blog posts via drag-and-drop. Images are 
 
 - JPEG, PNG, GIF, WebP, AVIF, BMP
 - Maximum input size: 50MB
-- Images are resized to max 4096×4096 (preserving aspect ratio)
-- Output format: AVIF (target <900KB to stay within AT Protocol's 1MB blob limit)
+- Images are resized to max 10240px in either dimension (preserving aspect ratio)
+- Output format: AVIF (target <1MB to stay within AT Protocol's blob limit)
+- For images larger than 1MB, the AVIF encoder will try multiple passes at increasing compression levels if necessary. If the max compression level is reached and the image is still above 1MB, it will then be resized and compressed again. 
 
 ### Alt Text
 
 Click any uploaded image in the "Uploaded Images" panel to add accessibility text (max 1,000 characters). When viewing posts, images display an "ALT" badge that reveals the description when clicked.
+
+### Image Lightbox
+
+Clicking an image in a blog post shows it in the image lightbox. The lightbox supports scroll to zoom, click+drag to pan, and hover the lower part to view alt text. 
 
 ### Content Warnings
 
@@ -382,7 +387,7 @@ Labeled images display blurred with a warning overlay. Viewers must acknowledge 
 
 ## Inline SVG Diagrams
 
-GreenGale supports embedding SVG graphics directly in blog posts using fenced code blocks with the `svg` language identifier:
+GreenGale supports embedding SVG graphics directly in blog posts using fenced code blocks with the `svg` language identifier. SVG content found in code blocks with empty, `xml`, and `html` language modifiers will also be rendered. 
 
 ````markdown
 ```svg
@@ -399,9 +404,10 @@ GreenGale supports embedding SVG graphics directly in blog posts using fenced co
 - **Shapes**: `circle`, `ellipse`, `rect`, `line`, `path`, `polygon`, `polyline`
 - **Text**: `text`, `tspan`, `textPath`
 - **Gradients**: `linearGradient`, `radialGradient`, `stop`
-- **Structure**: `g`, `defs`, `symbol`, `use`, `title`, `desc`
+- **Structure**: `svg`, `g`, `defs`, `symbol`, `use`, `title`, `desc`, `style`
 - **Effects**: `clipPath`, `mask`, `marker`, `pattern`
-- **Filters**: `filter`, `feGaussianBlur`, `feOffset`, `feMerge`, `feBlend`, `feColorMatrix`, `feFlood`, `feComposite`
+- **Filters**: `filter`, `feGaussianBlur`, `feOffset`, `feMerge`, `feMergeNode`, `feBlend`, `feColorMatrix`, `feFlood`, `feComposite`
+- **Animation**: `animate`, `animateTransform`, `animateMotion`, `set`, `mpath`
 
 ### Security
 
@@ -410,7 +416,7 @@ SVG content is sanitized before rendering to prevent XSS attacks:
 - **Blocked elements**: `script`, `foreignObject`, `iframe`, `object`, `embed`
 - **Blocked attributes**: All event handlers (`onclick`, `onload`, etc.)
 - **Restricted hrefs**: Only internal references (`#id`) are allowed; external URLs are stripped
-- **Blocked CSS patterns**: `url()`, `expression()`, `javascript:`, `@import`
+- **CSS sanitization**: `style` elements and attributes are checked for dangerous patterns (`url()`, `expression()`, `javascript:`, `@import`, `-moz-binding`)
 - **Size limit**: 100KB maximum per SVG block
 
 Invalid or unsafe SVG content displays an error message instead of rendering.
