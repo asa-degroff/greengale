@@ -124,6 +124,8 @@ export function EditorPage() {
   const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map())
   // CID of image currently being edited for metadata
   const [editingImageCid, setEditingImageCid] = useState<string | null>(null)
+  // Whether to auto-focus alt text field when opening metadata editor
+  const [autoFocusAlt, setAutoFocusAlt] = useState(false)
 
   // Load recent palettes on mount
   useEffect(() => {
@@ -1145,10 +1147,15 @@ export function EditorPage() {
                             initialLabels={
                               blob.labels?.values.map((l) => l.val) || []
                             }
-                            onSave={(alt, labels) =>
+                            onSave={(alt, labels) => {
                               handleImageMetadataSave(blob.cid, alt, labels)
-                            }
-                            onCancel={() => setEditingImageCid(null)}
+                              setAutoFocusAlt(false)
+                            }}
+                            onCancel={() => {
+                              setEditingImageCid(null)
+                              setAutoFocusAlt(false)
+                            }}
+                            autoFocusAlt={autoFocusAlt}
                           />
                         ) : (
                           <div
@@ -1170,22 +1177,40 @@ export function EditorPage() {
                                     Has alt text
                                   </span>
                                 )}
+                                {!blob.alt && (
+                                  <span className="text-xs text-red-600 dark:text-red-400">
+                                    No alt text
+                                  </span>
+                                )}
                                 {blob.labels?.values.length ? (
                                   <span className="text-xs text-amber-600 dark:text-amber-400">
                                     {blob.labels.values.length} label(s)
                                   </span>
                                 ) : null}
-                                {!blob.alt && !blob.labels?.values.length && (
-                                  <span className="text-xs text-[var(--site-text-secondary)]">
-                                    No metadata
-                                  </span>
-                                )}
                               </div>
                             </div>
                             <div className="flex-shrink-0 flex items-center gap-1">
+                              {!blob.alt && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setAutoFocusAlt(true)
+                                    setEditingImageCid(blob.cid)
+                                  }}
+                                  className="px-2 py-1 text-xs text-[var(--site-text-secondary)] hover:text-[var(--site-accent)] hover:bg-[var(--site-bg-secondary)] rounded border border-[var(--site-border)] transition-colors"
+                                  title="Add alt text"
+                                >
+                                  + Alt
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                onClick={() => setEditingImageCid(blob.cid)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setAutoFocusAlt(false)
+                                  setEditingImageCid(blob.cid)
+                                }}
                                 className="p-2 text-[var(--site-text-secondary)] hover:text-[var(--site-accent)] hover:bg-[var(--site-bg-secondary)] rounded transition-colors"
                                 title="Edit metadata"
                               >

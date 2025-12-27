@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import { CONTENT_LABEL_OPTIONS } from '@/lib/image-labels'
 
@@ -9,6 +9,7 @@ interface ImageMetadataEditorProps {
   initialLabels: ContentLabelValue[]
   onSave: (alt: string, labels: ContentLabelValue[]) => void
   onCancel: () => void
+  autoFocusAlt?: boolean
 }
 
 export function ImageMetadataEditor({
@@ -18,9 +19,17 @@ export function ImageMetadataEditor({
   initialLabels,
   onSave,
   onCancel,
+  autoFocusAlt = false,
 }: ImageMetadataEditorProps) {
+  const altTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [alt, setAlt] = useState(initialAlt)
   const [labels, setLabels] = useState<Set<ContentLabelValue>>(new Set(initialLabels))
+
+  useEffect(() => {
+    if (autoFocusAlt && altTextareaRef.current) {
+      altTextareaRef.current.focus()
+    }
+  }, [autoFocusAlt])
 
   const toggleLabel = (value: ContentLabelValue) => {
     setLabels((prev) => {
@@ -66,6 +75,7 @@ export function ImageMetadataEditor({
           </span>
         </label>
         <textarea
+          ref={altTextareaRef}
           value={alt}
           onChange={(e) => setAlt(e.target.value)}
           placeholder="Describe what's in this image..."
