@@ -872,8 +872,8 @@ export function EditorPage() {
 
   return (
     <div className="min-h-screen">
-      <div className={`mx-auto py-8 ${viewMode === 'split' ? 'max-w-[1800px] px-4 lg:px-6' : 'max-w-4xl px-4'}`}>
-        {/* Header */}
+      {/* Header - consistent width regardless of view mode */}
+      <div className="max-w-4xl mx-auto px-4 pt-8">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold text-[var(--site-text)]">
             {isEditing ? 'Edit Post' : 'New Post'}
@@ -939,7 +939,10 @@ export function EditorPage() {
             {error}
           </div>
         )}
+      </div>
 
+      {/* Content area - width changes based on view mode */}
+      <div className={`mx-auto pb-8 ${viewMode === 'split' ? 'max-w-[1800px] px-4 lg:px-6' : 'max-w-4xl px-4'}`}>
         {/* Main content area - grid in split mode */}
         <div className={viewMode === 'split' ? 'grid lg:grid-cols-2 gap-6' : ''}>
           {/* Editor section - shown in edit and split modes */}
