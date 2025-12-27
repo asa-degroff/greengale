@@ -1278,3 +1278,88 @@ html {
   cursor: default;
 }
 
+/* ==================== Markdown Toolbar ==================== */
+
+.markdown-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--site-border);
+  border-radius: 0.5rem;
+  background: var(--site-bg-secondary);
+}
+
+.markdown-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.markdown-toolbar-separator {
+  width: 1px;
+  height: 1.25rem;
+  margin: 0 0.375rem;
+  background: var(--site-border);
+}
+
+.markdown-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--site-text-secondary);
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.markdown-toolbar-btn:hover {
+  background: var(--site-bg);
+  border-color: var(--site-border);
+  color: var(--site-text);
+}
+
+.markdown-toolbar-btn:active {
+  background: var(--site-accent);
+  border-color: var(--site-accent);
+  color: white;
+}
+
+.markdown-toolbar-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Heading buttons are wider for text labels */
+.markdown-toolbar-btn-heading {
+  width: auto;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Mobile: smaller buttons */
+@media (max-width: 640px) {
+  .markdown-toolbar-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .markdown-toolbar-btn svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  .markdown-toolbar-btn-heading {
+    font-size: 0.6875rem;
+    padding: 0 0.375rem;
+  }
+}
+

@@ -11,6 +11,7 @@ import {
   type ContentLabelValue,
 } from '@/lib/image-upload'
 import { ImageMetadataEditor } from '@/components/ImageMetadataEditor'
+import { MarkdownToolbar, useToolbarCollapsed } from '@/components/MarkdownToolbar'
 import { extractCidFromBlobref } from '@/lib/image-labels'
 import { getPdsEndpoint } from '@/lib/atproto'
 import {
@@ -108,6 +109,7 @@ export function EditorPage() {
   const [justSaved, setJustSaved] = useState(false)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+  const { isCollapsed: isToolbarCollapsed, toggleCollapsed: toggleToolbar } = useToolbarCollapsed()
 
   // Image upload state
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -969,7 +971,7 @@ export function EditorPage() {
                 <label className="block text-sm font-medium text-[var(--site-text-secondary)]">
                   Content (Markdown)
                 </label>
-                {/* Toolbar - only show for GreenGale format */}
+                {/* Toolbar buttons - only show for GreenGale format */}
                 {!isWhiteWind && (
                   <div className="flex items-center gap-1">
                     <input
@@ -1002,9 +1004,38 @@ export function EditorPage() {
                       </svg>
                       <span className="hidden sm:inline">Add Image</span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={toggleToolbar}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] hover:text-[var(--site-text)] transition-colors"
+                      title={isToolbarCollapsed ? 'Show formatting toolbar' : 'Hide formatting toolbar'}
+                    >
+                      <span className="hidden sm:inline">Toolbar</span>
+                      <svg
+                        className={`w-4 h-4 transition-transform ${isToolbarCollapsed ? '' : 'rotate-180'}`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
                   </div>
                 )}
               </div>
+
+              {/* Markdown Formatting Toolbar */}
+              {!isToolbarCollapsed && (
+                <MarkdownToolbar
+                  textareaRef={textareaRef}
+                  content={content}
+                  onContentChange={setContent}
+                />
+              )}
+
               <div className="relative">
                 <textarea
                   ref={textareaRef}
