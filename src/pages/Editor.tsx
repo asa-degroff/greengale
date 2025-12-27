@@ -730,6 +730,9 @@ export function EditorPage() {
       const files = e.target.files
       if (!files || files.length === 0) return
 
+      // Convert to array BEFORE resetting input (FileList is live and gets cleared)
+      const fileArray = Array.from(files)
+
       // Reset the input so the same file can be selected again
       e.target.value = ''
 
@@ -738,7 +741,7 @@ export function EditorPage() {
         return
       }
 
-      const imageFiles = Array.from(files).filter(isImageFile)
+      const imageFiles = fileArray.filter(isImageFile)
       if (imageFiles.length === 0) {
         setUploadError('No valid image files selected')
         return
