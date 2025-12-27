@@ -99,7 +99,8 @@ export function EditorPage() {
   })
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [enableLatex, setEnableLatex] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
+  type ViewMode = 'edit' | 'preview' | 'split'
+  const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [publishing, setPublishing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [loadingPost, setLoadingPost] = useState(false)
@@ -871,7 +872,7 @@ export function EditorPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className={`mx-auto py-8 ${viewMode === 'split' ? 'max-w-[1800px] px-4 lg:px-6' : 'max-w-4xl px-4'}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl font-bold text-[var(--site-text)]">
@@ -894,10 +895,33 @@ export function EditorPage() {
               </button>
             )}
             <button
-              onClick={() => setShowPreview(!showPreview)}
+              onClick={() => setViewMode(viewMode === 'preview' ? 'edit' : 'preview')}
               className="px-4 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
             >
-              {showPreview ? 'Back to Editor' : 'Preview'}
+              {viewMode === 'preview' ? 'Back to Editor' : 'Preview'}
+            </button>
+            <button
+              onClick={() => setViewMode(viewMode === 'split' ? 'edit' : 'split')}
+              className={`hidden lg:flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg border transition-colors ${
+                viewMode === 'split'
+                  ? 'border-[var(--site-accent)] bg-[var(--site-accent)]/10 text-[var(--site-accent)]'
+                  : 'border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
+              }`}
+              title={viewMode === 'split' ? 'Exit split view' : 'Split view'}
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="8" height="18" rx="1" />
+                <rect x="13" y="3" width="8" height="18" rx="1" />
+              </svg>
+              <span>Split</span>
             </button>
             <button
               onClick={handlePublish}
@@ -916,27 +940,11 @@ export function EditorPage() {
           </div>
         )}
 
-        {showPreview ? (
-          /* Preview Mode */
-          <div className="rounded-lg border border-[var(--site-border)] overflow-hidden">
-            <div
-              className="p-8 bg-[var(--theme-bg)] text-[var(--theme-text)]"
-              style={theme === 'custom' ? getCustomColorStyles(customColors) : undefined}
-            >
-              {title && (
-                <h1 className="text-3xl font-bold mb-2">{title}</h1>
-              )}
-              {subtitle && (
-                <p className="text-xl text-[var(--theme-text-secondary)] mb-6">{subtitle}</p>
-              )}
-              <div className="prose max-w-none">
-                <MarkdownRenderer content={previewContent} enableLatex={enableLatex} />
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Edit Mode */
-          <div className="space-y-6">
+        {/* Main content area - grid in split mode */}
+        <div className={viewMode === 'split' ? 'grid lg:grid-cols-2 gap-6' : ''}>
+          {/* Editor section - shown in edit and split modes */}
+          {viewMode !== 'preview' && (
+            <div className="space-y-6">
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
@@ -1564,7 +1572,30 @@ export function EditorPage() {
               </>
             )}
           </div>
-        )}
+          )}
+
+          {/* Preview section - shown in preview and split modes */}
+          {(viewMode === 'preview' || viewMode === 'split') && (
+            <div className={viewMode === 'split' ? 'lg:sticky lg:top-4 self-start' : ''}>
+              <div className="rounded-lg border border-[var(--site-border)] overflow-hidden">
+                <div
+                  className="p-8 bg-[var(--theme-bg)] text-[var(--theme-text)]"
+                  style={theme === 'custom' ? getCustomColorStyles(customColors) : undefined}
+                >
+                  {title && (
+                    <h1 className="text-3xl font-bold mb-2">{title}</h1>
+                  )}
+                  {subtitle && (
+                    <p className="text-xl text-[var(--theme-text-secondary)] mb-6">{subtitle}</p>
+                  )}
+                  <div className={`prose max-w-none ${viewMode === 'split' ? 'max-h-[calc(100vh-12rem)] overflow-y-auto' : ''}`}>
+                    <MarkdownRenderer content={previewContent} enableLatex={enableLatex} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Unsaved Changes Confirmation Dialog */}
