@@ -1294,9 +1294,9 @@ export function EditorPage() {
                       >
                         <circle cx="12" cy="12" r="10" />
                         <path d="M12 16v-4" />
-                        <path d="M12 8h.01" />
+                        <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
                       </svg>
-                      <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 text-xs font-normal text-[var(--site-text)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-64 text-left z-10">
+                      <span className="absolute left-0 bottom-full mb-2 px-3 py-2 text-xs font-normal text-[var(--site-text)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 w-64 max-w-[calc(100vw-2rem)] text-left z-10">
                         This setting controls visibility on GreenGale only. All data stored on your PDS is publicly accessible.
                       </span>
                     </span>
