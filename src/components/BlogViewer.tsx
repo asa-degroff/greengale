@@ -67,12 +67,12 @@ export function BlogViewer({
     if (isTTSActive) {
       tts.stop()
     } else {
-      const text = extractTextForTTS(content)
+      const text = extractTextForTTS(content, blobs)
       if (text.trim()) {
         tts.start(text)
       }
     }
-  }, [content, isTTSActive, tts])
+  }, [content, blobs, isTTSActive, tts])
 
   // Determine if this post has special content that benefits from a raw view
   // Show toggle for LaTeX, SVG code blocks, or any code blocks

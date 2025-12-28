@@ -2,6 +2,9 @@
  * Text-to-Speech utilities and types for Kokoro TTS integration
  */
 
+import { extractCidFromBlobUrl, getBlobAltMap } from './image-labels'
+import type { BlogEntry } from './atproto'
+
 // ==================== STATE TYPES ====================
 
 export type TTSStatus =
@@ -195,17 +198,32 @@ export async function detectCapabilities(): Promise<BrowserCapabilities> {
 
 /**
  * Extract speakable text from markdown for TTS.
- * Removes code blocks, images, and formatting while preserving readable content.
+ * Removes code blocks and formatting while preserving readable content.
+ * Images are converted to spoken descriptions using alt text.
  */
-export function extractTextForTTS(markdown: string): string {
+export function extractTextForTTS(markdown: string, blobs?: BlogEntry['blobs']): string {
+  // Build alt text map from blobs for looking up image descriptions
+  const altMap = blobs ? getBlobAltMap(blobs) : new Map<string, string>()
+
   return (
     markdown
       // Remove fenced code blocks (with optional language)
       .replace(/```[\w-]*\n[\s\S]*?```/g, '')
       // Remove inline code
       .replace(/`[^`]+`/g, '')
-      // Remove images
-      .replace(/!\[.*?\]\(.*?\)/g, '')
+      // Convert images to spoken descriptions
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, markdownAlt, url) => {
+        // Try to get alt from blob metadata (preferred)
+        const cid = extractCidFromBlobUrl(url)
+        const blobAlt = cid ? altMap.get(cid) : undefined
+        // Fall back to markdown alt text
+        const alt = blobAlt || markdownAlt
+
+        if (alt && alt.trim()) {
+          return `Image: ${alt.trim()}.`
+        }
+        return 'Image without description.'
+      })
       // Convert links to just text: [text](url) → text
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       // Remove heading markers but keep text
