@@ -385,51 +385,53 @@ export class FirehoseConsumer extends DurableObject<Env> {
   }
 
   private async ensureAuthor(did: string) {
-    const existing = await this.env.DB.prepare(
-      'SELECT did FROM authors WHERE did = ?'
-    ).bind(did).first()
+    // Fetch profile from Bluesky public API
+    try {
+      const response = await fetch(
+        `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
+      )
 
-    if (!existing) {
-      // Fetch profile from Bluesky public API
-      try {
-        const response = await fetch(
-          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
-        )
-
-        if (response.ok) {
-          const profile = await response.json() as {
-            did: string
-            handle: string
-            displayName?: string
-            description?: string
-            avatar?: string
-            banner?: string
-          }
-
-          await this.env.DB.prepare(`
-            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).bind(
-            profile.did,
-            profile.handle,
-            profile.displayName || null,
-            profile.description || null,
-            profile.avatar || null,
-            profile.banner || null
-          ).run()
-        } else {
-          // Insert minimal author record
-          await this.env.DB.prepare(
-            'INSERT INTO authors (did) VALUES (?)'
-          ).bind(did).run()
+      if (response.ok) {
+        const profile = await response.json() as {
+          did: string
+          handle: string
+          displayName?: string
+          description?: string
+          avatar?: string
+          banner?: string
         }
-      } catch (error) {
-        console.error(`Failed to fetch author profile for ${did}:`, error)
-        // Insert minimal author record
+
+        // Upsert author - always update profile data to keep it fresh
+        await this.env.DB.prepare(`
+          INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(did) DO UPDATE SET
+            handle = excluded.handle,
+            display_name = excluded.display_name,
+            description = excluded.description,
+            avatar_url = excluded.avatar_url,
+            banner_url = excluded.banner_url,
+            updated_at = datetime('now')
+        `).bind(
+          profile.did,
+          profile.handle,
+          profile.displayName || null,
+          profile.description || null,
+          profile.avatar || null,
+          profile.banner || null
+        ).run()
+      } else {
+        // Insert minimal author record if we can't fetch profile
         await this.env.DB.prepare(
           'INSERT OR IGNORE INTO authors (did) VALUES (?)'
         ).bind(did).run()
       }
+    } catch (error) {
+      console.error(`Failed to fetch author profile for ${did}:`, error)
+      // Insert minimal author record
+      await this.env.DB.prepare(
+        'INSERT OR IGNORE INTO authors (did) VALUES (?)'
+      ).bind(did).run()
     }
   }
 }

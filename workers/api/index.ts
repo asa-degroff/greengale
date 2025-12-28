@@ -808,6 +808,80 @@ app.get('/xrpc/app.greengale.admin.listWhitelist', async (c) => {
   }
 })
 
+// Refresh all author profiles from Bluesky (admin only)
+// This updates avatar_url and other profile data for all authors in the database
+app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    // Get all authors
+    const result = await c.env.DB.prepare('SELECT did FROM authors').all()
+    const authors = result.results || []
+
+    let updated = 0
+    let failed = 0
+
+    for (const author of authors) {
+      try {
+        const response = await fetch(
+          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(author.did as string)}`
+        )
+
+        if (response.ok) {
+          const profile = await response.json() as {
+            did: string
+            handle: string
+            displayName?: string
+            description?: string
+            avatar?: string
+            banner?: string
+          }
+
+          await c.env.DB.prepare(`
+            UPDATE authors SET
+              handle = ?,
+              display_name = ?,
+              description = ?,
+              avatar_url = ?,
+              banner_url = ?,
+              updated_at = datetime('now')
+            WHERE did = ?
+          `).bind(
+            profile.handle,
+            profile.displayName || null,
+            profile.description || null,
+            profile.avatar || null,
+            profile.banner || null,
+            author.did
+          ).run()
+
+          updated++
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+    }
+
+    // Invalidate recent posts cache
+    await c.env.CACHE.delete('recent_posts:12:')
+
+    return c.json({
+      success: true,
+      total: authors.length,
+      updated,
+      failed,
+    })
+  } catch (error) {
+    console.error('Error refreshing author profiles:', error)
+    return c.json({ error: 'Failed to refresh profiles' }, 500)
+  }
+})
+
 // Invalidate OG image cache (admin only)
 // Usage: POST /xrpc/app.greengale.admin.invalidateOGCache
 // Body: { "handle": "user.bsky.social", "rkey": "abc123" } for post OG
