@@ -52,6 +52,30 @@ function normalizeTTSText(text: string): string {
     .toLowerCase()
 }
 
+// Word-based fuzzy matching for TTS highlight - handles cases where inline code
+// is removed from TTS text but still present in DOM (e.g., `user_handle` in DOM
+// but missing from TTS sentence)
+function wordsMatch(content: string, sentence: string, threshold = 0.6): boolean {
+  // Extract significant words (3+ chars) from both strings
+  const contentWords = new Set(
+    content
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+  )
+  const sentenceWords = sentence
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2)
+
+  if (sentenceWords.length === 0) return false
+
+  const matchCount = sentenceWords.filter((w) => contentWords.has(w)).length
+  return matchCount / sentenceWords.length >= threshold
+}
+
 export function MarkdownRenderer({
   content,
   enableLatex = false,
@@ -73,6 +97,9 @@ export function MarkdownRenderer({
 
   // Track which images have been revealed by the user (to skip warning in lightbox)
   const revealedImagesRef = useRef<Set<string>>(new Set())
+
+  // Track last highlighted element index for proximity-based matching
+  const lastHighlightIndexRef = useRef<number>(-1)
 
   // Build lookup maps for blob metadata
   const labelsMap = useMemo(() => getBlobLabelsMap(blobs), [blobs])
@@ -222,6 +249,8 @@ export function MarkdownRenderer({
           el.classList.remove('tts-highlight')
         })
       }
+      // Reset proximity tracking when TTS stops
+      lastHighlightIndexRef.current = -1
       return
     }
 
@@ -233,14 +262,19 @@ export function MarkdownRenderer({
     const sentenceNoPunct = stripTrailingPunctuation(normalizedSentence)
 
     // Find block-level elements that could contain the sentence
-    const blockElements = container.querySelectorAll(
-      'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd'
+    // Convert to array for index-based proximity tracking
+    const blockElements = Array.from(
+      container.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd')
     )
 
     let bestMatch: Element | null = null
+    let bestMatchIndex = -1
     let bestScore = 0
 
-    for (const element of blockElements) {
+    const lastIndex = lastHighlightIndexRef.current
+
+    for (let i = 0; i < blockElements.length; i++) {
+      const element = blockElements[i]
       const textContent = element.textContent || ''
       const normalizedContent = normalizeText(textContent)
       const contentNoPunct = stripTrailingPunctuation(normalizedContent)
@@ -257,14 +291,38 @@ export function MarkdownRenderer({
         contentNoPunct === sentenceNoPunct || // exact match after stripping punct from both
         ttsNormalizedContent.includes(normalizedSentence) || // match with TTS normalization
         ttsNormalizedContent.includes(sentenceNoPunct) || // TTS normalized without punct
-        ttsContentNoPunct === sentenceNoPunct // TTS normalized exact match
+        ttsContentNoPunct === sentenceNoPunct || // TTS normalized exact match
+        // Fuzzy word matching as fallback - handles inline code removal where TTS
+        // strips `code` but DOM still contains the text
+        wordsMatch(normalizedContent, sentenceNoPunct)
 
       if (matches) {
-        // Prefer shorter matches (more specific)
-        const score = 1 / textContent.length
+        // Base score: prefer shorter matches (more specific)
+        const baseScore = 1 / textContent.length
+
+        // Proximity bonus: prefer elements near the last highlight
+        // This helps with short sentences that match multiple locations
+        let proximityBonus = 0
+        if (lastIndex >= 0) {
+          if (i === lastIndex + 1) {
+            // Immediately after last highlight - strong bonus
+            proximityBonus = 0.5
+          } else if (i > lastIndex && i <= lastIndex + 3) {
+            // Within 3 elements after - moderate bonus
+            proximityBonus = 0.3
+          } else if (i === lastIndex) {
+            // Same element (multi-sentence paragraph) - small bonus
+            proximityBonus = 0.1
+          }
+          // Elements before or far after get no bonus but aren't penalized
+        }
+
+        const score = baseScore + proximityBonus
+
         if (score > bestScore) {
           bestScore = score
           bestMatch = element
+          bestMatchIndex = i
         }
       }
     }
@@ -274,9 +332,10 @@ export function MarkdownRenderer({
       el.classList.remove('tts-highlight')
     })
 
-    // Apply new highlight and scroll into view
+    // Apply new highlight and update position tracking
     if (bestMatch) {
       bestMatch.classList.add('tts-highlight')
+      lastHighlightIndexRef.current = bestMatchIndex
       // Scroll into view with some margin from top
       bestMatch.scrollIntoView({
         behavior: 'smooth',
