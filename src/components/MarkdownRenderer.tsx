@@ -354,6 +354,13 @@ export function MarkdownRenderer({
             proximityBonus = 0.1
           }
           // Elements before or far after get no bonus but aren't penalized
+        } else {
+          // No previous highlight (TTS just started) - strongly prefer elements
+          // near the start of the document. This prevents matching a similar
+          // heading further down when the title/intro matches multiple places.
+          if (i < 5) {
+            proximityBonus = 0.5 * (1 - i / 5) // 0.5, 0.4, 0.3, 0.2, 0.1
+          }
         }
 
         const score = baseScore + proximityBonus
