@@ -863,6 +863,24 @@ export function EditorPage() {
     [pdsEndpoint, session?.did, previewUrls]
   )
 
+  // Copy image markdown reference to clipboard
+  const [copiedCid, setCopiedCid] = useState<string | null>(null)
+  const handleCopyImageReference = useCallback(
+    async (blob: UploadedBlob) => {
+      if (!pdsEndpoint || !session?.did) return
+      const markdownUrl = getBlobUrl(pdsEndpoint, session.did, blob.cid)
+      const markdown = generateMarkdownImage(blob.alt || '', markdownUrl)
+      try {
+        await navigator.clipboard.writeText(markdown)
+        setCopiedCid(blob.cid)
+        setTimeout(() => setCopiedCid(null), 2000)
+      } catch (err) {
+        console.error('Failed to copy to clipboard:', err)
+      }
+    },
+    [pdsEndpoint, session?.did]
+  )
+
   if (isLoading || loadingPost) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -1211,6 +1229,46 @@ export function EditorPage() {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  handleCopyImageReference(blob)
+                                }}
+                                className={`p-2 rounded transition-colors ${
+                                  copiedCid === blob.cid
+                                    ? 'text-green-500 bg-green-500/10'
+                                    : 'text-[var(--site-text-secondary)] hover:text-[var(--site-accent)] hover:bg-[var(--site-bg-secondary)]'
+                                }`}
+                                title={copiedCid === blob.cid ? 'Copied!' : 'Copy markdown reference'}
+                              >
+                                {copiedCid === blob.cid ? (
+                                  <svg
+                                    className="w-4 h-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                ) : (
+                                  <svg
+                                    className="w-4 h-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
                                   setAutoFocusAlt(false)
                                   setEditingImageCid(blob.cid)
                                 }}
@@ -1230,7 +1288,10 @@ export function EditorPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteImage(blob.cid, blob.name)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteImage(blob.cid, blob.name)
+                                }}
                                 className="p-2 text-[var(--site-text-secondary)] hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
                                 title="Remove image"
                               >
