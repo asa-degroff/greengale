@@ -10,7 +10,7 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { extractHeadings } from '@/lib/extractHeadings'
 import { useScrollSpy } from '@/lib/useScrollSpy'
 import { useTTS } from '@/lib/useTTS'
-import { extractTextForTTS } from '@/lib/tts'
+import { extractTextForTTSAsync } from '@/lib/tts'
 import type { AuthorProfile, BlogEntry } from '@/lib/atproto'
 
 interface BlogViewerProps {
@@ -63,11 +63,11 @@ export function BlogViewer({
   const isTTSActive = tts.state.status !== 'idle'
   const isTTSLoading = tts.state.status === 'loading-model'
 
-  const handleListenClick = useCallback(() => {
+  const handleListenClick = useCallback(async () => {
     if (isTTSActive) {
       tts.stop()
     } else {
-      const text = extractTextForTTS(content, blobs)
+      const text = await extractTextForTTSAsync(content, blobs)
       if (text.trim()) {
         tts.start(text)
       }

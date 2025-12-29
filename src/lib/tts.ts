@@ -3,7 +3,14 @@
  */
 
 import { extractCidFromBlobUrl, getBlobAltMap } from './image-labels'
+import { getBlueskyPost } from './bluesky'
 import type { BlogEntry } from './atproto'
+
+/**
+ * Regex to match Bluesky post URLs for TTS processing
+ * Captures: [1] = handle or DID, [2] = rkey
+ */
+const BLUESKY_POST_URL_REGEX = /https?:\/\/bsky\.app\/profile\/([^/\s]+)\/post\/([a-zA-Z0-9]+)/g
 
 // ==================== STATE TYPES ====================
 
@@ -270,6 +277,52 @@ export function extractTextForTTS(markdown: string, blobs?: BlogEntry['blobs']):
       .replace(/[ \t]+/g, ' ')
       .trim()
   )
+}
+
+/**
+ * Async version of extractTextForTTS that fetches embedded Bluesky post content.
+ * Replaces Bluesky URLs with speakable text: "Bluesky post by [author]: [content]"
+ */
+export async function extractTextForTTSAsync(
+  markdown: string,
+  blobs?: BlogEntry['blobs']
+): Promise<string> {
+  // Find all Bluesky URLs in the markdown
+  const blueskyUrls = [...markdown.matchAll(BLUESKY_POST_URL_REGEX)]
+
+  // If no Bluesky URLs, use sync version directly
+  if (blueskyUrls.length === 0) {
+    return extractTextForTTS(markdown, blobs)
+  }
+
+  // Fetch all posts in parallel
+  const posts = await Promise.all(
+    blueskyUrls.map(async (match) => {
+      const [url, handle, rkey] = match
+      try {
+        const post = await getBlueskyPost(handle, rkey)
+        return { url, post }
+      } catch {
+        return { url, post: null }
+      }
+    })
+  )
+
+  // Replace URLs with speakable content
+  let processedMarkdown = markdown
+  for (const { url, post } of posts) {
+    if (post) {
+      const authorName = post.author.displayName || post.author.handle
+      const speakable = `Bluesky post by ${authorName}: ${post.text}`
+      processedMarkdown = processedMarkdown.replace(url, speakable)
+    } else {
+      // Failed to fetch - use a generic placeholder
+      processedMarkdown = processedMarkdown.replace(url, 'Embedded Bluesky post.')
+    }
+  }
+
+  // Run through existing sync extraction for final cleanup
+  return extractTextForTTS(processedMarkdown, blobs)
 }
 
 /**
