@@ -246,7 +246,7 @@ export function Sidebar({ children }: SidebarProps) {
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
-  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme } = useThemePreference()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, activeCustomColors, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
 
   // Easter egg: animated grid background
@@ -302,7 +302,7 @@ export function Sidebar({ children }: SidebarProps) {
     })
 
     return () => cancelAnimationFrame(frameId)
-  }, [effectiveTheme, isDark, preferredTheme, preferredCustomColors])
+  }, [effectiveTheme, isDark, preferredTheme, preferredCustomColors, activeCustomColors])
 
   // Triple middle-click detection for easter egg (global listener)
   useEffect(() => {
