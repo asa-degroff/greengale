@@ -136,16 +136,16 @@ export function BlueskyEmbed({ handle, rkey }: BlueskyEmbedProps) {
           href={`https://bsky.app/profile/${post.author.handle}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex-shrink-0"
+          className="flex-shrink-0 w-10 h-10 rounded-full overflow-hidden"
         >
           {post.author.avatar ? (
             <img
               src={post.author.avatar}
               alt={post.author.displayName || post.author.handle}
-              className="w-10 h-10 rounded-full object-cover"
+              className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-white font-medium">
+            <div className="w-full h-full bg-[var(--theme-accent)] flex items-center justify-center text-white font-medium">
               {(post.author.displayName || post.author.handle).charAt(0).toUpperCase()}
             </div>
           )}
