@@ -3,6 +3,7 @@ import { renderMarkdown } from '@/lib/markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ContentWarningImage } from './ContentWarningImage'
 import { ImageWithAlt } from './ImageWithAlt'
+import { BlueskyEmbed } from './BlueskyEmbed'
 import type { BlogEntry } from '@/lib/atproto'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import {
@@ -197,6 +198,44 @@ export function MarkdownRenderer({
     }
   }, [labelsMap, altMap, openLightbox, markImageRevealed])
 
+  // Create custom span component that handles Bluesky embeds
+  const CustomSpan = useMemo(() => {
+    return function CustomSpanComponent(props: Record<string, unknown>) {
+      const { children, className, ...restProps } = props
+      const classStr = typeof className === 'string' ? className : ''
+
+      // Check if this is a Bluesky embed placeholder
+      // Format: bluesky-embed bsky-h-{base64url(handle)} bsky-r-{rkey}
+      if (classStr.includes('bluesky-embed')) {
+        const classes = classStr.split(' ')
+        const handleClass = classes.find(c => c.startsWith('bsky-h-'))
+        const rkeyClass = classes.find(c => c.startsWith('bsky-r-'))
+
+        if (handleClass && rkeyClass) {
+          // Decode the base64url-encoded handle
+          const encodedHandle = handleClass.replace('bsky-h-', '')
+          const rkey = rkeyClass.replace('bsky-r-', '')
+
+          try {
+            // Restore base64 padding and decode
+            const base64 = encodedHandle.replace(/-/g, '+').replace(/_/g, '/')
+            const padding = (4 - (base64.length % 4)) % 4
+            const paddedBase64 = base64 + '='.repeat(padding)
+            const handle = atob(paddedBase64)
+
+            console.log('[CustomSpan] Bluesky embed decoded:', { handle, rkey })
+            return <BlueskyEmbed handle={handle} rkey={rkey} />
+          } catch (e) {
+            console.error('[CustomSpan] Failed to decode Bluesky embed:', e)
+          }
+        }
+      }
+
+      // Default: render as a normal span
+      return <span className={classStr} {...(restProps as React.HTMLAttributes<HTMLSpanElement>)}>{children as ReactNode}</span>
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
@@ -205,7 +244,7 @@ export function MarkdownRenderer({
         const result = await renderMarkdown(content, {
           enableLatex,
           enableSvg,
-          components: { img: CustomImage },
+          components: { img: CustomImage, span: CustomSpan },
         })
         if (!cancelled) {
           setRendered(result)
@@ -223,7 +262,7 @@ export function MarkdownRenderer({
     return () => {
       cancelled = true
     }
-  }, [content, enableLatex, enableSvg, blobs, CustomImage])
+  }, [content, enableLatex, enableSvg, blobs, CustomImage, CustomSpan])
 
   // Handle initial hash navigation after content renders
   useEffect(() => {

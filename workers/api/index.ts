@@ -385,7 +385,134 @@ app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
   }
 })
 
+// Cache TTL for single Bluesky post embeds (5 minutes)
+const BLUESKY_POST_CACHE_TTL = 5 * 60
+
+// Get a single Bluesky post for embedding
+app.get('/xrpc/app.greengale.feed.getBlueskyPost', async (c) => {
+  const handle = c.req.query('handle')
+  const rkey = c.req.query('rkey')
+
+  if (!handle || !rkey) {
+    return c.json({ error: 'Missing handle or rkey parameter' }, 400)
+  }
+
+  // Build cache key
+  const cacheKey = `bluesky:post:${handle}:${rkey}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    // Construct AT URI - handle could be a handle or DID
+    const atUri = `at://${handle}/app.bsky.feed.post/${rkey}`
+
+    // Fetch the post thread (depth=0 to just get the post itself)
+    const threadUrl = new URL(`${BLUESKY_API}/xrpc/app.bsky.feed.getPostThread`)
+    threadUrl.searchParams.set('uri', atUri)
+    threadUrl.searchParams.set('depth', '0')
+    threadUrl.searchParams.set('parentHeight', '0')
+
+    const threadResponse = await fetch(threadUrl.toString(), {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'GreenGale/1.0',
+      },
+    })
+
+    if (!threadResponse.ok) {
+      const errorText = await threadResponse.text()
+      console.error('Bluesky getPostThread failed:', threadResponse.status, errorText)
+
+      // Return a specific error for not found posts
+      if (threadResponse.status === 400 || threadResponse.status === 404) {
+        return c.json({ error: 'Post not found', post: null }, 404)
+      }
+
+      return c.json({ error: 'Failed to fetch post', post: null }, threadResponse.status)
+    }
+
+    const threadData = await threadResponse.json() as {
+      thread: {
+        $type: string
+        post?: BlueskyPostView
+        notFound?: boolean
+        blocked?: boolean
+      }
+    }
+
+    // Handle blocked or not found posts
+    if (threadData.thread.notFound || threadData.thread.blocked || !threadData.thread.post) {
+      return c.json({ error: 'Post not found or unavailable', post: null }, 404)
+    }
+
+    // Extract images from the resolved embed view (has CDN URLs)
+    const extractImages = (embed: BlueskyPostView['embed']): BlueskyEmbedImage[] | null => {
+      if (!embed) return null
+      if (embed.$type === 'app.bsky.embed.images#view' && embed.images) {
+        return embed.images.map(img => ({
+          alt: img.alt || '',
+          thumb: img.thumb,
+          fullsize: img.fullsize,
+          aspectRatio: img.aspectRatio,
+        }))
+      }
+      return null
+    }
+
+    // Transform to our minimal format (no engagement stats)
+    const post = {
+      uri: threadData.thread.post.uri,
+      cid: threadData.thread.post.cid,
+      author: {
+        did: threadData.thread.post.author.did,
+        handle: threadData.thread.post.author.handle,
+        displayName: threadData.thread.post.author.displayName,
+        avatar: threadData.thread.post.author.avatar,
+      },
+      text: threadData.thread.post.record?.text || '',
+      createdAt: threadData.thread.post.record?.createdAt || threadData.thread.post.indexedAt,
+      // Include facets for rich text (links, mentions, hashtags)
+      facets: threadData.thread.post.record?.facets || null,
+      // Include resolved images from embed
+      images: extractImages(threadData.thread.post.embed),
+    }
+
+    const response = { post }
+
+    // Cache the response
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: BLUESKY_POST_CACHE_TTL,
+    })
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error fetching Bluesky post:', error)
+    return c.json({ error: 'Failed to fetch Bluesky post', post: null }, 500)
+  }
+})
+
 // Bluesky API types
+interface BlueskyFacet {
+  index: { byteStart: number; byteEnd: number }
+  features: Array<{
+    $type: string
+    uri?: string   // for links
+    did?: string   // for mentions
+    tag?: string   // for hashtags
+  }>
+}
+
+interface BlueskyEmbedImage {
+  alt: string
+  thumb: string
+  fullsize: string
+  aspectRatio?: { width: number; height: number }
+}
+
 interface BlueskyPostView {
   uri: string
   cid: string
@@ -398,6 +525,17 @@ interface BlueskyPostView {
   record: {
     text?: string
     createdAt?: string
+    facets?: BlueskyFacet[]
+  }
+  // Resolved embed from the view (has CDN URLs for images)
+  embed?: {
+    $type: string
+    images?: Array<{
+      alt: string
+      thumb: string
+      fullsize: string
+      aspectRatio?: { width: number; height: number }
+    }>
   }
   indexedAt: string
   likeCount?: number

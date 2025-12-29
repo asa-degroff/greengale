@@ -10,6 +10,7 @@ import rehypeReact from 'rehype-react'
 import * as prod from 'react/jsx-runtime'
 import { type ReactNode } from 'react'
 import { remarkSvg } from './remark-svg'
+import { remarkBlueskyEmbed } from './remark-bluesky-embed'
 import { rehypeHeadingIds } from './rehype-heading-ids'
 
 // Production JSX runtime for rehype-react v8+
@@ -24,6 +25,8 @@ const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [
     ...(defaultSchema.tagNames || []),
+    // Ensure div is allowed (for Bluesky embeds and SVG containers)
+    'div',
     // KaTeX HTML elements
     'span',
     // SVG elements (for KaTeX and inline SVG blocks)
@@ -96,10 +99,10 @@ const sanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     '*': ['className', 'style', 'transform'],
-    span: ['className', 'style', 'aria-hidden', 'data-*'],
+    span: ['className', 'style', 'aria-hidden', 'data-*', 'data-handle', 'data-rkey'],
     code: ['className'],
     pre: ['className'],
-    div: ['className', 'style'],
+    div: ['className', 'style', 'data-*'],
     // Allow id attributes on headings for TOC anchor links
     h1: ['id'],
     h2: ['id'],
@@ -205,6 +208,8 @@ export async function renderMarkdown(
   let processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    // Transform standalone Bluesky URLs into embed placeholders
+    .use(remarkBlueskyEmbed)
 
   // Add math support if enabled
   if (enableLatex) {
@@ -218,15 +223,13 @@ export async function renderMarkdown(
   }
 
   // Convert to rehype (HTML AST)
-  // allowDangerousHtml is needed for SVG blocks to pass through as raw HTML
-  processor = processor
-    .use(remarkRehype, { allowDangerousHtml: enableSvg })
+  // allowDangerousHtml is needed for raw HTML nodes (SVG blocks, Bluesky embeds)
+  processor = processor.use(remarkRehype, { allowDangerousHtml: true })
 
-  // Parse raw HTML into proper hast nodes (needed for SVG blocks)
+  // Parse raw HTML into proper hast nodes
   // This must come before sanitization so the HTML can be properly analyzed
-  if (enableSvg) {
-    processor = processor.use(rehypeRaw)
-  }
+  // Required for both SVG blocks and Bluesky embed placeholders
+  processor = processor.use(rehypeRaw)
 
   // Add KaTeX rendering if math is enabled
   if (enableLatex) {
