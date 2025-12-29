@@ -313,7 +313,18 @@ export async function extractTextForTTSAsync(
   for (const { url, post } of posts) {
     if (post) {
       const authorName = post.author.displayName || post.author.handle
-      const speakable = `Bluesky post by ${authorName}: ${post.text}`
+      let speakable = `Bluesky post by ${authorName}: ${post.text}`
+
+      // Add image descriptions if the post has images with alt text
+      if (post.images && post.images.length > 0) {
+        const imageDescriptions = post.images
+          .filter((img) => img.alt && img.alt.trim())
+          .map((img) => `Image: ${img.alt.trim()}.`)
+        if (imageDescriptions.length > 0) {
+          speakable += ' ' + imageDescriptions.join(' ')
+        }
+      }
+
       processedMarkdown = processedMarkdown.replace(url, speakable)
     } else {
       // Failed to fetch - use a generic placeholder
