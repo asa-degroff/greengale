@@ -67,12 +67,12 @@ export function BlogViewer({
     if (isTTSActive) {
       tts.stop()
     } else {
-      const text = await extractTextForTTSAsync(content, blobs)
+      const text = await extractTextForTTSAsync(content, blobs, postUrl)
       if (text.trim()) {
         tts.start(text)
       }
     }
-  }, [content, blobs, isTTSActive, tts])
+  }, [content, blobs, postUrl, isTTSActive, tts])
 
   // Determine if this post has special content that benefits from a raw view
   // Show toggle for LaTeX, SVG code blocks, or any code blocks
@@ -214,7 +214,12 @@ export function BlogViewer({
 
         {/* Bluesky Interactions */}
         {postUrl && (
-          <BlueskyInteractions postUrl={postUrl} postTitle={title} />
+          <BlueskyInteractions
+            postUrl={postUrl}
+            postTitle={title}
+            currentSentence={tts.state.currentSentence}
+            onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
+          />
         )}
       </div>
 

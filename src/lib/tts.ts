@@ -3,7 +3,7 @@
  */
 
 import { extractCidFromBlobUrl, getBlobAltMap } from './image-labels'
-import { getBlueskyPost } from './bluesky'
+import { getBlueskyPost, getBlueskyInteractions } from './bluesky'
 import type { BlogEntry } from './atproto'
 
 /**
@@ -11,6 +11,13 @@ import type { BlogEntry } from './atproto'
  * Captures: [1] = handle or DID, [2] = rkey
  */
 const BLUESKY_POST_URL_REGEX = /https?:\/\/bsky\.app\/profile\/([^/\s]+)\/post\/([a-zA-Z0-9]+)/g
+
+/**
+ * Strip URLs from text for TTS (URLs don't read well aloud)
+ */
+function stripUrls(text: string): string {
+  return text.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
+}
 
 // ==================== STATE TYPES ====================
 
@@ -280,55 +287,80 @@ export function extractTextForTTS(markdown: string, blobs?: BlogEntry['blobs']):
 }
 
 /**
- * Async version of extractTextForTTS that fetches embedded Bluesky post content.
+ * Async version of extractTextForTTS that fetches embedded Bluesky post content
+ * and optionally includes discussions from the network.
  * Replaces Bluesky URLs with speakable text: "Bluesky post by [author]: [content]"
  */
 export async function extractTextForTTSAsync(
   markdown: string,
-  blobs?: BlogEntry['blobs']
+  blobs?: BlogEntry['blobs'],
+  postUrl?: string
 ): Promise<string> {
   // Find all Bluesky URLs in the markdown
   const blueskyUrls = [...markdown.matchAll(BLUESKY_POST_URL_REGEX)]
 
-  // If no Bluesky URLs, use sync version directly
-  if (blueskyUrls.length === 0) {
-    return extractTextForTTS(markdown, blobs)
+  let processedMarkdown = markdown
+
+  // Fetch embedded Bluesky posts in parallel
+  if (blueskyUrls.length > 0) {
+    const posts = await Promise.all(
+      blueskyUrls.map(async (match) => {
+        const [url, handle, rkey] = match
+        try {
+          const post = await getBlueskyPost(handle, rkey)
+          return { url, post }
+        } catch {
+          return { url, post: null }
+        }
+      })
+    )
+
+    // Replace URLs with speakable content
+    for (const { url, post } of posts) {
+      if (post) {
+        const authorName = post.author.displayName || post.author.handle
+        let speakable = `Bluesky post by ${authorName}: ${post.text}`
+
+        // Add image descriptions if the post has images with alt text
+        if (post.images && post.images.length > 0) {
+          const imageDescriptions = post.images
+            .filter((img) => img.alt && img.alt.trim())
+            .map((img) => `Image: ${img.alt.trim()}.`)
+          if (imageDescriptions.length > 0) {
+            speakable += ' ' + imageDescriptions.join(' ')
+          }
+        }
+
+        processedMarkdown = processedMarkdown.replace(url, speakable)
+      } else {
+        // Failed to fetch - use a generic placeholder
+        processedMarkdown = processedMarkdown.replace(url, 'Embedded Bluesky post.')
+      }
+    }
   }
 
-  // Fetch all posts in parallel
-  const posts = await Promise.all(
-    blueskyUrls.map(async (match) => {
-      const [url, handle, rkey] = match
-      try {
-        const post = await getBlueskyPost(handle, rkey)
-        return { url, post }
-      } catch {
-        return { url, post: null }
-      }
-    })
-  )
+  // Fetch discussions from the network if postUrl provided
+  if (postUrl) {
+    try {
+      const interactions = await getBlueskyInteractions(postUrl, { limit: 10 })
+      if (interactions.posts.length > 0) {
+        processedMarkdown += '\n\nDiscussions from the network.\n\n'
 
-  // Replace URLs with speakable content
-  let processedMarkdown = markdown
-  for (const { url, post } of posts) {
-    if (post) {
-      const authorName = post.author.displayName || post.author.handle
-      let speakable = `Bluesky post by ${authorName}: ${post.text}`
+        for (const post of interactions.posts) {
+          const authorName = post.author.displayName || post.author.handle
+          processedMarkdown += `Post by ${authorName}: ${stripUrls(post.text)}\n\n`
 
-      // Add image descriptions if the post has images with alt text
-      if (post.images && post.images.length > 0) {
-        const imageDescriptions = post.images
-          .filter((img) => img.alt && img.alt.trim())
-          .map((img) => `Image: ${img.alt.trim()}.`)
-        if (imageDescriptions.length > 0) {
-          speakable += ' ' + imageDescriptions.join(' ')
+          // Include direct replies (1 level deep)
+          if (post.replies && post.replies.length > 0) {
+            for (const reply of post.replies) {
+              const replyAuthor = reply.author.displayName || reply.author.handle
+              processedMarkdown += `Reply by ${replyAuthor}: ${stripUrls(reply.text)}\n\n`
+            }
+          }
         }
       }
-
-      processedMarkdown = processedMarkdown.replace(url, speakable)
-    } else {
-      // Failed to fetch - use a generic placeholder
-      processedMarkdown = processedMarkdown.replace(url, 'Embedded Bluesky post.')
+    } catch {
+      // Failed to fetch discussions - continue without them
     }
   }
 

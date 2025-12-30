@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BlueskyPostCard } from './BlueskyPost'
 import {
   getBlueskyInteractions,
@@ -9,14 +9,84 @@ import {
 interface BlueskyInteractionsProps {
   postUrl: string
   postTitle?: string
+  /** Current sentence being spoken by TTS (for highlighting) */
+  currentSentence?: string | null
+  /** Callback when user clicks on a post (for TTS seek) */
+  onSentenceClick?: (text: string) => void
+}
+
+// Normalize text for comparison (collapse whitespace, lowercase)
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 type LoadingState = 'idle' | 'loading' | 'loaded' | 'error'
 
-export function BlueskyInteractions({ postUrl, postTitle }: BlueskyInteractionsProps) {
+export function BlueskyInteractions({
+  postUrl,
+  postTitle,
+  currentSentence,
+  onSentenceClick,
+}: BlueskyInteractionsProps) {
   const [posts, setPosts] = useState<BlueskyPost[]>([])
   const [totalHits, setTotalHits] = useState<number | undefined>()
   const [loadingState, setLoadingState] = useState<LoadingState>('idle')
+  const containerRef = useRef<HTMLElement>(null)
+
+  // Handle TTS highlighting
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || !currentSentence) {
+      // Clear any existing highlights when no sentence
+      if (container) {
+        container.querySelectorAll('.tts-highlight').forEach((el) => {
+          el.classList.remove('tts-highlight')
+        })
+      }
+      return
+    }
+
+    const normalizedSentence = normalizeText(currentSentence)
+    if (!normalizedSentence) return
+
+    // Find post text elements that match the current sentence
+    const postTextElements = container.querySelectorAll('.bluesky-post-text')
+
+    let bestMatch: Element | null = null
+    let bestScore = 0
+
+    for (const element of postTextElements) {
+      const textContent = element.textContent || ''
+      const normalizedContent = normalizeText(textContent)
+
+      // Check if this element contains or matches the sentence
+      if (
+        normalizedContent.includes(normalizedSentence) ||
+        normalizedSentence.includes(normalizedContent)
+      ) {
+        // Score based on length similarity (prefer closer matches)
+        const score = 1 / Math.abs(normalizedContent.length - normalizedSentence.length + 1)
+        if (score > bestScore) {
+          bestScore = score
+          bestMatch = element
+        }
+      }
+    }
+
+    // Clear previous highlights
+    container.querySelectorAll('.tts-highlight').forEach((el) => {
+      el.classList.remove('tts-highlight')
+    })
+
+    // Apply new highlight
+    if (bestMatch) {
+      bestMatch.classList.add('tts-highlight')
+      bestMatch.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      })
+    }
+  }, [currentSentence])
 
   const loadInteractions = useCallback(async () => {
     if (loadingState === 'loading') return
@@ -70,7 +140,10 @@ export function BlueskyInteractions({ postUrl, postTitle }: BlueskyInteractionsP
   const outlineButtonClass = "flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--theme-border)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] hover:border-[var(--theme-text-secondary)] transition-colors"
 
   return (
-    <section className="mt-12 pt-8 border-t border-[var(--theme-border)]">
+    <section
+      ref={containerRef}
+      className={`mt-12 pt-8 border-t border-[var(--theme-border)] ${onSentenceClick ? 'tts-seekable' : ''}`}
+    >
       {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         {loadingState === 'loaded' && posts.length !== 0 && (
@@ -126,7 +199,11 @@ export function BlueskyInteractions({ postUrl, postTitle }: BlueskyInteractionsP
       {loadingState === 'loaded' && posts.length > 0 && (
         <div className="space-y-4">
           {posts.map((post) => (
-            <BlueskyPostCard key={post.uri} post={post} />
+            <BlueskyPostCard
+              key={post.uri}
+              post={post}
+              onTextClick={onSentenceClick}
+            />
           ))}
         </div>
       )}

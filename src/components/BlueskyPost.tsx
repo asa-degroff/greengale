@@ -5,6 +5,8 @@ interface BlueskyPostProps {
   isReply?: boolean
   showReplies?: boolean
   maxVisibleReplies?: number
+  /** Callback when user clicks on post text (for TTS seek) */
+  onTextClick?: (text: string) => void
 }
 
 function formatRelativeTime(dateString: string): string {
@@ -40,6 +42,7 @@ export function BlueskyPostCard({
   isReply = false,
   showReplies = true,
   maxVisibleReplies = 3,
+  onTextClick,
 }: BlueskyPostProps) {
   const blueskyUrl = getBlueskyWebUrl(post.uri)
   const visibleReplies = showReplies
@@ -93,7 +96,10 @@ export function BlueskyPostCard({
             </div>
 
             {/* Post text */}
-            <p className="mt-1 text-[var(--theme-text)] whitespace-pre-wrap break-words">
+            <p
+              className={`bluesky-post-text mt-1 text-[var(--theme-text)] whitespace-pre-wrap break-words ${onTextClick ? 'cursor-pointer' : ''}`}
+              onClick={onTextClick ? () => onTextClick(post.text) : undefined}
+            >
               {post.text}
             </p>
 
@@ -152,6 +158,7 @@ export function BlueskyPostCard({
               isReply={true}
               showReplies={true}
               maxVisibleReplies={2}
+              onTextClick={onTextClick}
             />
           ))}
           {hiddenRepliesCount > 0 && (
