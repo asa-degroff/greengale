@@ -234,6 +234,31 @@ tts.stop()                        // Stop and cleanup
 
 **Implementation:** `src/lib/tts.ts` (types/utilities), `src/lib/tts.worker.ts` (Web Worker), `src/lib/useTTS.ts` (React hook), `src/components/AudioPlayer.tsx` (UI).
 
+### OpenGraph Images
+
+Dynamic OG images are generated for posts, profiles, and the homepage using `workers-og` (Satori + resvg-wasm).
+
+**Features:**
+- **Post OG images**: Display title, subtitle, author info, theme colors, and optional thumbnail
+- **Thumbnail support**: Posts with images show a 280×280 thumbnail on the right side
+- **Theme-aware**: OG images reflect the post's color theme (preset or custom)
+- **Multi-language**: Automatic font fallback for CJK, Arabic, Hebrew, Cyrillic, etc.
+
+**Thumbnail Pipeline:**
+1. First image CID extracted from `blobs` array during firehose indexing
+2. Images with content labels (`nudity`, `sexual`, `porn`, `graphic-media`) are skipped
+3. At generation time, image fetched via wsrv.nl proxy (converts AVIF→JPEG for Satori compatibility)
+4. Embedded as base64 data URL in the OG image
+
+**Endpoints:**
+- `GET /og/site.png` - Homepage OG image
+- `GET /og/profile/:handle.png` - Author profile OG image
+- `GET /og/:handle/:rkey.png` - Post OG image (with optional thumbnail)
+
+**Caching:** OG images cached in KV for 7 days, invalidated on post update.
+
+**Implementation:** `workers/lib/og-image.ts` (generation), `workers/lib/theme-colors.ts` (theming).
+
 ### Data Fetching
 
 ```typescript
@@ -261,10 +286,13 @@ Admin endpoints require `X-Admin-Secret` header:
 - `POST /xrpc/app.greengale.admin.removeFromWhitelist`
 - `GET /xrpc/app.greengale.admin.listWhitelist`
 - `POST /xrpc/app.greengale.admin.startFirehose`
+- `POST /xrpc/app.greengale.admin.refreshAuthorProfiles` - Refresh profile data for all authors
+- `POST /xrpc/app.greengale.admin.backfillFirstImageCid` - Backfill first_image_cid for existing posts
+- `POST /xrpc/app.greengale.admin.invalidateOGCache?handle=&rkey=` - Invalidate OG image cache
 
 ## Database Schema
 
-**posts**: `uri` (PK), `author_did`, `rkey`, `title`, `subtitle`, `source`, `visibility`, `created_at`, `indexed_at`, `content_preview`, `has_latex`, `theme_preset`
+**posts**: `uri` (PK), `author_did`, `rkey`, `title`, `subtitle`, `slug`, `source`, `visibility`, `created_at`, `indexed_at`, `content_preview`, `has_latex`, `theme_preset`, `first_image_cid`
 
 **authors**: `did` (PK), `handle`, `display_name`, `description`, `avatar_url`, `pds_endpoint`, `posts_count`
 
