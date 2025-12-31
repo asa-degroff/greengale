@@ -20,6 +20,12 @@ function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
+// Strip "Post by {author}:" or "Reply by {author}:" prefix from TTS sentence
+// to match against DOM content which only has the post text
+function stripAuthorPrefix(text: string): string {
+  return text.replace(/^(post|reply) by [^:]+:\s*/i, '')
+}
+
 type LoadingState = 'idle' | 'loading' | 'loaded' | 'error'
 
 export function BlueskyInteractions({
@@ -32,6 +38,7 @@ export function BlueskyInteractions({
   const [totalHits, setTotalHits] = useState<number | undefined>()
   const [loadingState, setLoadingState] = useState<LoadingState>('idle')
   const containerRef = useRef<HTMLElement>(null)
+  const lastHighlightIndexRef = useRef<number>(-1)
 
   // Handle TTS highlighting
   useEffect(() => {
@@ -43,32 +50,70 @@ export function BlueskyInteractions({
           el.classList.remove('tts-highlight')
         })
       }
+      // Reset proximity tracking when TTS stops
+      lastHighlightIndexRef.current = -1
       return
     }
 
     const normalizedSentence = normalizeText(currentSentence)
     if (!normalizedSentence) return
 
-    // Find post text elements that match the current sentence
-    const postTextElements = container.querySelectorAll('.bluesky-post-text')
+    // For post content, strip the "Post by {author}:" prefix since DOM only has the text
+    const sentenceWithoutPrefix = normalizeText(stripAuthorPrefix(currentSentence))
+
+    // Query h2 (section header) and post text elements
+    const elements = Array.from(
+      container.querySelectorAll('h2, .bluesky-post-text')
+    )
 
     let bestMatch: Element | null = null
+    let bestMatchIndex = -1
     let bestScore = 0
 
-    for (const element of postTextElements) {
+    const lastIndex = lastHighlightIndexRef.current
+
+    for (let i = 0; i < elements.length; i++) {
+      const element = elements[i]
       const textContent = element.textContent || ''
       const normalizedContent = normalizeText(textContent)
 
-      // Check if this element contains or matches the sentence
-      if (
-        normalizedContent.includes(normalizedSentence) ||
-        normalizedSentence.includes(normalizedContent)
-      ) {
-        // Score based on length similarity (prefer closer matches)
-        const score = 1 / Math.abs(normalizedContent.length - normalizedSentence.length + 1)
+      // Check various matching strategies
+      const matches =
+        normalizedContent.includes(normalizedSentence) || // full sentence match
+        normalizedSentence.includes(normalizedContent) || // content within sentence
+        normalizedContent.includes(sentenceWithoutPrefix) || // match without author prefix
+        sentenceWithoutPrefix.includes(normalizedContent) // content within stripped sentence
+
+      if (matches) {
+        // Base score: prefer shorter matches (more specific)
+        const baseScore = 1 / textContent.length
+
+        // Proximity bonus: prefer elements near the last highlight
+        let proximityBonus = 0
+        if (lastIndex >= 0) {
+          if (i === lastIndex + 1) {
+            // Immediately after last highlight - strong bonus
+            proximityBonus = 0.5
+          } else if (i > lastIndex && i <= lastIndex + 3) {
+            // Within 3 elements after - moderate bonus
+            proximityBonus = 0.3
+          } else if (i === lastIndex) {
+            // Same element - small bonus
+            proximityBonus = 0.1
+          }
+        } else {
+          // No previous highlight - prefer earlier elements
+          if (i < 3) {
+            proximityBonus = 0.5 * (1 - i / 3)
+          }
+        }
+
+        const score = baseScore + proximityBonus
+
         if (score > bestScore) {
           bestScore = score
           bestMatch = element
+          bestMatchIndex = i
         }
       }
     }
@@ -81,6 +126,7 @@ export function BlueskyInteractions({
     // Apply new highlight
     if (bestMatch) {
       bestMatch.classList.add('tts-highlight')
+      lastHighlightIndexRef.current = bestMatchIndex
       bestMatch.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
