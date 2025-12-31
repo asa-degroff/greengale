@@ -404,11 +404,22 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
     )
   }
 
+  // Compute effective height constraint considering zoom level
+  // When zoomed in enough that the image fills the viewport height, treat as height-constrained
+  const isEffectivelyHeightConstrained = (() => {
+    const img = imageRef.current
+    if (!img || !img.naturalHeight) return isHeightConstrained
+
+    const zoomedHeight = img.naturalHeight * baseScale * zoom
+    // If zoomed image fills or nearly fills viewport height, treat as height constrained
+    return zoomedHeight >= window.innerHeight * 0.95
+  })()
+
   // On touch devices, always require tap to show alt text
   // On non-touch devices, show by default for width-constrained images, hover for height-constrained
   const showAltText = alt && (isTouchDevice
     ? isHoveringAltZone
-    : (!isHeightConstrained || isHoveringAltZone)
+    : (!isEffectivelyHeightConstrained || isHoveringAltZone)
   )
 
   return createPortal(
