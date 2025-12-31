@@ -14,7 +14,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const [acknowledged, setAcknowledged] = useState(false)
   const hasLabels = labels && labels.length > 0
 
-  // Zoom and pan state
+  // Zoom and pan state (these are the "committed" values after gestures end)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
@@ -24,19 +24,26 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const [isHoveringAltZone, setIsHoveringAltZone] = useState(false)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
 
+  // Refs for gesture state to avoid re-renders during touch
+  const gestureRef = useRef({
+    isActive: false,
+    isPinching: false,
+    initialDistance: 0,
+    initialZoom: 1,
+    initialPan: { x: 0, y: 0 },
+    centerX: 0,
+    centerY: 0,
+    currentZoom: 1,
+    currentPan: { x: 0, y: 0 },
+    dragStartX: 0,
+    dragStartY: 0,
+    touchStartPos: null as { x: number; y: number } | null,
+  })
+
   // Detect touch device on first touch
   const markAsTouchDevice = useCallback(() => {
     if (!isTouchDevice) setIsTouchDevice(true)
   }, [isTouchDevice])
-
-  // Touch/pinch state
-  const [touchState, setTouchState] = useState<{
-    initialDistance: number
-    initialZoom: number
-    centerX: number
-    centerY: number
-  } | null>(null)
-  const [touchStartPos, setTouchStartPos] = useState<{ x: number; y: number } | null>(null)
 
   const imageRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -237,98 +244,152 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   }, [])
 
   // Helper to get distance between two touch points
-  const getTouchDistance = (touches: React.TouchList) => {
+  const getTouchDistance = (touches: TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX
     const dy = touches[0].clientY - touches[1].clientY
     return Math.sqrt(dx * dx + dy * dy)
   }
 
   // Helper to get center point between two touches
-  const getTouchCenter = (touches: React.TouchList) => ({
+  const getTouchCenter = (touches: TouchList) => ({
     x: (touches[0].clientX + touches[1].clientX) / 2,
     y: (touches[0].clientY + touches[1].clientY) / 2,
   })
 
-  // Handle touch start (for both pan and pinch)
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    markAsTouchDevice()
-    if (e.touches.length === 2) {
-      // Pinch start
-      e.preventDefault()
-      const distance = getTouchDistance(e.touches)
-      const center = getTouchCenter(e.touches)
-      setTouchState({
-        initialDistance: distance,
-        initialZoom: zoom,
-        centerX: center.x,
-        centerY: center.y,
-      })
-      setTouchStartPos(null) // Clear tap detection for pinch
-    } else if (e.touches.length === 1) {
-      // Single touch - start pan and track for tap detection
-      setIsDragging(true)
-      setDragStart({
-        x: e.touches[0].clientX - pan.x,
-        y: e.touches[0].clientY - pan.y,
-      })
-      setTouchStartPos({
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-      })
+  // Apply transform directly to DOM for smooth gesture updates (no React re-render)
+  const applyTransform = useCallback((panX: number, panY: number, zoomLevel: number) => {
+    const img = imageRef.current
+    if (img) {
+      img.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`
+      img.style.transition = 'none'
     }
-  }, [zoom, pan, markAsTouchDevice])
+  }, [])
 
-  // Handle touch move (for both pan and pinch)
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2 && touchState) {
-      // Pinch zoom
-      e.preventDefault()
-      const newDistance = getTouchDistance(e.touches)
-      const scale = newDistance / touchState.initialDistance
-      const newZoom = Math.min(Math.max(touchState.initialZoom * scale, 0.5), 10)
+  // Native touch event handlers (with { passive: false } to allow preventDefault)
+  useEffect(() => {
+    const img = imageRef.current
+    if (!img) return
 
-      // Calculate zoom toward pinch center
-      const viewportCenterX = window.innerWidth / 2
-      const viewportCenterY = window.innerHeight / 2
-      const pinchRelX = touchState.centerX - viewportCenterX
-      const pinchRelY = touchState.centerY - viewportCenterY
-      const zoomRatio = newZoom / zoom
+    const handleTouchStart = (e: TouchEvent) => {
+      markAsTouchDevice()
+      const gesture = gestureRef.current
 
-      setZoom(newZoom)
-      setPan((currentPan) => {
-        const newPanX = pinchRelX * (1 - zoomRatio) + currentPan.x * zoomRatio
-        const newPanY = pinchRelY * (1 - zoomRatio) + currentPan.y * zoomRatio
-        return clampPan(newPanX, newPanY, newZoom)
-      })
-    } else if (e.touches.length === 1 && isDragging) {
-      // Single touch pan
-      const newPan = {
-        x: e.touches[0].clientX - dragStart.x,
-        y: e.touches[0].clientY - dragStart.y,
-      }
-      setPan(clampPan(newPan.x, newPan.y, zoom))
-
-      // If moved more than 10px, it's a drag not a tap
-      if (touchStartPos) {
-        const dx = e.touches[0].clientX - touchStartPos.x
-        const dy = e.touches[0].clientY - touchStartPos.y
-        if (Math.sqrt(dx * dx + dy * dy) > 10) {
-          setTouchStartPos(null)
+      if (e.touches.length === 2) {
+        // Pinch start - prevent default to stop browser zoom
+        e.preventDefault()
+        gesture.isPinching = true
+        gesture.isActive = true
+        gesture.initialDistance = getTouchDistance(e.touches)
+        gesture.initialZoom = gesture.currentZoom
+        gesture.initialPan = { ...gesture.currentPan }
+        const center = getTouchCenter(e.touches)
+        gesture.centerX = center.x
+        gesture.centerY = center.y
+        gesture.touchStartPos = null // Clear tap detection for pinch
+      } else if (e.touches.length === 1) {
+        // Single touch - start pan and track for tap detection
+        gesture.isActive = true
+        gesture.isPinching = false
+        gesture.dragStartX = e.touches[0].clientX - gesture.currentPan.x
+        gesture.dragStartY = e.touches[0].clientY - gesture.currentPan.y
+        gesture.touchStartPos = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
         }
       }
     }
-  }, [touchState, zoom, isDragging, dragStart, clampPan, touchStartPos])
 
-  // Handle touch end
-  const handleTouchEnd = useCallback(() => {
-    // If touchStartPos is still set, it was a tap (not a drag)
-    if (touchStartPos) {
-      setIsHoveringAltZone(false) // Hide alt text on tap
+    const handleTouchMove = (e: TouchEvent) => {
+      const gesture = gestureRef.current
+      if (!gesture.isActive) return
+
+      if (e.touches.length === 2 && gesture.isPinching) {
+        // Pinch zoom - prevent default to stop browser zoom/scroll
+        e.preventDefault()
+        const newDistance = getTouchDistance(e.touches)
+        const scale = newDistance / gesture.initialDistance
+        const newZoom = Math.min(Math.max(gesture.initialZoom * scale, 0.5), 10)
+
+        // Calculate zoom toward pinch center
+        const viewportCenterX = window.innerWidth / 2
+        const viewportCenterY = window.innerHeight / 2
+        const pinchRelX = gesture.centerX - viewportCenterX
+        const pinchRelY = gesture.centerY - viewportCenterY
+        const zoomRatio = newZoom / gesture.initialZoom
+
+        // Calculate new pan position
+        const newPanX = pinchRelX * (1 - zoomRatio) + gesture.initialPan.x * zoomRatio
+        const newPanY = pinchRelY * (1 - zoomRatio) + gesture.initialPan.y * zoomRatio
+        const clamped = clampPan(newPanX, newPanY, newZoom)
+
+        gesture.currentZoom = newZoom
+        gesture.currentPan = clamped
+        applyTransform(clamped.x, clamped.y, newZoom)
+      } else if (e.touches.length === 1 && !gesture.isPinching) {
+        // Single touch pan
+        const newPanX = e.touches[0].clientX - gesture.dragStartX
+        const newPanY = e.touches[0].clientY - gesture.dragStartY
+        const clamped = clampPan(newPanX, newPanY, gesture.currentZoom)
+
+        gesture.currentPan = clamped
+        applyTransform(clamped.x, clamped.y, gesture.currentZoom)
+
+        // If moved more than 10px, it's a drag not a tap
+        if (gesture.touchStartPos) {
+          const dx = e.touches[0].clientX - gesture.touchStartPos.x
+          const dy = e.touches[0].clientY - gesture.touchStartPos.y
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            gesture.touchStartPos = null
+          }
+        }
+      }
     }
-    setTouchState(null)
-    setTouchStartPos(null)
-    setIsDragging(false)
-  }, [touchStartPos])
+
+    const handleTouchEnd = () => {
+      const gesture = gestureRef.current
+
+      // If touchStartPos is still set, it was a tap (not a drag)
+      if (gesture.touchStartPos) {
+        setIsHoveringAltZone(false) // Hide alt text on tap
+      }
+
+      // Commit gesture state to React state
+      if (gesture.isActive) {
+        setZoom(gesture.currentZoom)
+        setPan({ ...gesture.currentPan })
+
+        // Re-enable transition for subsequent non-touch interactions
+        const img = imageRef.current
+        if (img) {
+          img.style.transition = 'transform 0.1s ease-out'
+        }
+      }
+
+      gesture.isActive = false
+      gesture.isPinching = false
+      gesture.touchStartPos = null
+      setIsDragging(false)
+    }
+
+    // Use { passive: false } to allow preventDefault() to work
+    img.addEventListener('touchstart', handleTouchStart, { passive: false })
+    img.addEventListener('touchmove', handleTouchMove, { passive: false })
+    img.addEventListener('touchend', handleTouchEnd)
+    img.addEventListener('touchcancel', handleTouchEnd)
+
+    return () => {
+      img.removeEventListener('touchstart', handleTouchStart)
+      img.removeEventListener('touchmove', handleTouchMove)
+      img.removeEventListener('touchend', handleTouchEnd)
+      img.removeEventListener('touchcancel', handleTouchEnd)
+    }
+  }, [markAsTouchDevice, clampPan, applyTransform])
+
+  // Sync React state to gesture ref when state changes (e.g., from wheel zoom or reset)
+  useEffect(() => {
+    gestureRef.current.currentZoom = zoom
+    gestureRef.current.currentPan = { ...pan }
+  }, [zoom, pan])
 
   // Reset zoom and pan when closing
   const handleClose = useCallback(() => {
@@ -425,7 +486,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   return createPortal(
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm select-none"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm select-none touch-none"
       onClick={handleBackgroundClick}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -480,9 +541,6 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
             transition: isDragging ? 'none' : 'transform 0.1s ease-out',
           }}
           onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
           draggable={false}
         />
 
