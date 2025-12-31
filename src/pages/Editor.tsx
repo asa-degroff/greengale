@@ -103,6 +103,7 @@ export function EditorPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [publishing, setPublishing] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [loadingPost, setLoadingPost] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null)
@@ -574,11 +575,13 @@ export function EditorPage() {
     setPublishing(false)
   }, [blocker, savePost])
 
-  async function handleDelete() {
+  function handleDeleteClick() {
     if (!session || !rkey) return
+    setShowDeleteConfirm(true)
+  }
 
-    const confirmed = window.confirm('Are you sure you want to delete this post? This action cannot be undone.')
-    if (!confirmed) return
+  async function handleConfirmDelete() {
+    if (!session || !rkey) return
 
     setDeleting(true)
     setError(null)
@@ -600,6 +603,10 @@ export function EditorPage() {
         const errorData = await response.json()
         throw new Error(errorData.message || 'Failed to delete post')
       }
+
+      // Prevent the unsaved changes blocker from triggering
+      setJustSaved(true)
+      setShowDeleteConfirm(false)
 
       // Navigate to author page after deletion
       navigate(`/${handle}`, { replace: true })
@@ -910,7 +917,7 @@ export function EditorPage() {
             </button>
             {isEditing && (
               <button
-                onClick={handleDelete}
+                onClick={handleDeleteClick}
                 disabled={deleting}
                 className="px-4 py-2 text-sm rounded-lg border border-red-500/30 text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1733,6 +1740,69 @@ export function EditorPage() {
                 className="w-full px-4 py-2.5 text-sm rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
               >
                 Discard & Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => !deleting && setShowDeleteConfirm(false)}
+          />
+          {/* Dialog */}
+          <div className="relative bg-[var(--site-bg)] border border-red-500/30 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-full bg-red-500/10">
+                <svg
+                  className="w-5 h-5 text-red-500"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-[var(--site-text)]">
+                Delete Post
+              </h2>
+            </div>
+            <p className="text-[var(--site-text-secondary)] mb-2">
+              Are you sure you want to delete <span className="font-medium text-[var(--site-text)]">"{title || 'this post'}"</span>?
+            </p>
+            <p className="text-sm text-[var(--site-text-secondary)] mb-6">
+              This action cannot be undone. The post will be permanently removed from your PDS.
+            </p>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? 'Deleting...' : 'Delete Post'}
               </button>
             </div>
           </div>
