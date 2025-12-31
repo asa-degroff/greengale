@@ -10,6 +10,8 @@ export interface OGImageData {
   authorAvatar?: string | null
   themePreset?: string | null
   customColors?: { background?: string; text?: string; accent?: string } | null
+  /** URL to the first image in the post for OG thumbnail */
+  thumbnailUrl?: string | null
 }
 
 // Font URLs (TTF format required by Satori)
@@ -211,7 +213,7 @@ async function buildFontsArray(baseFonts: BaseFonts, text: string): Promise<Font
  * Returns a PNG image response (1200x630)
  */
 export async function generateOGImage(data: OGImageData): Promise<Response> {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors } = data
+  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors, thumbnailUrl } = data
 
   // Resolve theme colors (supports both presets and custom colors)
   const colors = resolveThemeColors(themePreset, customColors)
@@ -235,6 +237,7 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
     authorAvatar,
     colors,
     isDark,
+    thumbnailUrl,
   })
 
   return new ImageResponse(html, {
@@ -307,6 +310,8 @@ interface BuildHtmlOptions {
   authorAvatar?: string | null
   colors: ThemeColors
   isDark: boolean
+  /** URL to the first image in the post for OG thumbnail */
+  thumbnailUrl?: string | null
 }
 
 function escapeHtml(text: string): string {
@@ -356,11 +361,13 @@ function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
 }
 
 function buildImageHtml(options: BuildHtmlOptions): string {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark } = options
+  const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark, thumbnailUrl } = options
 
-  // Truncate title if too long
-  const displayTitle = title.length > 100 ? title.slice(0, 97) + '...' : title
-  const displaySubtitle = subtitle && subtitle.length > 150 ? subtitle.slice(0, 147) + '...' : subtitle
+  // Truncate title if too long (shorter limit when thumbnail is present)
+  const maxTitleLength = thumbnailUrl ? 80 : 100
+  const displayTitle = title.length > maxTitleLength ? title.slice(0, maxTitleLength - 3) + '...' : title
+  const maxSubtitleLength = thumbnailUrl ? 120 : 150
+  const displaySubtitle = subtitle && subtitle.length > maxSubtitleLength ? subtitle.slice(0, maxSubtitleLength - 3) + '...' : subtitle
 
   // Calculate title font size based on length (increased sizes)
   const titleFontSize = displayTitle.length > 60 ? 52 : displayTitle.length > 40 ? 58 : 66
@@ -381,6 +388,18 @@ function buildImageHtml(options: BuildHtmlOptions): string {
     ? `<div style="display: flex; font-size: 32px; color: ${colors.textSecondary}; line-height: 1.4; font-family: ${fontFamily};">${escapeHtml(displaySubtitle)}</div>`
     : ''
 
+  // Build thumbnail element (280x280 square, vertically centered on the right)
+  // Content area is from y=60 to y=470 (410px height), so center the thumbnail in that space
+  // Center position: 60 + (410 - 280) / 2 = 125px from top
+  const thumbnailHtml = thumbnailUrl
+    ? `<div style="display: flex; position: absolute; top: 125px; right: 60px; width: 280px; height: 280px; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 16px rgba(0, 0, 0, ${isDark ? '0.5' : '0.2'});">
+         <img src="${escapeHtml(thumbnailUrl)}" width="280" height="280" style="width: 280px; height: 280px; object-fit: cover;" />
+       </div>`
+    : ''
+
+  // Adjust content area right margin when thumbnail is present (280 + 20 gap + 60 padding = 360)
+  const contentRightPadding = thumbnailUrl ? '360px' : '60px'
+
   // Build grid pattern using repeating linear gradients (more compatible with Satori)
   const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
 
@@ -391,7 +410,8 @@ function buildImageHtml(options: BuildHtmlOptions): string {
     ${gridPatternHtml}
     ${vignetteHtml}
     <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
-    <div style="display: flex; flex-direction: column; justify-content: center; position: absolute; top: 60px; left: 60px; right: 60px; bottom: 160px;">
+    ${thumbnailHtml}
+    <div style="display: flex; flex-direction: column; justify-content: center; position: absolute; top: 60px; left: 60px; right: ${contentRightPadding}; bottom: 160px;">
       <div style="display: flex; font-size: ${titleFontSize}px; font-weight: 700; color: ${colors.text}; line-height: 1.2; margin-bottom: ${subtitle ? '16px' : '0'}; font-family: ${fontFamily};">${escapeHtml(displayTitle)}</div>
       ${subtitleHtml}
     </div>

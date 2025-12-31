@@ -204,10 +204,10 @@ app.get('/og/:handle/:filename', async (c) => {
       authorDid = authorRow.did as string
     }
 
-    // Fetch post + author data from D1
+    // Fetch post + author data from D1 (including first_image_cid and pds_endpoint for OG thumbnails)
     const post = await c.env.DB.prepare(`
-      SELECT p.title, p.subtitle, p.theme_preset,
-             a.handle, a.display_name, a.avatar_url
+      SELECT p.title, p.subtitle, p.theme_preset, p.first_image_cid,
+             a.handle, a.display_name, a.avatar_url, a.pds_endpoint
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND p.rkey = ?
@@ -236,6 +236,37 @@ app.get('/og/:handle/:filename', async (c) => {
       }
     }
 
+    // Fetch thumbnail image if available
+    // Images are stored as AVIF which Satori/resvg doesn't support, so we use
+    // wsrv.nl (images.weserv.nl) to convert to JPEG on the fly
+    let thumbnailUrl: string | null = null
+    if (post.first_image_cid && post.pds_endpoint) {
+      try {
+        const blobUrl = `${post.pds_endpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(authorDid)}&cid=${encodeURIComponent(post.first_image_cid as string)}`
+
+        // Use wsrv.nl to convert AVIF to JPEG and resize to 560x560 (2x for 280x280 display)
+        const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(blobUrl)}&w=560&h=560&fit=cover&output=jpeg&q=85`
+
+        const imageResponse = await fetch(proxyUrl)
+
+        if (imageResponse.ok) {
+          const imageBuffer = await imageResponse.arrayBuffer()
+
+          // Convert to base64 data URL
+          const bytes = new Uint8Array(imageBuffer)
+          let binary = ''
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i])
+          }
+          const base64 = btoa(binary)
+          thumbnailUrl = `data:image/jpeg;base64,${base64}`
+        }
+      } catch (err) {
+        // Image fetch/conversion failed, continue without thumbnail
+        console.error('Failed to fetch thumbnail:', err)
+      }
+    }
+
     // Generate OG image
     const imageResponse = await generateOGImage({
       title: (post.title as string) || 'Untitled',
@@ -245,6 +276,7 @@ app.get('/og/:handle/:filename', async (c) => {
       authorAvatar: post.avatar_url as string | null,
       themePreset,
       customColors,
+      thumbnailUrl,
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -947,7 +979,7 @@ app.get('/xrpc/app.greengale.admin.listWhitelist', async (c) => {
 })
 
 // Refresh all author profiles from Bluesky (admin only)
-// This updates avatar_url and other profile data for all authors in the database
+// This updates avatar_url, pds_endpoint, and other profile data for all authors in the database
 app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
   const authError = requireAdmin(c)
   if (authError) {
@@ -964,8 +996,9 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
 
     for (const author of authors) {
       try {
+        const did = author.did as string
         const response = await fetch(
-          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(author.did as string)}`
+          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
         )
 
         if (response.ok) {
@@ -978,6 +1011,23 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
             banner?: string
           }
 
+          // Also fetch PDS endpoint from DID document
+          let pdsEndpoint: string | null = null
+          try {
+            const didDocResponse = await fetch(`https://plc.directory/${did}`)
+            if (didDocResponse.ok) {
+              const didDoc = await didDocResponse.json() as {
+                service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+              }
+              const pdsService = didDoc.service?.find(
+                s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+              )
+              pdsEndpoint = pdsService?.serviceEndpoint || null
+            }
+          } catch {
+            // PDS lookup failed, continue without it
+          }
+
           await c.env.DB.prepare(`
             UPDATE authors SET
               handle = ?,
@@ -985,6 +1035,7 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
               description = ?,
               avatar_url = ?,
               banner_url = ?,
+              pds_endpoint = COALESCE(?, pds_endpoint),
               updated_at = datetime('now')
             WHERE did = ?
           `).bind(
@@ -993,7 +1044,8 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
             profile.description || null,
             profile.avatar || null,
             profile.banner || null,
-            author.did
+            pdsEndpoint,
+            did
           ).run()
 
           updated++
@@ -1052,6 +1104,159 @@ app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
   } catch (error) {
     console.error('Error invalidating OG cache:', error)
     return c.json({ error: 'Failed to invalidate cache' }, 500)
+  }
+})
+
+// Helper function to fetch PDS endpoint from DID document
+async function fetchPdsEndpoint(did: string): Promise<string | null> {
+  try {
+    const didDocResponse = await fetch(`https://plc.directory/${did}`)
+    if (didDocResponse.ok) {
+      const didDoc = await didDocResponse.json() as {
+        service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+      }
+      const pdsService = didDoc.service?.find(
+        s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+      )
+      return pdsService?.serviceEndpoint || null
+    }
+  } catch {
+    // PDS lookup failed
+  }
+  return null
+}
+
+// Backfill first_image_cid for existing posts (admin only)
+// Usage: POST /xrpc/app.greengale.admin.backfillFirstImageCid
+// Optional body: { "limit": 100 } - default 50 posts per call
+app.post('/xrpc/app.greengale.admin.backfillFirstImageCid', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({})) as { limit?: number }
+    const limit = Math.min(body.limit || 50, 200) // Max 200 per call
+
+    // Get GreenGale posts without first_image_cid (don't require pds_endpoint - we'll fetch it)
+    const posts = await c.env.DB.prepare(`
+      SELECT p.uri, p.author_did, p.rkey, a.pds_endpoint, a.handle
+      FROM posts p
+      JOIN authors a ON p.author_did = a.did
+      WHERE p.source = 'greengale'
+        AND p.first_image_cid IS NULL
+      LIMIT ?
+    `).bind(limit).all()
+
+    let updated = 0
+    let failed = 0
+    let pdsUpdated = 0
+    const errors: string[] = []
+
+    for (const post of posts.results || []) {
+      try {
+        const authorDid = post.author_did as string
+        const rkey = post.rkey as string
+        let pdsEndpoint = post.pds_endpoint as string | null
+
+        // Fetch PDS endpoint if not cached
+        if (!pdsEndpoint) {
+          pdsEndpoint = await fetchPdsEndpoint(authorDid)
+          if (pdsEndpoint) {
+            // Cache the PDS endpoint for future use
+            await c.env.DB.prepare(
+              'UPDATE authors SET pds_endpoint = ? WHERE did = ?'
+            ).bind(pdsEndpoint, authorDid).run()
+            pdsUpdated++
+          } else {
+            failed++
+            errors.push(`${post.uri}: Could not resolve PDS endpoint`)
+            continue
+          }
+        }
+
+        // Fetch record from PDS
+        const response = await fetch(
+          `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?` +
+          `repo=${encodeURIComponent(authorDid)}&` +
+          `collection=app.greengale.blog.entry&` +
+          `rkey=${encodeURIComponent(rkey)}`
+        )
+
+        if (response.ok) {
+          const data = await response.json() as { value?: { blobs?: unknown[] } }
+          const blobs = data.value?.blobs
+
+          // Extract first non-sensitive image CID
+          let firstCid: string | null = null
+          if (blobs && Array.isArray(blobs)) {
+            for (const blob of blobs) {
+              if (typeof blob !== 'object' || blob === null) continue
+
+              const blobRecord = blob as Record<string, unknown>
+
+              // Skip if has sensitive labels
+              const labels = blobRecord.labels as { values?: Array<{ val: string }> } | undefined
+              if (labels?.values?.some(l =>
+                ['nudity', 'sexual', 'porn', 'graphic-media'].includes(l.val)
+              )) {
+                continue
+              }
+
+              // Extract CID from blobref
+              const blobref = blobRecord.blobref
+              if (blobref && typeof blobref === 'object') {
+                const ref = blobref as Record<string, unknown>
+                if (ref.ref && typeof ref.ref === 'object') {
+                  const innerRef = ref.ref as Record<string, unknown>
+                  if (typeof innerRef.$link === 'string') {
+                    firstCid = innerRef.$link
+                    break
+                  }
+                }
+                if (typeof ref.$link === 'string') {
+                  firstCid = ref.$link
+                  break
+                }
+              }
+            }
+          }
+
+          if (firstCid) {
+            await c.env.DB.prepare(
+              'UPDATE posts SET first_image_cid = ? WHERE uri = ?'
+            ).bind(firstCid, post.uri).run()
+
+            // Invalidate OG cache for this post
+            const handle = post.handle as string | null
+            if (handle) {
+              await c.env.CACHE.delete(`og:${handle}:${rkey}`)
+            }
+
+            updated++
+          }
+        } else {
+          failed++
+          errors.push(`${post.uri}: HTTP ${response.status}`)
+        }
+      } catch (err) {
+        failed++
+        errors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      success: true,
+      processed: posts.results?.length || 0,
+      updated,
+      failed,
+      pdsEndpointsUpdated: pdsUpdated,
+      errors: errors.slice(0, 10), // Only return first 10 errors
+    })
+  } catch (error) {
+    console.error('Error backfilling first image CIDs:', error)
+    return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
   }
 })
 

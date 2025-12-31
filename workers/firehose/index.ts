@@ -56,6 +56,9 @@ type JetstreamEvent = JetstreamCommit | JetstreamIdentity | JetstreamAccount
 // Alarm interval - check connection every 30 seconds
 const ALARM_INTERVAL_MS = 30 * 1000
 
+// Content labels that indicate sensitive images (should not be used for OG thumbnails)
+const SENSITIVE_LABELS = ['nudity', 'sexual', 'porn', 'graphic-media']
+
 export class FirehoseConsumer extends DurableObject<Env> {
   private ws: WebSocket | null = null
   private processedCount = 0
@@ -291,6 +294,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
+      // Extract first image CID for OG thumbnail (GreenGale posts only)
+      const firstImageCid = source === 'greengale' && record
+        ? this.extractFirstImageCid(record)
+        : null
+
       // Create content preview (first 300 chars, strip markdown)
       const contentPreview = content
         .replace(/[#*`\[\]()!]/g, '')
@@ -303,8 +311,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
         : null
 
       await this.env.DB.prepare(`
-        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uri) DO UPDATE SET
           title = excluded.title,
           subtitle = excluded.subtitle,
@@ -313,10 +321,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
           content_preview = excluded.content_preview,
           has_latex = excluded.has_latex,
           theme_preset = excluded.theme_preset,
+          first_image_cid = excluded.first_image_cid,
           indexed_at = datetime('now')
       `).bind(
         uri, did, rkey, title, subtitle, slug, source, visibility,
-        createdAt, contentPreview, hasLatex ? 1 : 0, themePreset
+        createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid
       ).run()
 
       // Ensure author exists
@@ -384,6 +393,68 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Check if a blob has sensitive content labels that should be excluded from OG thumbnails
+   */
+  private hasSensitiveLabels(blob: Record<string, unknown>): boolean {
+    const labels = blob.labels as { values?: Array<{ val: string }> } | undefined
+    if (!labels?.values) return false
+    return labels.values.some(l => SENSITIVE_LABELS.includes(l.val))
+  }
+
+  /**
+   * Extract CID from a blobref object (handles multiple AT Protocol formats)
+   */
+  private extractCidFromBlobref(blobref: unknown): string | null {
+    if (!blobref) return null
+
+    // Direct CID string
+    if (typeof blobref === 'string') return blobref
+    if (typeof blobref !== 'object') return null
+
+    const ref = blobref as Record<string, unknown>
+
+    // Structure: { ref: { $link: cid } } or { ref: CID instance }
+    if (ref.ref && typeof ref.ref === 'object') {
+      const innerRef = ref.ref as Record<string, unknown>
+      if (typeof innerRef.$link === 'string') return innerRef.$link
+      if (typeof innerRef.toString === 'function') {
+        const cidStr = innerRef.toString()
+        if (typeof cidStr === 'string' && cidStr.startsWith('baf')) return cidStr
+      }
+    }
+
+    // Structure: { $link: cid }
+    if (typeof ref.$link === 'string') return ref.$link
+
+    // Structure: { cid: string }
+    if (typeof ref.cid === 'string') return ref.cid
+
+    return null
+  }
+
+  /**
+   * Extract the first non-sensitive image CID from a post's blobs array
+   */
+  private extractFirstImageCid(record: Record<string, unknown>): string | null {
+    const blobs = record?.blobs
+    if (!blobs || !Array.isArray(blobs)) return null
+
+    for (const blob of blobs) {
+      if (typeof blob !== 'object' || blob === null) continue
+
+      // Skip images with sensitive content labels
+      if (this.hasSensitiveLabels(blob as Record<string, unknown>)) continue
+
+      // Extract CID from blobref
+      const blobRecord = blob as Record<string, unknown>
+      const cid = this.extractCidFromBlobref(blobRecord.blobref)
+      if (cid) return cid // Return the first valid, non-sensitive image
+    }
+
+    return null
+  }
+
   private async ensureAuthor(did: string) {
     // Fetch profile from Bluesky public API
     try {
@@ -401,16 +472,34 @@ export class FirehoseConsumer extends DurableObject<Env> {
           banner?: string
         }
 
+        // Also fetch PDS endpoint from DID document (needed for OG image thumbnails)
+        let pdsEndpoint: string | null = null
+        try {
+          const didDocResponse = await fetch(`https://plc.directory/${did}`)
+          if (didDocResponse.ok) {
+            const didDoc = await didDocResponse.json() as {
+              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+            }
+            const pdsService = didDoc.service?.find(
+              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+            )
+            pdsEndpoint = pdsService?.serviceEndpoint || null
+          }
+        } catch {
+          // PDS lookup failed, continue without it
+        }
+
         // Upsert author - always update profile data to keep it fresh
         await this.env.DB.prepare(`
-          INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(did) DO UPDATE SET
             handle = excluded.handle,
             display_name = excluded.display_name,
             description = excluded.description,
             avatar_url = excluded.avatar_url,
             banner_url = excluded.banner_url,
+            pds_endpoint = COALESCE(excluded.pds_endpoint, authors.pds_endpoint),
             updated_at = datetime('now')
         `).bind(
           profile.did,
@@ -418,7 +507,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
           profile.displayName || null,
           profile.description || null,
           profile.avatar || null,
-          profile.banner || null
+          profile.banner || null,
+          pdsEndpoint
         ).run()
       } else {
         // Insert minimal author record if we can't fetch profile
