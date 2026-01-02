@@ -6,7 +6,7 @@ export function TextLogo({ className = '' }: TextLogoProps) {
   return (
     <svg
       className={className}
-      viewBox="40 55 122 24"
+      viewBox="40 55 120 24"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="GreenGale"
     >

@@ -75,7 +75,7 @@ export function HomePage() {
           <TextLogo className="h-12 md:h-14 mx-auto mb-4 text-[var(--site-text)]" />
           <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
-            A markdown blog platform built on AT Protocol. Compatible with WhiteWind
+            Markdown blog platform built on AT Protocol. Compatible with WhiteWind
             and powered by your <a href="https://internethandle.org/">internet handle.</a>
           </p>
         </div>
@@ -187,16 +187,16 @@ export function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
             </div>
-            <h3 className="font-bold mb-2 text-[var(--site-text)]">KaTeX Support</h3>
+            <h3 className="font-bold mb-2 text-[var(--site-text)]">LaTeX Support</h3>
             <p className="text-sm text-[var(--site-text-secondary)]">
-              Write mathematical equations with full KaTeX rendering support.
+              Write mathematical equations with KaTeX rendering.
             </p>
           </div>
         </div>
 
         <div className="mt-16 text-center text-sm text-[var(--site-text-secondary)]">
           <p>
-            Your data lives on AT Protocol. GreenGale is just a viewer.{' '}
+            Your data is owned by you and lives on AT Protocol.{' '}
             <a
               href="https://atproto.com"
               target="_blank"
