@@ -6,6 +6,7 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
+import { TextLogo } from '@/components/TextLogo'
 import { checkWebGPUSupport, type RGB } from '@/lib/webgpu-grid'
 import logoImage from '/grey-logo.avif?url'
 
@@ -378,7 +379,7 @@ export function Sidebar({ children }: SidebarProps) {
       <div className="p-4 border-b border-[var(--sidebar-border)]">
         <Link to="/" className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
           <Logo className="w-8 h-8" />
-          <span className="text-lg font-bold text-[var(--site-text)]">GreenGale</span>
+          <TextLogo className="h-5 text-[var(--site-text)]" />
         </Link>
       </div>
 
@@ -814,7 +815,7 @@ export function Sidebar({ children }: SidebarProps) {
           </button>
           <Link to="/" className="flex items-center gap-2">
             <Logo className="w-7 h-7" />
-            <span className="font-bold text-[var(--site-text)]">GreenGale</span>
+            <TextLogo className="h-4 text-[var(--site-text)]" />
           </Link>
         </div>
         {/* Only show theme toggle when effective theme is default (light/dark mode matters) */}
