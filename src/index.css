@@ -36,6 +36,15 @@
   font-display: swap;
 }
 
+/* IBM Plex Sans Font (for titles) */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('/fonts/IBMPlexSans-VariableFont_wdth,wght.ttf') format('truetype');
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* iA Writer Mono Font (for code blocks) */
 @font-face {
   font-family: 'iA Writer Mono';
@@ -72,12 +81,18 @@
 /* Base styles */
 :root {
   font-family: 'iA Writer Quattro', ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+  --font-title: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: 1.6;
   font-weight: 400;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Title font utility class */
+.font-title {
+  font-family: var(--font-title);
 }
 
 /* Green color palette (OKLCH) */

@@ -67,7 +67,7 @@ export function BlogCard({ entry, author }: BlogCardProps) {
           </div>
         )}
         <div className="p-4">
-          <h2 className="text-lg font-bold mb-2 text-[var(--site-text)] line-clamp-2">
+          <h2 className="text-lg font-bold font-title mb-2 text-[var(--site-text)] line-clamp-2">
             {entry.title || 'Untitled'}
           </h2>
           {entry.subtitle && (

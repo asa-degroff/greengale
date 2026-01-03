@@ -1756,7 +1756,7 @@ export function EditorPage() {
                   style={theme === 'custom' ? getCustomColorStyles(customColors) : undefined}
                 >
                   {title && (
-                    <h1 className="text-3xl font-bold mb-2">{title}</h1>
+                    <h1 className="text-3xl font-bold font-title mb-2">{title}</h1>
                   )}
                   {subtitle && (
                     <p className="text-xl text-[var(--theme-text-secondary)] mb-6">{subtitle}</p>
