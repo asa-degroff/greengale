@@ -72,7 +72,7 @@ export function HomePage() {
     <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
-          <TextLogo className="h-12 md:h-14 mx-auto mb-4 text-[var(--site-text)]" />
+          <TextLogo className="h-8 md:h-10 mx-auto mb-4 text-[var(--site-text)]" />
           <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             Markdown blog platform built on AT Protocol. Compatible with WhiteWind
