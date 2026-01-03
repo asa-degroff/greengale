@@ -5,12 +5,33 @@ import { useAuth } from '@/lib/auth'
 import {
   getBlogEntry,
   getAuthorProfile,
+  getPublication,
   type BlogEntry,
   type AuthorProfile,
 } from '@/lib/atproto'
 import { useThemePreference } from '@/lib/useThemePreference'
-import { getEffectiveTheme, correctCustomColorsContrast } from '@/lib/themes'
+import { getEffectiveTheme, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
+
+/**
+ * Get the effective theme with publication fallback
+ * Priority: Post theme > Publication theme > Default
+ */
+function getThemeWithInheritance(
+  postTheme?: Theme,
+  publicationTheme?: Theme
+): Theme | undefined {
+  // 1. Post-specific theme takes priority
+  if (postTheme?.preset || postTheme?.custom) {
+    return postTheme
+  }
+  // 2. Fall back to publication theme
+  if (publicationTheme?.preset || publicationTheme?.custom) {
+    return publicationTheme
+  }
+  // 3. Use site default (undefined = default)
+  return undefined
+}
 
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
@@ -31,9 +52,10 @@ export function PostPage() {
       setError(null)
 
       try {
-        const [entryResult, authorResult] = await Promise.all([
+        const [entryResult, authorResult, publicationResult] = await Promise.all([
           getBlogEntry(handle!, rkey!, session?.did),
           getAuthorProfile(handle!),
+          getPublication(handle!).catch(() => null),
         ])
 
         if (!entryResult) {
@@ -57,14 +79,19 @@ export function PostPage() {
           avatarUrl: authorResult.avatar,
         })
 
-        // Set active theme from post
+        // Set active theme with inheritance (post > publication > default)
+        const effectiveTheme = getThemeWithInheritance(
+          entryResult.theme,
+          publicationResult?.theme
+        )
+
         // Apply contrast correction for externally-created posts with low contrast
-        if (entryResult.theme?.custom) {
+        if (effectiveTheme?.custom) {
           setActivePostTheme('custom')
-          setActiveCustomColors(correctCustomColorsContrast(entryResult.theme.custom))
+          setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
         } else {
-          const postTheme = getEffectiveTheme(entryResult.theme)
-          setActivePostTheme(postTheme)
+          const themePreset = getEffectiveTheme(effectiveTheme)
+          setActivePostTheme(themePreset)
           setActiveCustomColors(null)
         }
 
@@ -86,7 +113,7 @@ export function PostPage() {
       setActivePostTheme(null) // Reset theme when leaving post
       setActiveCustomColors(null)
     }
-  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor])
+  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor, navigate])
 
   if (loading) {
     return (

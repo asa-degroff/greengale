@@ -1,14 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
   listBlogEntries,
+  getPublication,
+  savePublication,
   type BlogEntry,
   type AuthorProfile,
+  type Publication,
 } from '@/lib/atproto'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
+import {
+  THEME_PRESETS,
+  THEME_LABELS,
+  type ThemePreset,
+  type CustomColors,
+  getPresetColors,
+  deriveThemeColors,
+  validateCustomColors,
+} from '@/lib/themes'
 
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
@@ -20,6 +32,24 @@ export function AuthorPage() {
   const [error, setError] = useState<string | null>(null)
   const { addRecentAuthor } = useRecentAuthors()
 
+  // Publication state
+  const [publication, setPublication] = useState<Publication | null>(null)
+  const [showPublicationModal, setShowPublicationModal] = useState(false)
+  const [pubName, setPubName] = useState('')
+  const [pubDescription, setPubDescription] = useState('')
+  const [pubTheme, setPubTheme] = useState<ThemePreset>('default')
+  const [pubCustomColors, setPubCustomColors] = useState<CustomColors>({
+    background: '#ffffff',
+    text: '#24292f',
+    accent: '#0969da',
+    codeBackground: '',
+  })
+  const [pubSaving, setPubSaving] = useState(false)
+  const [pubError, setPubError] = useState<string | null>(null)
+
+  // Check if current user is the author
+  const isOwnProfile = session?.did && author?.did && session.did === author.did
+
   useEffect(() => {
     if (!handle) return
 
@@ -28,9 +58,10 @@ export function AuthorPage() {
       setError(null)
 
       try {
-        const [profileResult, entriesResult] = await Promise.all([
+        const [profileResult, entriesResult, publicationResult] = await Promise.all([
           getAuthorProfile(handle!),
           listBlogEntries(handle!, { viewerDid: session?.did }),
+          getPublication(handle!).catch(() => null),
         ])
 
         // Check if handle has changed - redirect to canonical URL
@@ -41,6 +72,7 @@ export function AuthorPage() {
 
         setAuthor(profileResult)
         setEntries(entriesResult.entries)
+        setPublication(publicationResult)
 
         // Track this author as recently viewed
         addRecentAuthor({
@@ -57,6 +89,82 @@ export function AuthorPage() {
 
     load()
   }, [handle, session?.did, addRecentAuthor, navigate])
+
+  // Open publication editor with current values
+  const openPublicationEditor = useCallback(() => {
+    if (publication) {
+      setPubName(publication.name)
+      setPubDescription(publication.description || '')
+      if (publication.theme?.preset) {
+        setPubTheme(publication.theme.preset)
+      } else {
+        setPubTheme('default')
+      }
+      if (publication.theme?.custom) {
+        setPubCustomColors({
+          background: publication.theme.custom.background || '#ffffff',
+          text: publication.theme.custom.text || '#24292f',
+          accent: publication.theme.custom.accent || '#0969da',
+          codeBackground: publication.theme.custom.codeBackground || '',
+        })
+      }
+    } else {
+      // Default values for new publication
+      setPubName(author?.displayName || '')
+      setPubDescription('')
+      setPubTheme('default')
+      setPubCustomColors({
+        background: '#ffffff',
+        text: '#24292f',
+        accent: '#0969da',
+        codeBackground: '',
+      })
+    }
+    setPubError(null)
+    setShowPublicationModal(true)
+  }, [publication, author])
+
+  // Save publication
+  const handleSavePublication = async () => {
+    if (!session || !pubName.trim()) return
+
+    setPubSaving(true)
+    setPubError(null)
+
+    try {
+      const newPublication: Publication = {
+        name: pubName.trim(),
+        url: `https://greengale.app/${author?.handle || handle}`,
+        description: pubDescription.trim() || undefined,
+        theme: pubTheme === 'default' && !pubCustomColors.background
+          ? undefined
+          : {
+              preset: pubTheme,
+              custom: pubTheme === 'custom' ? pubCustomColors : undefined,
+            },
+      }
+
+      await savePublication(
+        {
+          did: session.did,
+          fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options),
+        },
+        newPublication
+      )
+
+      setPublication(newPublication)
+      setShowPublicationModal(false)
+    } catch (err) {
+      setPubError(err instanceof Error ? err.message : 'Failed to save publication')
+    } finally {
+      setPubSaving(false)
+    }
+  }
+
+  // Validate custom colors for contrast
+  const customColorValidation = pubTheme === 'custom'
+    ? validateCustomColors(pubCustomColors)
+    : null
 
   if (loading) {
     return (
@@ -108,27 +216,44 @@ export function AuthorPage() {
         {/* Author Header */}
         {author && (
           <div className="mb-12">
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex items-start gap-4 mb-4">
               {author.avatar ? (
                 <img
                   src={author.avatar}
                   alt={author.displayName || author.handle}
-                  className="w-16 h-16 rounded-full object-cover"
+                  className="w-16 h-16 rounded-full object-cover flex-shrink-0"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-full bg-[var(--site-accent)] flex items-center justify-center text-white text-2xl font-bold">
+                <div className="w-16 h-16 rounded-full bg-[var(--site-accent)] flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
                   {(author.displayName || author.handle).charAt(0).toUpperCase()}
                 </div>
               )}
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--site-text)]">
-                  {author.displayName || author.handle}
-                </h1>
-                <p className="text-[var(--site-text-secondary)]">
-                  @{author.handle}
-                </p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold text-[var(--site-text)]">
+                      {publication?.name || author.displayName || author.handle}
+                    </h1>
+                    <p className="text-[var(--site-text-secondary)]">
+                      @{author.handle}
+                    </p>
+                  </div>
+                  {isOwnProfile && (
+                    <button
+                      onClick={openPublicationEditor}
+                      className="flex-shrink-0 px-3 py-1.5 text-sm border border-[var(--site-border)] rounded-md hover:bg-[var(--site-bg-secondary)] text-[var(--site-text)] transition-colors"
+                    >
+                      {publication ? 'Edit Publication' : 'Set Up Publication'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
+            {publication?.description && (
+              <p className="text-[var(--site-text)] max-w-2xl mb-3">
+                {publication.description}
+              </p>
+            )}
             {author.description && (
               <p className="text-[var(--site-text-secondary)] max-w-2xl">
                 {author.description}
@@ -167,6 +292,267 @@ export function AuthorPage() {
           </>
         )}
       </div>
+
+      {/* Publication Editor Modal */}
+      {showPublicationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => !pubSaving && setShowPublicationModal(false)}
+          />
+          {/* Dialog */}
+          <div className="relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-[var(--site-text)]">
+                {publication ? 'Edit Publication' : 'Set Up Publication'}
+              </h2>
+              <button
+                onClick={() => !pubSaving && setShowPublicationModal(false)}
+                className="text-[var(--site-text-secondary)] hover:text-[var(--site-text)]"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Name field */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--site-text)] mb-1">
+                  Publication Name *
+                </label>
+                <input
+                  type="text"
+                  value={pubName}
+                  onChange={(e) => setPubName(e.target.value)}
+                  placeholder="My Blog"
+                  maxLength={200}
+                  className="w-full px-3 py-2 border border-[var(--site-border)] rounded-md bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                />
+              </div>
+
+              {/* Description field */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--site-text)] mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={pubDescription}
+                  onChange={(e) => setPubDescription(e.target.value)}
+                  placeholder="A brief description of your publication..."
+                  maxLength={1000}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-[var(--site-border)] rounded-md bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] resize-none"
+                />
+              </div>
+
+              {/* Theme selector */}
+              <div>
+                <label className="block text-sm font-medium text-[var(--site-text)] mb-1">
+                  Default Theme
+                </label>
+                <select
+                  value={pubTheme}
+                  onChange={(e) => {
+                    const newTheme = e.target.value as ThemePreset
+                    setPubTheme(newTheme)
+                    // Pre-fill custom colors when switching to custom from a preset
+                    if (newTheme === 'custom' && pubTheme !== 'custom') {
+                      const presetColors = getPresetColors(pubTheme)
+                      setPubCustomColors({
+                        background: presetColors.background,
+                        text: presetColors.text,
+                        accent: presetColors.accent,
+                        codeBackground: presetColors.codeBackground,
+                      })
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-[var(--site-border)] rounded-md bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                >
+                  {THEME_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {THEME_LABELS[preset]}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-[var(--site-text-secondary)] mt-1">
+                  Posts without their own theme will use this default
+                </p>
+              </div>
+
+              {/* Custom colors (only show if custom theme selected) */}
+              {pubTheme === 'custom' && (
+                <div className="space-y-3 p-4 border border-[var(--site-border)] rounded-md">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-[var(--site-text)]">Custom Colors</h3>
+                    <select
+                      onChange={(e) => {
+                        const preset = e.target.value as ThemePreset
+                        if (preset && preset !== 'custom' && preset !== 'default') {
+                          const presetColors = getPresetColors(preset)
+                          setPubCustomColors({
+                            background: presetColors.background,
+                            text: presetColors.text,
+                            accent: presetColors.accent,
+                            codeBackground: presetColors.codeBackground,
+                          })
+                        }
+                      }}
+                      className="text-xs px-2 py-1 border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                    >
+                      <option value="">Start from preset...</option>
+                      {THEME_PRESETS.filter(p => p !== 'custom' && p !== 'default').map((preset) => (
+                        <option key={preset} value={preset}>
+                          {THEME_LABELS[preset]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Background</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={pubCustomColors.background || '#ffffff'}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, background: e.target.value })}
+                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={pubCustomColors.background || ''}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, background: e.target.value })}
+                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          placeholder="#ffffff"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Text</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={pubCustomColors.text || '#24292f'}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, text: e.target.value })}
+                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={pubCustomColors.text || ''}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, text: e.target.value })}
+                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          placeholder="#24292f"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Accent</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={pubCustomColors.accent || '#0969da'}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, accent: e.target.value })}
+                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={pubCustomColors.accent || ''}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, accent: e.target.value })}
+                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          placeholder="#0969da"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Code Background</label>
+                      <div className="flex gap-2">
+                        <input
+                          type="color"
+                          value={pubCustomColors.codeBackground || '#f6f8fa'}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
+                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                        />
+                        <input
+                          type="text"
+                          value={pubCustomColors.codeBackground || ''}
+                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
+                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          placeholder="#f6f8fa"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contrast warnings */}
+                  {customColorValidation && !customColorValidation.isValid && (
+                    <div className="text-xs text-amber-500 mt-2">
+                      {customColorValidation.textContrast && !customColorValidation.textContrast.passes && (
+                        <p>Text contrast is too low ({customColorValidation.textContrast.ratio.toFixed(1)}:1, needs 4.5:1)</p>
+                      )}
+                      {customColorValidation.accentContrast && customColorValidation.accentContrast.ratio < 3 && (
+                        <p>Accent contrast is too low ({customColorValidation.accentContrast.ratio.toFixed(1)}:1, needs 3:1)</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Theme preview */}
+                  {pubCustomColors.background && pubCustomColors.text && (
+                    <div
+                      className="mt-3 p-3 rounded-md border"
+                      style={{
+                        backgroundColor: pubCustomColors.background,
+                        color: pubCustomColors.text,
+                        borderColor: deriveThemeColors(pubCustomColors)?.border || pubCustomColors.text,
+                      }}
+                    >
+                      <p className="text-sm font-medium">Preview</p>
+                      <p className="text-xs opacity-70">Sample text with your colors</p>
+                      {pubCustomColors.accent && (
+                        <a
+                          href="#"
+                          onClick={(e) => e.preventDefault()}
+                          style={{ color: pubCustomColors.accent }}
+                          className="text-xs underline"
+                        >
+                          Sample link
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error message */}
+              {pubError && (
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-500">
+                  {pubError}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  onClick={() => setShowPublicationModal(false)}
+                  disabled={pubSaving}
+                  className="px-4 py-2 text-sm border border-[var(--site-border)] rounded-md hover:bg-[var(--site-bg-secondary)] text-[var(--site-text)] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSavePublication}
+                  disabled={pubSaving || !pubName.trim()}
+                  className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-md hover:opacity-90 disabled:opacity-50"
+                >
+                  {pubSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

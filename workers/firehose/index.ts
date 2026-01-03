@@ -13,6 +13,12 @@ const BLOG_COLLECTIONS = [
   'app.greengale.document',
 ]
 
+// Publication collection (separate from blog posts)
+const PUBLICATION_COLLECTION = 'app.greengale.publication'
+
+// All collections to monitor
+const ALL_COLLECTIONS = [...BLOG_COLLECTIONS, PUBLICATION_COLLECTION]
+
 // Jetstream event types
 interface JetstreamCommit {
   did: string
@@ -185,7 +191,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
     // Build URL with wanted collections
     const params = new URLSearchParams()
-    for (const collection of BLOG_COLLECTIONS) {
+    for (const collection of ALL_COLLECTIONS) {
       params.append('wantedCollections', collection)
     }
     if (cursor) {
@@ -242,20 +248,28 @@ export class FirehoseConsumer extends DurableObject<Env> {
     const commit = event as JetstreamCommit
     const { did, commit: { operation, collection, rkey, record } } = commit
 
-    // Double-check collection is one we care about
-    if (!BLOG_COLLECTIONS.includes(collection)) {
-      return
-    }
+    // Handle publication records separately
+    if (collection === PUBLICATION_COLLECTION) {
+      console.log(`Processing ${operation} for publication: ${did}`)
+      if (operation === 'delete') {
+        await this.deletePublication(did)
+      } else if (operation === 'create' || operation === 'update') {
+        await this.indexPublication(did, record)
+      }
+    } else if (BLOG_COLLECTIONS.includes(collection)) {
+      // Handle blog posts
+      const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
+      const uri = `at://${did}/${collection}/${rkey}`
 
-    const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
-    const uri = `at://${did}/${collection}/${rkey}`
+      console.log(`Processing ${operation} for ${source} post: ${uri}`)
 
-    console.log(`Processing ${operation} for ${source} post: ${uri}`)
-
-    if (operation === 'delete') {
-      await this.deletePost(uri)
-    } else if (operation === 'create' || operation === 'update') {
-      await this.indexPost(uri, did, rkey, source, record, collection)
+      if (operation === 'delete') {
+        await this.deletePost(uri)
+      } else if (operation === 'create' || operation === 'update') {
+        await this.indexPost(uri, did, rkey, source, record, collection)
+      }
+    } else {
+      return // Unknown collection
     }
 
     // Update cursor in storage (persists across hibernation)
@@ -536,6 +550,75 @@ export class FirehoseConsumer extends DurableObject<Env> {
       await this.env.DB.prepare(
         'INSERT OR IGNORE INTO authors (did) VALUES (?)'
       ).bind(did).run()
+    }
+  }
+
+  private async indexPublication(did: string, record?: Record<string, unknown>) {
+    try {
+      const name = (record?.name as string) || null
+      const description = (record?.description as string) || null
+      const url = (record?.url as string) || null
+
+      if (!name || !url) {
+        console.error(`Publication missing required fields for ${did}`)
+        return
+      }
+
+      // Store theme data - either preset name or JSON for custom themes
+      let themePreset: string | null = null
+      if (record?.theme) {
+        const themeData = record.theme as Record<string, unknown>
+        if (themeData.custom) {
+          themePreset = JSON.stringify(themeData.custom)
+        } else if (themeData.preset) {
+          themePreset = themeData.preset as string
+        }
+      }
+
+      await this.env.DB.prepare(`
+        INSERT INTO publications (author_did, name, description, theme_preset, url)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(author_did) DO UPDATE SET
+          name = excluded.name,
+          description = excluded.description,
+          theme_preset = excluded.theme_preset,
+          url = excluded.url,
+          updated_at = datetime('now')
+      `).bind(did, name, description, themePreset, url).run()
+
+      // Ensure author exists
+      await this.ensureAuthor(did)
+
+      // Invalidate author profile OG cache
+      const authorRow = await this.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(did).first()
+      if (authorRow?.handle) {
+        await this.env.CACHE.delete(`og:profile:${authorRow.handle}`)
+      }
+
+      console.log(`Indexed publication for ${did}: ${name}`)
+    } catch (error) {
+      console.error(`Failed to index publication for ${did}:`, error)
+      throw error
+    }
+  }
+
+  private async deletePublication(did: string) {
+    try {
+      await this.env.DB.prepare('DELETE FROM publications WHERE author_did = ?').bind(did).run()
+
+      // Invalidate author profile OG cache
+      const authorRow = await this.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(did).first()
+      if (authorRow?.handle) {
+        await this.env.CACHE.delete(`og:profile:${authorRow.handle}`)
+      }
+
+      console.log(`Deleted publication for ${did}`)
+    } catch (error) {
+      console.error(`Failed to delete publication for ${did}:`, error)
     }
   }
 }

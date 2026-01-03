@@ -27,6 +27,13 @@ export interface AppViewPost {
   }
 }
 
+export interface AppViewPublication {
+  name: string
+  url: string
+  description?: string
+  theme?: string  // Preset name or JSON custom colors
+}
+
 export interface AppViewAuthor {
   did: string
   handle: string
@@ -34,6 +41,7 @@ export interface AppViewAuthor {
   avatar: string | null
   description: string | null
   postsCount: number
+  publication?: AppViewPublication
 }
 
 export interface RecentPostsResponse {

@@ -817,15 +817,30 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
   }
 
   try {
+    // Fetch author with LEFT JOIN to publications
     const query = author.startsWith('did:')
-      ? 'SELECT * FROM authors WHERE did = ?'
-      : 'SELECT * FROM authors WHERE handle = ?'
+      ? `SELECT a.*, p.name as pub_name, p.description as pub_description, p.theme_preset as pub_theme, p.url as pub_url
+         FROM authors a
+         LEFT JOIN publications p ON a.did = p.author_did
+         WHERE a.did = ?`
+      : `SELECT a.*, p.name as pub_name, p.description as pub_description, p.theme_preset as pub_theme, p.url as pub_url
+         FROM authors a
+         LEFT JOIN publications p ON a.did = p.author_did
+         WHERE a.handle = ?`
 
     const authorRow = await c.env.DB.prepare(query).bind(author).first()
 
     if (!authorRow) {
       return c.json({ error: 'Author not found' }, 404)
     }
+
+    // Build publication object if it exists
+    const publication = authorRow.pub_name ? {
+      name: authorRow.pub_name,
+      description: authorRow.pub_description || undefined,
+      theme: authorRow.pub_theme || undefined,
+      url: authorRow.pub_url,
+    } : undefined
 
     return c.json({
       did: authorRow.did,
@@ -834,6 +849,7 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
       avatar: authorRow.avatar_url,
       description: authorRow.description,
       postsCount: authorRow.posts_count || 0,
+      publication,
     })
   } catch (error) {
     console.error('Error fetching author:', error)

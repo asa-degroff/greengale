@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "app.greengale.publication",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A publication/blog configuration with title, description, and default theme. Compatible with site.standard ecosystem.",
+      "key": "self",
+      "record": {
+        "type": "object",
+        "required": ["url", "name"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Publication base URL (e.g., https://greengale.app)"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Publication/blog title"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "Publication description"
+          },
+          "theme": {
+            "type": "ref",
+            "ref": "app.greengale.blog.defs#theme",
+            "description": "Default theme for posts in this publication"
+          }
+        }
+      }
+    }
+  }
+}

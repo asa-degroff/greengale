@@ -8,9 +8,9 @@ import {
 } from 'react'
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
 
-// Minimal OAuth scopes: blog entry collections + V2 document collection + blob uploads
+// Minimal OAuth scopes: blog entry collections + V2 document collection + publication + blob uploads
 const OAUTH_SCOPE =
-  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=com.whtwnd.blog.entry blob:image/*'
+  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry blob:image/*'
 
 // For development, use loopback client ID
 // Client ID must use "localhost", redirect_uri must use "127.0.0.1" per AT Protocol OAuth spec

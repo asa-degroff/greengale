@@ -14,6 +14,8 @@ const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 const GREENGALE_COLLECTION = 'app.greengale.blog.entry'
 // GreenGale V2 document lexicon (site.standard compatible)
 const DOCUMENT_COLLECTION = 'app.greengale.document'
+// GreenGale publication lexicon (site.standard compatible)
+const PUBLICATION_COLLECTION = 'app.greengale.publication'
 
 // Theme presets for validation
 const VALID_PRESETS = new Set<ThemePreset>([
@@ -90,6 +92,13 @@ export interface AuthorProfile {
   displayName?: string
   avatar?: string
   description?: string
+}
+
+export interface Publication {
+  name: string
+  url: string
+  description?: string
+  theme?: Theme
 }
 
 /**
@@ -348,4 +357,68 @@ export function slugify(title: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .substring(0, 100)
+}
+
+/**
+ * Get a user's publication settings from their PDS
+ * Publications use 'self' as the rkey (singleton pattern)
+ */
+export async function getPublication(identifier: string): Promise<Publication | null> {
+  const did = await resolveIdentity(identifier)
+  const pdsEndpoint = await getPdsEndpoint(did)
+
+  const agent = new AtpAgent({ service: pdsEndpoint })
+
+  try {
+    const response = await agent.com.atproto.repo.getRecord({
+      repo: did,
+      collection: PUBLICATION_COLLECTION,
+      rkey: 'self',
+    })
+
+    const record = response.data.value as Record<string, unknown>
+
+    return {
+      name: (record.name as string) || '',
+      url: (record.url as string) || '',
+      description: record.description as string | undefined,
+      theme: parseTheme(record.theme),
+    }
+  } catch {
+    // Publication doesn't exist
+    return null
+  }
+}
+
+/**
+ * Save a user's publication settings to their PDS
+ * Uses putRecord with rkey 'self' (creates or updates)
+ */
+export async function savePublication(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> },
+  publication: Publication
+): Promise<void> {
+  const record = {
+    $type: PUBLICATION_COLLECTION,
+    name: publication.name,
+    url: publication.url,
+    description: publication.description || undefined,
+    theme: publication.theme || undefined,
+  }
+
+  const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repo: session.did,
+      collection: PUBLICATION_COLLECTION,
+      rkey: 'self',
+      record,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.message || 'Failed to save publication')
+  }
 }
