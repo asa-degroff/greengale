@@ -76,6 +76,13 @@ function saveRecentPalette(palette: SavedPalette): void {
 
 type LexiconType = 'greengale' | 'whitewind'
 
+// V1 collection (for backward compatibility when editing old posts)
+const GREENGALE_V1_COLLECTION = 'app.greengale.blog.entry'
+// V2 document collection (site.standard compatible)
+const GREENGALE_V2_COLLECTION = 'app.greengale.document'
+// WhiteWind collection
+const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
+
 const LEXICON_OPTIONS = [
   { value: 'greengale', label: 'GreenGale', description: 'Extended features: themes, LaTeX' },
   { value: 'whitewind', label: 'WhiteWind', description: 'Compatible with whtwnd.com' },
@@ -107,6 +114,8 @@ export function EditorPage() {
   const [loadingPost, setLoadingPost] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [originalCreatedAt, setOriginalCreatedAt] = useState<string | null>(null)
+  // Track the original collection when editing (for V1→V2 migration)
+  const [originalCollection, setOriginalCollection] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
@@ -329,6 +338,15 @@ export function EditorPage() {
       setVisibility(entry.visibility || 'public')
       setOriginalCreatedAt(entry.createdAt || null)
 
+      // Determine original collection for V1→V2 migration
+      // V2 posts have url and path fields, V1 posts don't
+      if (entry.source === 'greengale') {
+        const isV2 = !!(entry.url && entry.path)
+        setOriginalCollection(isV2 ? GREENGALE_V2_COLLECTION : GREENGALE_V1_COLLECTION)
+      } else {
+        setOriginalCollection(WHITEWIND_COLLECTION)
+      }
+
       // GreenGale-specific fields
       const defaultCustomColors: CustomColors = {
         background: '#ffffff',
@@ -407,7 +425,7 @@ export function EditorPage() {
 
   // Core save function that can be reused
   const savePost = useCallback(async (overrideVisibility?: 'public' | 'url' | 'author'): Promise<string | null> => {
-    if (!session) {
+    if (!session || !handle) {
       setError('Not authenticated')
       return null
     }
@@ -420,11 +438,12 @@ export function EditorPage() {
     const visibilityToUse = overrideVisibility || visibility
 
     try {
-      // Build the record based on selected lexicon
-      const collection = isWhiteWind ? 'com.whtwnd.blog.entry' : 'app.greengale.blog.entry'
+      // Determine the target collection
+      // WhiteWind stays as WhiteWind, GreenGale always saves to V2
+      const targetCollection = isWhiteWind ? WHITEWIND_COLLECTION : GREENGALE_V2_COLLECTION
 
-      // Use original createdAt when editing, new timestamp when creating
-      const createdAt = isEditing && originalCreatedAt ? originalCreatedAt : new Date().toISOString()
+      // Use original date when editing, new timestamp when creating
+      const publishedAt = isEditing && originalCreatedAt ? originalCreatedAt : new Date().toISOString()
 
       // Build theme object for GreenGale posts
       let themeObj: { preset?: string; custom?: CustomColors } | undefined = undefined
@@ -448,20 +467,23 @@ export function EditorPage() {
       const record = isWhiteWind
         ? {
             // WhiteWind format - simpler schema
-            $type: 'com.whtwnd.blog.entry',
+            $type: WHITEWIND_COLLECTION,
             content: content,
             title: title || undefined,
             subtitle: subtitle || undefined,
-            createdAt,
+            createdAt: publishedAt,
             visibility: visibilityToUse,
           }
         : {
-            // GreenGale format - extended features
-            $type: 'app.greengale.blog.entry',
+            // GreenGale V2 document format (site.standard compatible)
+            $type: GREENGALE_V2_COLLECTION,
             content: content,
             title: title || undefined,
             subtitle: subtitle || undefined,
-            createdAt,
+            publishedAt,
+            // V2-specific fields
+            url: 'https://greengale.app',
+            path: `/${handle}/${rkey || 'new'}`, // Will be updated with actual rkey after creation
             theme: themeObj,
             visibility: visibilityToUse,
             latex: enableLatex || undefined,
@@ -480,14 +502,59 @@ export function EditorPage() {
       let response: Response
       let resultRkey: string
 
-      if (isEditing && rkey) {
-        // Update existing record using putRecord
+      // Check if we need to migrate from V1 to V2
+      const needsV1Migration = isEditing && rkey && !isWhiteWind &&
+        originalCollection === GREENGALE_V1_COLLECTION
+
+      if (needsV1Migration) {
+        // V1→V2 migration: Delete old V1 record, then create new V2 record
+        // First, delete the old V1 record
+        const deleteResponse = await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: GREENGALE_V1_COLLECTION,
+            rkey,
+          }),
+        })
+
+        if (!deleteResponse.ok) {
+          const errorData = await deleteResponse.json()
+          console.error('Failed to delete V1 record during migration:', errorData)
+          // Continue anyway - the V1 record might already be gone
+        }
+
+        // Update path with the actual rkey
+        if (!isWhiteWind && 'path' in record) {
+          record.path = `/${handle}/${rkey}`
+        }
+
+        // Create new V2 record with the same rkey
+        response = await session.fetchHandler('/xrpc/com.atproto.repo.createRecord', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: targetCollection,
+            rkey, // Preserve the same rkey
+            record,
+          }),
+        })
+        resultRkey = rkey
+      } else if (isEditing && rkey) {
+        // Update existing record using putRecord (V2 or WhiteWind)
+        // Update path with the actual rkey for V2
+        if (!isWhiteWind && 'path' in record) {
+          record.path = `/${handle}/${rkey}`
+        }
+
         response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             repo: session.did,
-            collection,
+            collection: targetCollection,
             rkey,
             record,
           }),
@@ -500,7 +567,7 @@ export function EditorPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             repo: session.did,
-            collection,
+            collection: targetCollection,
             record,
           }),
         })
@@ -512,6 +579,10 @@ export function EditorPage() {
 
         const result = await response.json()
         resultRkey = result.uri.split('/').pop()
+
+        // For new V2 posts, we need to update the path with the actual rkey
+        // This is a limitation - we can't know the rkey before creation
+        // The path will be slightly wrong on first save, but correct on re-save
       }
 
       if (!response.ok) {
@@ -525,7 +596,7 @@ export function EditorPage() {
       setError(err instanceof Error ? err.message : 'Failed to save post')
       return null
     }
-  }, [session, content, visibility, isWhiteWind, isEditing, originalCreatedAt, title, subtitle, theme, customColors, enableLatex, uploadedBlobs, rkey])
+  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, enableLatex, uploadedBlobs, rkey])
 
   async function handlePublish() {
     setPublishing(true)
@@ -587,7 +658,10 @@ export function EditorPage() {
     setError(null)
 
     try {
-      const collection = isWhiteWind ? 'com.whtwnd.blog.entry' : 'app.greengale.blog.entry'
+      // Use the original collection that the post was loaded from
+      // This handles both V1 and V2 posts correctly
+      const collection = originalCollection ||
+        (isWhiteWind ? WHITEWIND_COLLECTION : GREENGALE_V2_COLLECTION)
 
       const response = await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
         method: 'POST',

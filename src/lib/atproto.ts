@@ -10,8 +10,10 @@ function isValidDid(did: string): boolean {
 
 // WhiteWind lexicon namespace
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
-// GreenGale lexicon namespace
+// GreenGale V1 lexicon namespace
 const GREENGALE_COLLECTION = 'app.greengale.blog.entry'
+// GreenGale V2 document lexicon (site.standard compatible)
+const DOCUMENT_COLLECTION = 'app.greengale.document'
 
 // Theme presets for validation
 const VALID_PRESETS = new Set<ThemePreset>([
@@ -43,6 +45,9 @@ export interface BlogEntry {
     alt?: string
     labels?: SelfLabels
   }>
+  // V2 document fields (site.standard compatible)
+  url?: string
+  path?: string
 }
 
 function parseTheme(rawTheme: unknown): Theme | undefined {
@@ -186,8 +191,8 @@ export async function getBlogEntry(
 
   const agent = new AtpAgent({ service: pdsEndpoint })
 
-  // Try GreenGale first, then WhiteWind
-  for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
+  // Try V2 document first, then V1 GreenGale, then WhiteWind
+  for (const collection of [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
     try {
       const response = await agent.com.atproto.repo.getRecord({
         repo: did,
@@ -207,20 +212,29 @@ export async function getBlogEntry(
       }
       // 'url' visibility allows anyone with the link, 'public' is open to all
 
+      // V2 documents use publishedAt, V1/WhiteWind use createdAt
+      const isV2 = collection === DOCUMENT_COLLECTION
+      const createdAt = isV2
+        ? (record.publishedAt as string | undefined)
+        : (record.createdAt as string | undefined)
+
       return {
         uri: response.data.uri,
         cid: response.data.cid || '',
         authorDid: did,
         rkey,
-        source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
+        source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
         content: (record.content as string) || '',
         title: record.title as string | undefined,
         subtitle: record.subtitle as string | undefined,
-        createdAt: record.createdAt as string | undefined,
+        createdAt,
         theme: parseTheme(record.theme),
         visibility: visibility as BlogEntry['visibility'],
         latex: record.latex as boolean | undefined,
         blobs: record.blobs as BlogEntry['blobs'],
+        // V2 fields
+        url: isV2 ? (record.url as string | undefined) : undefined,
+        path: isV2 ? (record.path as string | undefined) : undefined,
       }
     } catch {
       // Continue to next collection
@@ -250,11 +264,12 @@ export async function listBlogEntries(
   const isOwnProfile = options.viewerDid && options.viewerDid === did
   const maxPerCollection = options.maxPerCollection || 2000
 
-  // Fetch from both collections independently (cursors are collection-specific)
-  for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
+  // Fetch from all three collections independently (cursors are collection-specific)
+  for (const collection of [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
     try {
       let cursor: string | undefined
       let fetched = 0
+      const isV2 = collection === DOCUMENT_COLLECTION
 
       // Paginate through all records in this collection
       while (fetched < maxPerCollection) {
@@ -276,20 +291,28 @@ export async function listBlogEntries(
             continue
           }
 
+          // V2 documents use publishedAt, V1/WhiteWind use createdAt
+          const createdAt = isV2
+            ? (record.publishedAt as string | undefined)
+            : (record.createdAt as string | undefined)
+
           entries.push({
             uri: item.uri,
             cid: item.cid,
             authorDid: did,
             rkey: item.uri.split('/').pop() || '',
-            source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
+            source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
             content: (record.content as string) || '',
             title: record.title as string | undefined,
             subtitle: record.subtitle as string | undefined,
-            createdAt: record.createdAt as string | undefined,
+            createdAt,
             theme: parseTheme(record.theme),
             visibility: visibility as 'public' | 'url' | 'author',
             latex: record.latex as boolean | undefined,
             blobs: record.blobs as BlogEntry['blobs'],
+            // V2 fields
+            url: isV2 ? (record.url as string | undefined) : undefined,
+            path: isV2 ? (record.path as string | undefined) : undefined,
           })
         }
 

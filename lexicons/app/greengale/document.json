@@ -1,0 +1,71 @@
+{
+  "lexicon": 1,
+  "id": "app.greengale.document",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A markdown document with extended theme and LaTeX support. Compatible with site.standard ecosystem.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["content", "url", "path"],
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 100000,
+            "description": "Markdown content of the document"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Base publication URL (e.g., https://greengale.app)"
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Document path relative to the publication URL (e.g., /handle/rkey)"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "subtitle": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Publication timestamp (site.standard compatible)"
+          },
+          "theme": {
+            "type": "ref",
+            "ref": "app.greengale.blog.defs#theme"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "url", "author"],
+            "default": "public",
+            "description": "Controls who can view this document"
+          },
+          "ogp": {
+            "type": "ref",
+            "ref": "app.greengale.blog.defs#ogp"
+          },
+          "blobs": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "app.greengale.blog.defs#blobMetadata"
+            }
+          },
+          "latex": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable LaTeX math rendering"
+          }
+        }
+      }
+    }
+  }
+}

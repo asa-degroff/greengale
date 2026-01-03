@@ -10,6 +10,7 @@ interface Env {
 const BLOG_COLLECTIONS = [
   'com.whtwnd.blog.entry',
   'app.greengale.blog.entry',
+  'app.greengale.document',
 ]
 
 // Jetstream event types
@@ -254,7 +255,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
     if (operation === 'delete') {
       await this.deletePost(uri)
     } else if (operation === 'create' || operation === 'update') {
-      await this.indexPost(uri, did, rkey, source, record)
+      await this.indexPost(uri, did, rkey, source, record, collection)
     }
 
     // Update cursor in storage (persists across hibernation)
@@ -270,16 +271,26 @@ export class FirehoseConsumer extends DurableObject<Env> {
     did: string,
     rkey: string,
     source: 'whitewind' | 'greengale',
-    record?: Record<string, unknown>
+    record?: Record<string, unknown>,
+    collection?: string
   ) {
     try {
       // Extract metadata from record
       const title = (record?.title as string) || null
       const subtitle = (record?.subtitle as string) || null
       const visibility = (record?.visibility as string) || 'public'
-      const createdAt = (record?.createdAt as string) || null
       const content = (record?.content as string) || ''
       const hasLatex = source === 'greengale' && (record?.latex === true)
+
+      // Handle date field - V2 uses publishedAt, V1/WhiteWind uses createdAt
+      const isV2Document = collection === 'app.greengale.document'
+      const createdAt = isV2Document
+        ? (record?.publishedAt as string) || null
+        : (record?.createdAt as string) || null
+
+      // Extract V2-specific fields
+      const documentUrl = isV2Document ? (record?.url as string) || null : null
+      const documentPath = isV2Document ? (record?.path as string) || null : null
 
       // Store theme data - either preset name or JSON for custom themes
       let themePreset: string | null = null
@@ -311,8 +322,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
         : null
 
       await this.env.DB.prepare(`
-        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uri) DO UPDATE SET
           title = excluded.title,
           subtitle = excluded.subtitle,
@@ -322,10 +333,13 @@ export class FirehoseConsumer extends DurableObject<Env> {
           has_latex = excluded.has_latex,
           theme_preset = excluded.theme_preset,
           first_image_cid = excluded.first_image_cid,
+          url = excluded.url,
+          path = excluded.path,
           indexed_at = datetime('now')
       `).bind(
         uri, did, rkey, title, subtitle, slug, source, visibility,
-        createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid
+        createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
+        documentUrl, documentPath
       ).run()
 
       // Ensure author exists
