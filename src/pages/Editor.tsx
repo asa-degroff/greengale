@@ -13,7 +13,7 @@ import {
 import { ImageMetadataEditor } from '@/components/ImageMetadataEditor'
 import { MarkdownToolbar, useToolbarCollapsed } from '@/components/MarkdownToolbar'
 import { extractCidFromBlobref } from '@/lib/image-labels'
-import { getPdsEndpoint } from '@/lib/atproto'
+import { getPdsEndpoint, getPublication, savePublication } from '@/lib/atproto'
 import {
   THEME_PRESETS,
   THEME_LABELS,
@@ -588,6 +588,23 @@ export function EditorPage() {
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.message || 'Failed to save post')
+      }
+
+      // Auto-create publication record if one doesn't exist (GreenGale posts only)
+      if (!isWhiteWind && session.did) {
+        try {
+          const existingPublication = await getPublication(session.did)
+          if (!existingPublication) {
+            // Create minimal publication record
+            await savePublication(session, {
+              name: handle || 'My Blog',
+              url: 'https://greengale.app',
+            })
+          }
+        } catch (pubErr) {
+          // Don't fail the post save if publication creation fails
+          console.warn('Failed to auto-create publication:', pubErr)
+        }
       }
 
       return resultRkey
