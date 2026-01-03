@@ -835,10 +835,23 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
     }
 
     // Build publication object if it exists
+    let publicationTheme: string | undefined = undefined
+    if (authorRow.pub_theme) {
+      // Check if it's JSON (custom colors) or a preset name
+      try {
+        const parsed = JSON.parse(authorRow.pub_theme as string)
+        // It's custom colors - stringify back for frontend
+        publicationTheme = JSON.stringify({ custom: parsed })
+      } catch {
+        // It's a preset name
+        publicationTheme = authorRow.pub_theme as string
+      }
+    }
+
     const publication = authorRow.pub_name ? {
       name: authorRow.pub_name,
       description: authorRow.pub_description || undefined,
-      theme: authorRow.pub_theme || undefined,
+      theme: publicationTheme,
       url: authorRow.pub_url,
     } : undefined
 

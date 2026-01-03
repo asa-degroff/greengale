@@ -22,6 +22,43 @@ import {
   validateCustomColors,
 } from '@/lib/themes'
 
+// Recent palettes storage (shared with Editor)
+const RECENT_PALETTES_KEY = 'recent-custom-palettes'
+const MAX_RECENT_PALETTES = 5
+
+interface SavedPalette {
+  background: string
+  text: string
+  accent: string
+  codeBackground?: string
+}
+
+function getRecentPalettes(): SavedPalette[] {
+  try {
+    const stored = localStorage.getItem(RECENT_PALETTES_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function saveRecentPalette(palette: SavedPalette): void {
+  try {
+    const existing = getRecentPalettes()
+    const isDuplicate = existing.some(
+      (p) =>
+        p.background.toLowerCase() === palette.background.toLowerCase() &&
+        p.text.toLowerCase() === palette.text.toLowerCase() &&
+        p.accent.toLowerCase() === palette.accent.toLowerCase()
+    )
+    if (isDuplicate) return
+    const updated = [palette, ...existing].slice(0, MAX_RECENT_PALETTES)
+    localStorage.setItem(RECENT_PALETTES_KEY, JSON.stringify(updated))
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
   const navigate = useNavigate()
@@ -46,6 +83,12 @@ export function AuthorPage() {
   })
   const [pubSaving, setPubSaving] = useState(false)
   const [pubError, setPubError] = useState<string | null>(null)
+  const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
+
+  // Load recent palettes on mount
+  useEffect(() => {
+    setRecentPalettes(getRecentPalettes())
+  }, [])
 
   // Check if current user is the author
   const isOwnProfile = session?.did && author?.did && session.did === author.did
@@ -151,6 +194,17 @@ export function AuthorPage() {
         },
         newPublication
       )
+
+      // Save custom palette to recent palettes if using custom theme
+      if (pubTheme === 'custom' && pubCustomColors.background && pubCustomColors.text && pubCustomColors.accent) {
+        saveRecentPalette({
+          background: pubCustomColors.background,
+          text: pubCustomColors.text,
+          accent: pubCustomColors.accent,
+          codeBackground: pubCustomColors.codeBackground,
+        })
+        setRecentPalettes(getRecentPalettes())
+      }
 
       setPublication(newPublication)
       setShowPublicationModal(false)
@@ -411,75 +465,111 @@ export function AuthorPage() {
                     </select>
                   </div>
 
+                  {/* Recent Palettes */}
+                  {recentPalettes.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs text-[var(--site-text-secondary)] mb-2">Recent palettes:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {recentPalettes.map((palette, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setPubCustomColors({
+                              background: palette.background,
+                              text: palette.text,
+                              accent: palette.accent,
+                              codeBackground: palette.codeBackground || '',
+                            })}
+                            className="flex rounded overflow-hidden border border-[var(--site-border)] hover:border-[var(--site-accent)] transition-colors"
+                            title={`Background: ${palette.background}, Text: ${palette.text}, Accent: ${palette.accent}`}
+                          >
+                            <div
+                              className="w-6 h-6"
+                              style={{ backgroundColor: palette.background }}
+                            />
+                            <div
+                              className="w-6 h-6"
+                              style={{ backgroundColor: palette.text }}
+                            />
+                            <div
+                              className="w-6 h-6"
+                              style={{ backgroundColor: palette.accent }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Background</label>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={pubCustomColors.background || '#ffffff'}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, background: e.target.value })}
-                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                          className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.background || ''}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, background: e.target.value })}
-                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#ffffff"
                         />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Text</label>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={pubCustomColors.text || '#24292f'}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, text: e.target.value })}
-                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                          className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.text || ''}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, text: e.target.value })}
-                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#24292f"
                         />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Accent</label>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={pubCustomColors.accent || '#0969da'}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, accent: e.target.value })}
-                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                          className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.accent || ''}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, accent: e.target.value })}
-                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#0969da"
                         />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Code Background</label>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           value={pubCustomColors.codeBackground || '#f6f8fa'}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
-                          className="w-8 h-8 rounded border border-[var(--site-border)] cursor-pointer"
+                          className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.codeBackground || ''}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
-                          className="flex-1 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
+                          className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#f6f8fa"
                         />
                       </div>

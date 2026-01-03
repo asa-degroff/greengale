@@ -19,6 +19,7 @@ const PUBLICATION_COLLECTION = 'app.greengale.publication'
 
 // Theme presets for validation
 const VALID_PRESETS = new Set<ThemePreset>([
+  'default',
   'github-light',
   'github-dark',
   'dracula',
@@ -26,6 +27,7 @@ const VALID_PRESETS = new Set<ThemePreset>([
   'solarized-light',
   'solarized-dark',
   'monokai',
+  'custom',
 ])
 
 export interface BlogEntry {
