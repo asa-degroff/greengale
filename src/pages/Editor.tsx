@@ -243,26 +243,59 @@ export function EditorPage() {
     }
   }, [isWhiteWind])
 
-  // Set initial values for new posts
+  // Track whether publication theme has been loaded for new posts
+  const [publicationThemeLoaded, setPublicationThemeLoaded] = useState(isEditing)
+
+  // Load publication theme for new posts
   useEffect(() => {
-    if (!isEditing && !loadingPost && initialValues.current === null) {
+    if (isEditing) {
+      setPublicationThemeLoaded(true)
+      return
+    }
+    if (!session?.did) return
+
+    async function loadPublicationTheme() {
+      try {
+        const publication = await getPublication(session!.did)
+        if (publication?.theme) {
+          if (publication.theme.custom) {
+            setTheme('custom')
+            setCustomColors({
+              background: publication.theme.custom.background || '#ffffff',
+              text: publication.theme.custom.text || '#24292f',
+              accent: publication.theme.custom.accent || '#0969da',
+              codeBackground: publication.theme.custom.codeBackground || '',
+            })
+          } else if (publication.theme.preset) {
+            setTheme(publication.theme.preset as ThemePreset)
+          }
+        }
+      } catch (err) {
+        // Ignore errors - just use default theme
+        console.warn('Failed to load publication theme:', err)
+      } finally {
+        setPublicationThemeLoaded(true)
+      }
+    }
+
+    loadPublicationTheme()
+  }, [isEditing, session?.did])
+
+  // Set initial values for new posts (after publication theme is loaded)
+  useEffect(() => {
+    if (!isEditing && !loadingPost && publicationThemeLoaded && initialValues.current === null) {
       initialValues.current = {
         title: '',
         subtitle: '',
         content: '',
         lexicon: 'greengale',
-        theme: 'default',
-        customColors: {
-          background: '#ffffff',
-          text: '#24292f',
-          accent: '#0969da',
-          codeBackground: '',
-        },
+        theme: theme,
+        customColors: customColors,
         visibility: 'public',
         enableLatex: false,
       }
     }
-  }, [isEditing, loadingPost])
+  }, [isEditing, loadingPost, publicationThemeLoaded, theme, customColors])
 
   // Detect unsaved changes
   useEffect(() => {
