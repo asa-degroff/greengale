@@ -595,20 +595,23 @@ export function AuthorPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-[var(--site-text-secondary)] mb-1">Code Background</label>
+                      <label className="block text-xs text-[var(--site-text-secondary)] mb-1">
+                        Code Block <span className="opacity-60">(optional)</span>
+                      </label>
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
-                          value={pubCustomColors.codeBackground || '#f6f8fa'}
+                          value={pubCustomColors.codeBackground || (deriveThemeColors(pubCustomColors)?.codeBackground || '#f6f8fa')}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
                           className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
+                          style={{ backgroundColor: pubCustomColors.codeBackground || (deriveThemeColors(pubCustomColors)?.codeBackground || '#f6f8fa') }}
                         />
                         <input
                           type="text"
                           value={pubCustomColors.codeBackground || ''}
                           onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
                           className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
-                          placeholder="#f6f8fa"
+                          placeholder="Auto"
                         />
                       </div>
                     </div>
