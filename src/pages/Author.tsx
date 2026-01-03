@@ -12,14 +12,17 @@ import {
   type Publication,
 } from '@/lib/atproto'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
+import { useThemePreference } from '@/lib/useThemePreference'
 import {
   THEME_PRESETS,
   THEME_LABELS,
   type ThemePreset,
   type CustomColors,
   getPresetColors,
+  getEffectiveTheme,
   deriveThemeColors,
   validateCustomColors,
+  correctCustomColorsContrast,
 } from '@/lib/themes'
 
 // Recent palettes storage (shared with Editor)
@@ -84,6 +87,7 @@ export function AuthorPage() {
   const [pubSaving, setPubSaving] = useState(false)
   const [pubError, setPubError] = useState<string | null>(null)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
+  const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
   // Load recent palettes on mount
   useEffect(() => {
@@ -117,6 +121,18 @@ export function AuthorPage() {
         setEntries(entriesResult.entries)
         setPublication(publicationResult)
 
+        // Apply publication theme if it exists
+        if (publicationResult?.theme) {
+          if (publicationResult.theme.custom) {
+            setActivePostTheme('custom')
+            setActiveCustomColors(correctCustomColorsContrast(publicationResult.theme.custom))
+          } else {
+            const themePreset = getEffectiveTheme(publicationResult.theme)
+            setActivePostTheme(themePreset)
+            setActiveCustomColors(null)
+          }
+        }
+
         // Track this author as recently viewed
         addRecentAuthor({
           handle: profileResult.handle,
@@ -131,7 +147,13 @@ export function AuthorPage() {
     }
 
     load()
-  }, [handle, session?.did, addRecentAuthor, navigate])
+
+    // Reset theme when leaving the page
+    return () => {
+      setActivePostTheme(null)
+      setActiveCustomColors(null)
+    }
+  }, [handle, session?.did, addRecentAuthor, navigate, setActivePostTheme, setActiveCustomColors])
 
   // Open publication editor with current values
   const openPublicationEditor = useCallback(() => {
@@ -208,6 +230,22 @@ export function AuthorPage() {
 
       setPublication(newPublication)
       setShowPublicationModal(false)
+
+      // Apply the new theme immediately
+      if (newPublication.theme) {
+        if (newPublication.theme.custom) {
+          setActivePostTheme('custom')
+          setActiveCustomColors(correctCustomColorsContrast(newPublication.theme.custom))
+        } else {
+          const themePreset = getEffectiveTheme(newPublication.theme)
+          setActivePostTheme(themePreset)
+          setActiveCustomColors(null)
+        }
+      } else {
+        // Reset to default if no theme
+        setActivePostTheme(null)
+        setActiveCustomColors(null)
+      }
     } catch (err) {
       setPubError(err instanceof Error ? err.message : 'Failed to save publication')
     } finally {
@@ -432,7 +470,7 @@ export function AuthorPage() {
                   ))}
                 </select>
                 <p className="text-xs text-[var(--site-text-secondary)] mt-1">
-                  Posts without their own theme will use this default
+                  Your profile and posts without their own theme will use this theme
                 </p>
               </div>
 
