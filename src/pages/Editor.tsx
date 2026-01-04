@@ -109,6 +109,7 @@ export function EditorPage() {
   type ViewMode = 'edit' | 'preview' | 'split'
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [publishing, setPublishing] = useState(false)
+  const [publishAttempted, setPublishAttempted] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [loadingPost, setLoadingPost] = useState(false)
@@ -685,6 +686,7 @@ export function EditorPage() {
   }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, enableLatex, uploadedBlobs, rkey])
 
   async function handlePublish() {
+    setPublishAttempted(true)
     setPublishing(true)
     setError(null)
     // Set justSaved before the async operation to prevent blocker from triggering
@@ -716,6 +718,7 @@ export function EditorPage() {
   const handleSaveAsPrivateAndProceed = useCallback(async () => {
     if (!blocker.location) return
 
+    setPublishAttempted(true)
     setPublishing(true)
     setError(null)
 
@@ -1141,19 +1144,19 @@ export function EditorPage() {
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                Title{!isWhiteWind && <span className="text-red-500 ml-0.5">*</span>}
+                Title
               </label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={isWhiteWind ? "Post title (optional)" : "Post title"}
+                placeholder={isWhiteWind ? "Post title (optional)" : "Title (required)"}
                 className={`w-full px-4 py-3 rounded-lg border bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] ${
-                  !isWhiteWind && !title.trim() ? 'border-red-500/50' : 'border-[var(--site-border)]'
+                  publishAttempted && !isWhiteWind && !title.trim() ? 'border-red-500/50' : 'border-[var(--site-border)]'
                 }`}
               />
-              {!isWhiteWind && !title.trim() && (
-                <p className="mt-1 text-xs text-red-500">Title is required for GreenGale posts</p>
+              {publishAttempted && !isWhiteWind && !title.trim() && (
+                <p className="mt-1 text-xs text-red-500">Title is required</p>
               )}
             </div>
 
