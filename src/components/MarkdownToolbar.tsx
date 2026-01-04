@@ -170,6 +170,9 @@ export function MarkdownToolbar({
     const format = FORMATS[formatKey]
     if (!format) return
 
+    // Save scroll position before modifying content
+    const scrollTop = textarea.scrollTop
+
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     const selectedText = content.slice(start, end)
@@ -272,12 +275,19 @@ export function MarkdownToolbar({
 
     onContentChange(newContent)
 
-    // Restore focus and set cursor/selection
+    // Restore focus, cursor/selection, and scroll position
     requestAnimationFrame(() => {
       textarea.focus()
       textarea.setSelectionRange(newCursorStart, newCursorEnd)
+      textarea.scrollTop = scrollTop
     })
   }, [textareaRef, content, onContentChange])
+
+  // Prevent focus loss when clicking toolbar buttons
+  const handleMouseDown = useCallback((e: React.MouseEvent, formatKey: string) => {
+    e.preventDefault() // Prevents textarea from losing focus
+    applyFormat(formatKey)
+  }, [applyFormat])
 
   return (
     <div className="markdown-toolbar">
@@ -285,7 +295,7 @@ export function MarkdownToolbar({
       <div className="markdown-toolbar-group">
         <button
           type="button"
-          onClick={() => applyFormat('h1')}
+          onMouseDown={(e) => handleMouseDown(e, 'h1')}
           className="markdown-toolbar-btn markdown-toolbar-btn-heading"
           title="Heading 1"
         >
@@ -293,7 +303,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('h2')}
+          onMouseDown={(e) => handleMouseDown(e, 'h2')}
           className="markdown-toolbar-btn markdown-toolbar-btn-heading"
           title="Heading 2"
         >
@@ -301,7 +311,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('h3')}
+          onMouseDown={(e) => handleMouseDown(e, 'h3')}
           className="markdown-toolbar-btn markdown-toolbar-btn-heading"
           title="Heading 3"
         >
@@ -315,7 +325,7 @@ export function MarkdownToolbar({
       <div className="markdown-toolbar-group">
         <button
           type="button"
-          onClick={() => applyFormat('bold')}
+          onMouseDown={(e) => handleMouseDown(e, 'bold')}
           className="markdown-toolbar-btn"
           title="Bold"
         >
@@ -323,7 +333,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('italic')}
+          onMouseDown={(e) => handleMouseDown(e, 'italic')}
           className="markdown-toolbar-btn"
           title="Italic"
         >
@@ -331,7 +341,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('strikethrough')}
+          onMouseDown={(e) => handleMouseDown(e, 'strikethrough')}
           className="markdown-toolbar-btn"
           title="Strikethrough"
         >
@@ -345,7 +355,7 @@ export function MarkdownToolbar({
       <div className="markdown-toolbar-group">
         <button
           type="button"
-          onClick={() => applyFormat('code')}
+          onMouseDown={(e) => handleMouseDown(e, 'code')}
           className="markdown-toolbar-btn"
           title="Inline code"
         >
@@ -353,7 +363,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('codeblock')}
+          onMouseDown={(e) => handleMouseDown(e, 'codeblock')}
           className="markdown-toolbar-btn"
           title="Code block"
         >
@@ -367,7 +377,7 @@ export function MarkdownToolbar({
       <div className="markdown-toolbar-group">
         <button
           type="button"
-          onClick={() => applyFormat('ul')}
+          onMouseDown={(e) => handleMouseDown(e, 'ul')}
           className="markdown-toolbar-btn"
           title="Bullet list"
         >
@@ -375,7 +385,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('ol')}
+          onMouseDown={(e) => handleMouseDown(e, 'ol')}
           className="markdown-toolbar-btn"
           title="Numbered list"
         >
@@ -383,7 +393,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('quote')}
+          onMouseDown={(e) => handleMouseDown(e, 'quote')}
           className="markdown-toolbar-btn"
           title="Blockquote"
         >
@@ -391,7 +401,7 @@ export function MarkdownToolbar({
         </button>
         <button
           type="button"
-          onClick={() => applyFormat('hr')}
+          onMouseDown={(e) => handleMouseDown(e, 'hr')}
           className="markdown-toolbar-btn"
           title="Horizontal rule"
         >
@@ -405,7 +415,7 @@ export function MarkdownToolbar({
       <div className="markdown-toolbar-group">
         <button
           type="button"
-          onClick={() => applyFormat('link')}
+          onMouseDown={(e) => handleMouseDown(e, 'link')}
           className="markdown-toolbar-btn"
           title="Link"
         >
