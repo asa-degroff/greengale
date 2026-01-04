@@ -27,6 +27,14 @@ app.get('/xrpc/_health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0' })
 })
 
+// site.standard publication verification
+// Returns the AT-URI of GreenGale's platform publication record
+// See: https://standard.site
+app.get('/.well-known/site.standard.publication', (c) => {
+  // GreenGale platform account DID: did:plc:purpkfw7haimc4zu5a57slza
+  return c.text('at://did:plc:purpkfw7haimc4zu5a57slza/app.greengale.publication/self')
+})
+
 // OG image cache TTL (7 days)
 const OG_IMAGE_CACHE_TTL = 7 * 24 * 60 * 60
 

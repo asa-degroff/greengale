@@ -411,15 +411,27 @@ export function EditorPage() {
             const cid = extractCidFromBlobref(b.blobref)
             if (!cid) continue
 
+            // Extract mimeType and size from the blobref object
             const blobref = b.blobref as Record<string, unknown>
+            const mimeType = (blobref.mimeType as string) || 'image/avif'
+            const size = (blobref.size as number) || 0
+
+            // Store the extracted primitive values - blobRef will be reconstructed at save time
+            // to ensure proper JSON serialization (SDK class instances may not serialize correctly)
             restoredBlobs.push({
               cid,
-              mimeType: (blobref.mimeType as string) || 'image/avif',
-              size: (blobref.size as number) || 0,
+              mimeType,
+              size,
               name: b.name || 'image',
               alt: b.alt,
               labels: b.labels,
-              blobRef: b.blobref as UploadedBlob['blobRef'],
+              // Construct a fresh blobRef from primitives for any code that needs it
+              blobRef: {
+                $type: 'blob',
+                ref: { $link: cid },
+                mimeType,
+                size,
+              },
             })
           }
           setUploadedBlobs(restoredBlobs)
@@ -468,6 +480,12 @@ export function EditorPage() {
       return null
     }
 
+    // Title is required for GreenGale posts (standard.site spec compliance)
+    if (!isWhiteWind && !title.trim()) {
+      setError('Title is required for GreenGale posts')
+      return null
+    }
+
     const visibilityToUse = overrideVisibility || visibility
 
     try {
@@ -511,7 +529,7 @@ export function EditorPage() {
             // GreenGale V2 document format (site.standard compatible)
             $type: GREENGALE_V2_COLLECTION,
             content: content,
-            title: title || undefined,
+            title: title.trim(), // Required field per standard.site spec
             subtitle: subtitle || undefined,
             publishedAt,
             // V2-specific fields
@@ -521,10 +539,17 @@ export function EditorPage() {
             visibility: visibilityToUse,
             latex: enableLatex || undefined,
             // Include uploaded blobs for reference
+            // IMPORTANT: Always construct blobref from primitive values to ensure
+            // proper JSON serialization (SDK class instances may not serialize correctly)
             blobs:
               uploadedBlobs.length > 0
                 ? uploadedBlobs.map((b) => ({
-                    blobref: b.blobRef,
+                    blobref: {
+                      $type: 'blob',
+                      ref: { $link: b.cid },
+                      mimeType: b.mimeType,
+                      size: b.size,
+                    },
                     name: b.name,
                     alt: b.alt || undefined,
                     labels: b.labels,
@@ -540,23 +565,8 @@ export function EditorPage() {
         originalCollection === GREENGALE_V1_COLLECTION
 
       if (needsV1Migration) {
-        // V1→V2 migration: Delete old V1 record, then create new V2 record
-        // First, delete the old V1 record
-        const deleteResponse = await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            repo: session.did,
-            collection: GREENGALE_V1_COLLECTION,
-            rkey,
-          }),
-        })
-
-        if (!deleteResponse.ok) {
-          const errorData = await deleteResponse.json()
-          console.error('Failed to delete V1 record during migration:', errorData)
-          // Continue anyway - the V1 record might already be gone
-        }
+        // V1→V2 migration: Create V2 record first, then delete V1 only on success
+        // This prevents data loss if the create fails
 
         // Update path with the actual rkey
         if (!isWhiteWind && 'path' in record) {
@@ -574,6 +584,32 @@ export function EditorPage() {
             record,
           }),
         })
+
+        // Only delete the V1 record if the V2 creation ACTUALLY succeeded
+        // We must verify the response is OK before deleting the original
+        if (!response.ok) {
+          // V2 creation failed - DO NOT delete V1, throw error immediately
+          const errorData = await response.json().catch(() => ({ message: 'Unknown error' }))
+          throw new Error(`Migration failed: ${errorData.message || 'Failed to create V2 record'}`)
+        }
+
+        // V2 creation succeeded - now safe to delete V1
+        const deleteResponse = await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: GREENGALE_V1_COLLECTION,
+            rkey,
+          }),
+        })
+
+        if (!deleteResponse.ok) {
+          const errorData = await deleteResponse.json().catch(() => ({ message: 'Unknown error' }))
+          console.error('Failed to delete V1 record during migration:', errorData)
+          // V2 record was created successfully, so continue even if V1 delete failed
+        }
+
         resultRkey = rkey
       } else if (isEditing && rkey) {
         // Update existing record using putRecord (V2 or WhiteWind)
@@ -1079,9 +1115,9 @@ export function EditorPage() {
             </button>
             <button
               onClick={handlePublish}
-              disabled={publishing || !content.trim() || hasContrastError}
+              disabled={publishing || !content.trim() || hasContrastError || (!isWhiteWind && !title.trim())}
               className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={hasContrastError ? 'Fix contrast issues before publishing' : undefined}
+              title={hasContrastError ? 'Fix contrast issues before publishing' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
             >
               {publishing ? 'Saving...' : isEditing ? 'Update' : 'Publish'}
             </button>
@@ -1105,15 +1141,20 @@ export function EditorPage() {
             {/* Title */}
             <div>
               <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
-                Title
+                Title{!isWhiteWind && <span className="text-red-500 ml-0.5">*</span>}
               </label>
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Post title (optional)"
-                className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+                placeholder={isWhiteWind ? "Post title (optional)" : "Post title"}
+                className={`w-full px-4 py-3 rounded-lg border bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] ${
+                  !isWhiteWind && !title.trim() ? 'border-red-500/50' : 'border-[var(--site-border)]'
+                }`}
               />
+              {!isWhiteWind && !title.trim() && (
+                <p className="mt-1 text-xs text-red-500">Title is required for GreenGale posts</p>
+              )}
             </div>
 
             {/* Subtitle */}
@@ -1853,9 +1894,9 @@ export function EditorPage() {
               </button>
               <button
                 onClick={handleSaveAsPrivateAndProceed}
-                disabled={publishing || !content.trim() || hasContrastError}
+                disabled={publishing || !content.trim() || hasContrastError || (!isWhiteWind && !title.trim())}
                 className="w-full px-4 py-2.5 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={hasContrastError ? 'Fix contrast issues before saving' : undefined}
+                title={hasContrastError ? 'Fix contrast issues before saving' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
               >
                 {publishing ? 'Saving...' : 'Save as Private & Exit'}
               </button>
