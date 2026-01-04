@@ -2,7 +2,8 @@
 // Adapted from src/lib/atproto.ts - simplified for server-side use without @atproto/api dependency
 
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
-const GREENGALE_COLLECTION = 'app.greengale.blog.entry'
+const GREENGALE_V1_COLLECTION = 'app.greengale.blog.entry'
+const GREENGALE_V2_COLLECTION = 'app.greengale.document'
 
 export interface BlogEntry {
   uri: string
@@ -127,8 +128,8 @@ export async function getBlogEntry(
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
-  // Try GreenGale first, then WhiteWind
-  for (const collection of [GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
+  // Try V2 document first, then V1 GreenGale, then WhiteWind
+  for (const collection of [GREENGALE_V2_COLLECTION, GREENGALE_V1_COLLECTION, WHITEWIND_COLLECTION]) {
     try {
       const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
       const response = await fetch(url)
@@ -151,16 +152,22 @@ export async function getBlogEntry(
         return null
       }
 
+      // V2 documents use publishedAt, V1/WhiteWind use createdAt
+      const isV2 = collection === GREENGALE_V2_COLLECTION
+      const createdAt = isV2
+        ? (record.publishedAt as string | undefined)
+        : (record.createdAt as string | undefined)
+
       return {
         uri: data.uri,
         cid: data.cid,
         authorDid: did,
         rkey,
-        source: collection === GREENGALE_COLLECTION ? 'greengale' : 'whitewind',
+        source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
         content: (record.content as string) || '',
         title: record.title as string | undefined,
         subtitle: record.subtitle as string | undefined,
-        createdAt: record.createdAt as string | undefined,
+        createdAt,
         visibility: visibility as BlogEntry['visibility'],
       }
     } catch {

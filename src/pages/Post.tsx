@@ -115,12 +115,12 @@ export function PostPage() {
     }
   }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor, navigate])
 
-  // Add site.standard document verification link tag
+  // Add app.greengale document verification link tag
   useEffect(() => {
     if (!entry?.uri) return
 
     const link = document.createElement('link')
-    link.rel = 'site.standard.document'
+    link.rel = 'app.greengale.document'
     link.href = entry.uri
     document.head.appendChild(link)
 

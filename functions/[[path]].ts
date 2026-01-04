@@ -117,9 +117,27 @@ function parsePostRoute(
   return { handle, rkey }
 }
 
+// GreenGale platform account DID for site.standard verification
+const GREENGALE_PLATFORM_DID = 'did:plc:purpkfw7haimc4zu5a57slza'
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, next } = context
   const url = new URL(request.url)
+
+  // Handle .well-known/site.standard.publication endpoint
+  // This returns the AT-URI of GreenGale's platform publication record
+  // See: https://standard.site
+  if (url.pathname === '/.well-known/site.standard.publication' || url.pathname === '/.well-known/app.greengale.publication') {
+    return new Response(
+      `at://${GREENGALE_PLATFORM_DID}/app.greengale.publication/self`,
+      {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      }
+    )
+  }
 
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
