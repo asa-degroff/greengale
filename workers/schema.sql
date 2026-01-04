@@ -14,7 +14,10 @@ CREATE TABLE IF NOT EXISTS posts (
   indexed_at TEXT DEFAULT (datetime('now')),
   content_preview TEXT,
   has_latex INTEGER DEFAULT 0,
-  theme_preset TEXT
+  theme_preset TEXT,
+  first_image_cid TEXT,
+  url TEXT,
+  path TEXT
 );
 
 -- Indexes for common queries
@@ -24,6 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(author_did, slug);
 CREATE INDEX IF NOT EXISTS idx_posts_indexed_at ON posts(indexed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_visibility ON posts(visibility);
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source);
+CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(url);
 
 -- Authors table: caches author profile information
 CREATE TABLE IF NOT EXISTS authors (
@@ -63,3 +67,16 @@ CREATE TABLE IF NOT EXISTS whitelist (
 
 -- Index for handle lookups on whitelist
 CREATE INDEX IF NOT EXISTS idx_whitelist_handle ON whitelist(handle);
+
+-- Publications table: stores publication metadata for blogs
+CREATE TABLE IF NOT EXISTS publications (
+  author_did TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  theme_preset TEXT,
+  url TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Index for efficient lookups by update time
+CREATE INDEX IF NOT EXISTS idx_publications_updated ON publications(updated_at);
