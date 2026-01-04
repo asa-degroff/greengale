@@ -33,12 +33,18 @@ GreenGale also maintains read compatibility with `com.whtwnd.blog.entry` (WhiteW
 |----------|----------|-------|
 | `createdAt` | `publishedAt` | Aligns with site.standard terminology |
 
+#### Changed Fields
+
+| Field | V1 | V2 | Notes |
+|-------|----|----|-------|
+| `title` | optional | **required** | Required per site.standard spec |
+| `publishedAt` | optional (as `createdAt`) | **required** | Required per site.standard spec |
+
 #### Unchanged Fields
 
 These fields remain identical between V1 and V2:
 
 - `content` (string, required) - Markdown content
-- `title` (string, optional) - Document title
 - `subtitle` (string, optional) - Document subtitle
 - `theme` (ref) - Theme configuration
 - `visibility` (enum: public/url/author) - Access control
@@ -74,7 +80,7 @@ These fields remain identical between V1 and V2:
 {
   "id": "app.greengale.document",
   "record": {
-    "required": ["content", "url", "path"],
+    "required": ["content", "url", "path", "title", "publishedAt"],
     "properties": {
       "content": { "type": "string", "maxLength": 100000 },
       "url": { "type": "string", "format": "uri" },

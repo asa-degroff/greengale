@@ -8,7 +8,7 @@
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["content", "url", "path"],
+        "required": ["content", "url", "path", "title", "publishedAt"],
         "properties": {
           "content": {
             "type": "string",
@@ -27,7 +27,8 @@
           },
           "title": {
             "type": "string",
-            "maxLength": 1000
+            "maxLength": 1000,
+            "description": "Document title"
           },
           "subtitle": {
             "type": "string",
@@ -36,7 +37,7 @@
           "publishedAt": {
             "type": "string",
             "format": "datetime",
-            "description": "Publication timestamp (site.standard compatible)"
+            "description": "Publication timestamp"
           },
           "theme": {
             "type": "ref",
