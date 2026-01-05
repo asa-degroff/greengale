@@ -125,9 +125,38 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const url = new URL(request.url)
 
   // Handle .well-known/site.standard.publication endpoint
-  // This returns the AT-URI of GreenGale's platform publication record
+  // This returns the AT-URI of a publication record
+  // Without ?handle param: returns GreenGale's platform publication
+  // With ?handle=user.bsky.social: proxies to worker for per-user lookup
   // See: https://standard.site
-  if (url.pathname === '/.well-known/site.standard.publication' || url.pathname === '/.well-known/app.greengale.publication') {
+  if (url.pathname === '/.well-known/site.standard.publication') {
+    const handle = url.searchParams.get('handle')
+    if (handle) {
+      // Proxy to worker for per-user lookup (worker has D1 access)
+      const workerUrl = `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
+      const workerResponse = await fetch(workerUrl)
+      return new Response(await workerResponse.text(), {
+        status: workerResponse.status,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      })
+    }
+    // No handle - return platform publication
+    return new Response(
+      `at://${GREENGALE_PLATFORM_DID}/site.standard.publication/self`,
+      {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      }
+    )
+  }
+
+  // Legacy endpoint for app.greengale.publication
+  if (url.pathname === '/.well-known/app.greengale.publication') {
     return new Response(
       `at://${GREENGALE_PLATFORM_DID}/app.greengale.publication/self`,
       {
