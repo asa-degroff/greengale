@@ -454,9 +454,9 @@ export function AuthorPage() {
                   onChange={(e) => {
                     const newTheme = e.target.value as ThemePreset
                     setPubTheme(newTheme)
-                    // Pre-fill custom colors when switching to custom from a preset
-                    if (newTheme === 'custom' && pubTheme !== 'custom') {
-                      const presetColors = getPresetColors(pubTheme)
+                    // Update color pickers to reflect the selected preset's colors
+                    if (newTheme !== 'custom') {
+                      const presetColors = getPresetColors(newTheme)
                       setPubCustomColors({
                         background: presetColors.background,
                         text: presetColors.text,
@@ -478,34 +478,18 @@ export function AuthorPage() {
                 </p>
               </div>
 
-              {/* Custom colors (only show if custom theme selected) */}
-              {pubTheme === 'custom' && (
-                <div className="space-y-3 p-4 border border-[var(--site-border)] rounded-md">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-[var(--site-text)]">Custom Colors</h3>
-                    <select
-                      onChange={(e) => {
-                        const preset = e.target.value as ThemePreset
-                        if (preset && preset !== 'custom' && preset !== 'default') {
-                          const presetColors = getPresetColors(preset)
-                          setPubCustomColors({
-                            background: presetColors.background,
-                            text: presetColors.text,
-                            accent: presetColors.accent,
-                            codeBackground: presetColors.codeBackground,
-                          })
-                        }
-                      }}
-                      className="text-xs px-2 py-1 border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
-                    >
-                      <option value="">Start from preset...</option>
-                      {THEME_PRESETS.filter(p => p !== 'custom' && p !== 'default').map((preset) => (
-                        <option key={preset} value={preset}>
-                          {THEME_LABELS[preset]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              {/* Color customization */}
+              <div className="space-y-3 p-4 border border-[var(--site-border)] rounded-md">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-[var(--site-text)]">
+                    Customize Colors
+                    {pubTheme !== 'custom' && (
+                      <span className="ml-2 text-xs font-normal text-[var(--site-text-secondary)]">
+                        (editing will switch to custom)
+                      </span>
+                    )}
+                  </h3>
+                </div>
 
                   {/* Recent Palettes */}
                   {recentPalettes.length > 0 && (
@@ -516,12 +500,15 @@ export function AuthorPage() {
                           <button
                             key={index}
                             type="button"
-                            onClick={() => setPubCustomColors({
-                              background: palette.background,
-                              text: palette.text,
-                              accent: palette.accent,
-                              codeBackground: palette.codeBackground || '',
-                            })}
+                            onClick={() => {
+                              setPubTheme('custom')
+                              setPubCustomColors({
+                                background: palette.background,
+                                text: palette.text,
+                                accent: palette.accent,
+                                codeBackground: palette.codeBackground || '',
+                              })
+                            }}
                             className="flex rounded overflow-hidden border border-[var(--site-border)] hover:border-[var(--site-accent)] transition-colors"
                             title={`Background: ${palette.background}, Text: ${palette.text}, Accent: ${palette.accent}`}
                           >
@@ -550,13 +537,13 @@ export function AuthorPage() {
                         <input
                           type="color"
                           value={pubCustomColors.background || '#ffffff'}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, background: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, background: e.target.value }) }}
                           className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.background || ''}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, background: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, background: e.target.value }) }}
                           className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#ffffff"
                         />
@@ -568,13 +555,13 @@ export function AuthorPage() {
                         <input
                           type="color"
                           value={pubCustomColors.text || '#24292f'}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, text: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, text: e.target.value }) }}
                           className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.text || ''}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, text: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, text: e.target.value }) }}
                           className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#24292f"
                         />
@@ -586,13 +573,13 @@ export function AuthorPage() {
                         <input
                           type="color"
                           value={pubCustomColors.accent || '#0969da'}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, accent: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, accent: e.target.value }) }}
                           className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                         />
                         <input
                           type="text"
                           value={pubCustomColors.accent || ''}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, accent: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, accent: e.target.value }) }}
                           className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="#0969da"
                         />
@@ -606,14 +593,14 @@ export function AuthorPage() {
                         <input
                           type="color"
                           value={pubCustomColors.codeBackground || (deriveThemeColors(pubCustomColors)?.codeBackground || '#f6f8fa')}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value }) }}
                           className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                           style={{ backgroundColor: pubCustomColors.codeBackground || (deriveThemeColors(pubCustomColors)?.codeBackground || '#f6f8fa') }}
                         />
                         <input
                           type="text"
                           value={pubCustomColors.codeBackground || ''}
-                          onChange={(e) => setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value })}
+                          onChange={(e) => { setPubTheme('custom'); setPubCustomColors({ ...pubCustomColors, codeBackground: e.target.value }) }}
                           className="w-24 px-2 py-1 text-sm border border-[var(--site-border)] rounded bg-[var(--site-bg)] text-[var(--site-text)]"
                           placeholder="Auto"
                         />
@@ -658,7 +645,6 @@ export function AuthorPage() {
                     </div>
                   )}
                 </div>
-              )}
 
               {/* site.standard Publishing */}
               <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
