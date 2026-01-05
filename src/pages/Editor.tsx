@@ -651,9 +651,22 @@ export function EditorPage() {
         const result = await response.json()
         resultRkey = result.uri.split('/').pop()
 
-        // For new V2 posts, we need to update the path with the actual rkey
-        // This is a limitation - we can't know the rkey before creation
-        // The path will be slightly wrong on first save, but correct on re-save
+        // For new V2 posts, update the path with the actual rkey
+        if (!isWhiteWind && 'path' in record && resultRkey) {
+          record.path = `/${handle}/${resultRkey}`
+
+          // Update the record with the correct path
+          await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              repo: session.did,
+              collection: targetCollection,
+              rkey: resultRkey,
+              record,
+            }),
+          })
+        }
       }
 
       if (!response.ok) {
