@@ -90,6 +90,10 @@ export function AuthorPage() {
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
+  // Check if custom colors have valid contrast
+  const pubCustomColorsValidation = pubTheme === 'custom' ? validateCustomColors(pubCustomColors) : null
+  const hasPubContrastError = pubTheme === 'custom' && pubCustomColorsValidation !== null && !pubCustomColorsValidation.isValid
+
   // Load recent palettes on mount
   useEffect(() => {
     setRecentPalettes(getRecentPalettes())
@@ -256,11 +260,6 @@ export function AuthorPage() {
       setPubSaving(false)
     }
   }
-
-  // Validate custom colors for contrast
-  const customColorValidation = pubTheme === 'custom'
-    ? validateCustomColors(pubCustomColors)
-    : null
 
   if (loading) {
     return (
@@ -608,42 +607,60 @@ export function AuthorPage() {
                     </div>
                   </div>
 
-                  {/* Contrast warnings */}
-                  {customColorValidation && !customColorValidation.isValid && (
-                    <div className="text-xs text-amber-500 mt-2">
-                      {customColorValidation.textContrast && !customColorValidation.textContrast.passes && (
-                        <p>Text contrast is too low ({customColorValidation.textContrast.ratio.toFixed(1)}:1, needs 4.5:1)</p>
-                      )}
-                      {customColorValidation.accentContrast && customColorValidation.accentContrast.ratio < 3 && (
-                        <p>Accent contrast is too low ({customColorValidation.accentContrast.ratio.toFixed(1)}:1, needs 3:1)</p>
-                      )}
-                    </div>
-                  )}
+                  {/* Preview and Contrast Validation */}
+                  {pubCustomColors.background && pubCustomColors.text && pubCustomColors.accent && (() => {
+                    const validation = validateCustomColors(pubCustomColors)
+                    return (
+                      <div className="mt-4 pt-4 border-t border-[var(--site-border)]">
+                        {/* Contrast warnings */}
+                        {!validation.isValid && (
+                          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                            <p className="text-yellow-600 dark:text-yellow-400 text-sm font-medium mb-2">
+                              Low contrast warning
+                            </p>
+                            <ul className="text-xs text-yellow-600/80 dark:text-yellow-400/80 space-y-1">
+                              {validation.textContrast && !validation.textContrast.passes && (
+                                <li>
+                                  Text contrast: {validation.textContrast.ratio.toFixed(1)}:1 (minimum 4.5:1 required)
+                                </li>
+                              )}
+                              {validation.accentContrast && validation.accentContrast.ratio < 3 && (
+                                <li>
+                                  Accent contrast: {validation.accentContrast.ratio.toFixed(1)}:1 (minimum 3:1 required)
+                                </li>
+                              )}
+                            </ul>
+                          </div>
+                        )}
 
-                  {/* Theme preview */}
-                  {pubCustomColors.background && pubCustomColors.text && (
-                    <div
-                      className="mt-3 p-3 rounded-md border"
-                      style={{
-                        backgroundColor: pubCustomColors.background,
-                        color: pubCustomColors.text,
-                        borderColor: deriveThemeColors(pubCustomColors)?.border || pubCustomColors.text,
-                      }}
-                    >
-                      <p className="text-sm font-medium">Preview</p>
-                      <p className="text-xs opacity-70">Sample text with your colors</p>
-                      {pubCustomColors.accent && (
-                        <a
-                          href="#"
-                          onClick={(e) => e.preventDefault()}
-                          style={{ color: pubCustomColors.accent }}
-                          className="text-xs underline"
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs text-[var(--site-text-secondary)]">Preview:</p>
+                          {validation.isValid && (
+                            <span className="text-xs text-green-600 dark:text-green-400">
+                              ✓ Contrast OK ({validation.textContrast?.ratio.toFixed(1)}:1)
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className="p-4 rounded-lg"
+                          style={{ backgroundColor: pubCustomColors.background }}
                         >
-                          Sample link
-                        </a>
-                      )}
-                    </div>
-                  )}
+                          <p style={{ color: pubCustomColors.text }} className="text-sm mb-2">
+                            This is how your text will look. <a href="#" onClick={(e) => e.preventDefault()} style={{ color: pubCustomColors.accent }} className="underline">Links appear like this.</a>
+                          </p>
+                          <div
+                            className="px-3 py-2 rounded text-sm font-mono"
+                            style={{
+                              backgroundColor: pubCustomColors.codeBackground || deriveThemeColors(pubCustomColors)?.codeBackground || pubCustomColors.background,
+                              color: pubCustomColors.text,
+                            }}
+                          >
+                            const code = "block"
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
 
               {/* site.standard Publishing */}
@@ -684,8 +701,9 @@ export function AuthorPage() {
                 </button>
                 <button
                   onClick={handleSavePublication}
-                  disabled={pubSaving || !pubName.trim()}
+                  disabled={pubSaving || !pubName.trim() || hasPubContrastError}
                   className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-md hover:opacity-90 disabled:opacity-50"
+                  title={hasPubContrastError ? 'Fix contrast issues before saving' : !pubName.trim() ? 'Publication name is required' : undefined}
                 >
                   {pubSaving ? 'Saving...' : 'Save'}
                 </button>
