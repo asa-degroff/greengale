@@ -682,8 +682,8 @@ export function EditorPage() {
         }
       }
 
-      // Dual-publish to site.standard.document if enabled in publication settings
-      if (!isWhiteWind && publicationEnablesSiteStandard && resultRkey) {
+      // Dual-publish to site.standard.document if enabled in publication settings (public posts only)
+      if (!isWhiteWind && publicationEnablesSiteStandard && resultRkey && visibilityToUse === 'public') {
         try {
           const greengaleUri = `at://${session.did}/app.greengale.document/${resultRkey}`
           const siteStandardPublicationUri = `at://${session.did}/site.standard.publication/self`
