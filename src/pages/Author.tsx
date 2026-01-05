@@ -183,7 +183,8 @@ export function AuthorPage() {
           codeBackground: publication.theme.custom.codeBackground || '',
         })
       }
-      setPubEnableSiteStandard(publication.enableSiteStandard || false)
+      // Default to true unless explicitly disabled
+      setPubEnableSiteStandard(publication.enableSiteStandard !== false)
     } else {
       // Default values for new publication
       setPubName(author?.displayName || '')
@@ -195,7 +196,7 @@ export function AuthorPage() {
         accent: '#0969da',
         codeBackground: '',
       })
-      setPubEnableSiteStandard(false)
+      setPubEnableSiteStandard(true) // Enabled by default
     }
     setPubError(null)
     setShowPublicationModal(true)
@@ -755,10 +756,10 @@ export function AuthorPage() {
                   />
                   <div>
                     <span className="text-sm font-medium text-[var(--site-text)]">
-                      Enable site.standard publishing
+                      Publish to standard.site
                     </span>
                     <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
-                      Also publish to site.standard.publication and site.standard.document collections for cross-platform compatibility and verification
+                      Publish posts to site.standard collections for cross-platform compatibility. Enabled by default; can be overridden per-post.
                     </p>
                   </div>
                 </label>

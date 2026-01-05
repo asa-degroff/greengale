@@ -106,6 +106,7 @@ export function EditorPage() {
   })
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [enableLatex, setEnableLatex] = useState(false)
+  const [publishToSiteStandard, setPublishToSiteStandard] = useState(true) // Default enabled, can be overridden per-post
   type ViewMode = 'edit' | 'preview' | 'split'
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
   const [publishing, setPublishing] = useState(false)
@@ -271,6 +272,8 @@ export function EditorPage() {
             setTheme(publication.theme.preset as ThemePreset)
           }
         }
+        // Initialize site.standard publishing from publication setting (default to true)
+        setPublishToSiteStandard(publication?.enableSiteStandard !== false)
       } catch (err) {
         // Ignore errors - just use default theme
         console.warn('Failed to load publication theme:', err)
@@ -675,8 +678,6 @@ export function EditorPage() {
       }
 
       // Auto-create publication record if one doesn't exist (GreenGale posts only)
-      // Also check if site.standard publishing is enabled for dual-publish
-      let publicationEnablesSiteStandard = false
       if (!isWhiteWind && session.did) {
         try {
           const existingPublication = await getPublication(session.did)
@@ -686,8 +687,6 @@ export function EditorPage() {
               name: handle || 'My Blog',
               url: 'https://greengale.app',
             })
-          } else {
-            publicationEnablesSiteStandard = existingPublication.enableSiteStandard || false
           }
         } catch (pubErr) {
           // Don't fail the post save if publication creation fails
@@ -695,8 +694,8 @@ export function EditorPage() {
         }
       }
 
-      // Dual-publish to site.standard.document if enabled in publication settings (public posts only)
-      if (!isWhiteWind && publicationEnablesSiteStandard && resultRkey && visibilityToUse === 'public') {
+      // Dual-publish to site.standard.document if enabled for this post (public posts only)
+      if (!isWhiteWind && publishToSiteStandard && resultRkey && visibilityToUse === 'public') {
         try {
           const greengaleUri = `at://${session.did}/app.greengale.document/${resultRkey}`
           const siteStandardPublicationUri = `at://${session.did}/site.standard.publication/self`
@@ -729,7 +728,7 @@ export function EditorPage() {
       setError(err instanceof Error ? err.message : 'Failed to save post')
       return null
     }
-  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, enableLatex, uploadedBlobs, rkey])
+  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, enableLatex, publishToSiteStandard, uploadedBlobs, rkey])
 
   async function handlePublish() {
     setPublishAttempted(true)
@@ -1650,33 +1649,61 @@ export function EditorPage() {
                     </select>
                   </div>
 
-                  {/* LaTeX */}
+                  {/* Options */}
                   <div>
                     <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
                       Options
                     </label>
-                    <label className="flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
-                      <span className="relative flex items-center justify-center w-5 h-5">
-                        <input
-                          type="checkbox"
-                          checked={enableLatex}
-                          onChange={(e) => setEnableLatex(e.target.checked)}
-                          className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer"
-                        />
-                        <svg
-                          className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </span>
-                      <span className="text-[var(--site-text)]">Enable KaTeX</span>
-                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
+                        <span className="relative flex items-center justify-center w-5 h-5">
+                          <input
+                            type="checkbox"
+                            checked={enableLatex}
+                            onChange={(e) => setEnableLatex(e.target.checked)}
+                            className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer"
+                          />
+                          <svg
+                            className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </span>
+                        <span className="text-[var(--site-text)]">Enable KaTeX</span>
+                      </label>
+                      <label className={`flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors ${visibility !== 'public' ? 'opacity-50' : ''}`}>
+                        <span className="relative flex items-center justify-center w-5 h-5">
+                          <input
+                            type="checkbox"
+                            checked={publishToSiteStandard && visibility === 'public'}
+                            onChange={(e) => setPublishToSiteStandard(e.target.checked)}
+                            disabled={visibility !== 'public'}
+                            className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                          <svg
+                            className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </span>
+                        <span className="text-[var(--site-text)]">
+                          Publish to standard.site
+                          {visibility !== 'public' && <span className="text-xs text-[var(--site-text-secondary)] ml-1">(public only)</span>}
+                        </span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
