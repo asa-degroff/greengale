@@ -1598,9 +1598,9 @@ export function EditorPage() {
                       onChange={(e) => {
                         const newTheme = e.target.value as ThemePreset
                         setTheme(newTheme)
-                        // Pre-fill custom colors when switching to custom from a preset
-                        if (newTheme === 'custom' && theme !== 'custom') {
-                          const presetColors = getPresetColors(theme)
+                        // Update color pickers to reflect the selected preset's colors
+                        if (newTheme !== 'custom') {
+                          const presetColors = getPresetColors(newTheme)
                           setCustomColors({
                             background: presetColors.background,
                             text: presetColors.text,
@@ -1649,38 +1649,18 @@ export function EditorPage() {
                   </div>
                 </div>
 
-                {/* Custom Theme Settings */}
-                {theme === 'custom' && (
-                  <div className="p-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg-secondary)]">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-sm font-medium text-[var(--site-text)]">Custom Theme Colors</h3>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-[var(--site-text-secondary)]">Start from:</label>
-                        <select
-                          onChange={(e) => {
-                            const preset = e.target.value as ThemePreset
-                            if (preset && preset !== 'custom' && preset !== 'default') {
-                              const presetColors = getPresetColors(preset)
-                              setCustomColors({
-                                background: presetColors.background,
-                                text: presetColors.text,
-                                accent: presetColors.accent,
-                                codeBackground: '',
-                              })
-                            }
-                          }}
-                          className="px-2 py-1 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
-                          defaultValue=""
-                        >
-                          <option value="" disabled>Select preset...</option>
-                          {THEME_PRESETS.filter(p => p !== 'default' && p !== 'custom').map((preset) => (
-                            <option key={preset} value={preset}>
-                              {THEME_LABELS[preset]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
+                {/* Theme Color Customization */}
+                <div className="p-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg-secondary)]">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-medium text-[var(--site-text)]">
+                      Customize Colors
+                      {theme !== 'custom' && (
+                        <span className="ml-2 text-xs font-normal text-[var(--site-text-secondary)]">
+                          (editing will switch to custom theme)
+                        </span>
+                      )}
+                    </h3>
+                  </div>
 
                     {/* Recent Palettes */}
                     {recentPalettes.length > 0 && (
@@ -1691,12 +1671,15 @@ export function EditorPage() {
                             <button
                               key={index}
                               type="button"
-                              onClick={() => setCustomColors({
-                                background: palette.background,
-                                text: palette.text,
-                                accent: palette.accent,
-                                codeBackground: palette.codeBackground || '',
-                              })}
+                              onClick={() => {
+                                setTheme('custom')
+                                setCustomColors({
+                                  background: palette.background,
+                                  text: palette.text,
+                                  accent: palette.accent,
+                                  codeBackground: palette.codeBackground || '',
+                                })
+                              }}
                               className="flex rounded overflow-hidden border border-[var(--site-border)] hover:border-[var(--site-accent)] transition-colors"
                               title={`Background: ${palette.background}, Text: ${palette.text}, Accent: ${palette.accent}`}
                             >
@@ -1728,14 +1711,14 @@ export function EditorPage() {
                           <input
                             type="color"
                             value={customColors.background || '#ffffff'}
-                            onChange={(e) => setCustomColors({ ...customColors, background: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, background: e.target.value }) }}
                             className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                             style={{ backgroundColor: customColors.background || '#ffffff' }}
                           />
                           <input
                             type="text"
                             value={customColors.background || ''}
-                            onChange={(e) => setCustomColors({ ...customColors, background: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, background: e.target.value }) }}
                             placeholder="#ffffff"
                             className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
                           />
@@ -1751,14 +1734,14 @@ export function EditorPage() {
                           <input
                             type="color"
                             value={customColors.text || '#24292f'}
-                            onChange={(e) => setCustomColors({ ...customColors, text: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, text: e.target.value }) }}
                             className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                             style={{ backgroundColor: customColors.text || '#24292f' }}
                           />
                           <input
                             type="text"
                             value={customColors.text || ''}
-                            onChange={(e) => setCustomColors({ ...customColors, text: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, text: e.target.value }) }}
                             placeholder="#24292f"
                             className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
                           />
@@ -1774,14 +1757,14 @@ export function EditorPage() {
                           <input
                             type="color"
                             value={customColors.accent || '#0969da'}
-                            onChange={(e) => setCustomColors({ ...customColors, accent: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, accent: e.target.value }) }}
                             className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                             style={{ backgroundColor: customColors.accent || '#0969da' }}
                           />
                           <input
                             type="text"
                             value={customColors.accent || ''}
-                            onChange={(e) => setCustomColors({ ...customColors, accent: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, accent: e.target.value }) }}
                             placeholder="#0969da"
                             className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
                           />
@@ -1797,14 +1780,14 @@ export function EditorPage() {
                           <input
                             type="color"
                             value={customColors.codeBackground || (deriveThemeColors(customColors)?.codeBackground || '#f6f8fa')}
-                            onChange={(e) => setCustomColors({ ...customColors, codeBackground: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, codeBackground: e.target.value }) }}
                             className="w-10 h-10 shrink-0 rounded border border-[var(--site-border)] cursor-pointer appearance-none bg-transparent p-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded [&::-webkit-color-swatch]:border-none [&::-moz-color-swatch]:rounded [&::-moz-color-swatch]:border-none"
                             style={{ backgroundColor: customColors.codeBackground || (deriveThemeColors(customColors)?.codeBackground || '#f6f8fa') }}
                           />
                           <input
                             type="text"
                             value={customColors.codeBackground || ''}
-                            onChange={(e) => setCustomColors({ ...customColors, codeBackground: e.target.value })}
+                            onChange={(e) => { setTheme('custom'); setCustomColors({ ...customColors, codeBackground: e.target.value }) }}
                             placeholder="Auto"
                             className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
                           />
@@ -1866,8 +1849,7 @@ export function EditorPage() {
                         </div>
                       )
                     })()}
-                  </div>
-                )}
+                </div>
               </>
             )}
           </div>
