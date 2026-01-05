@@ -7,9 +7,10 @@ import { extractCidFromBlobUrl, getBlobLabelsMap } from '@/lib/image-labels'
 interface BlogCardProps {
   entry: BlogEntry
   author?: AuthorProfile
+  externalUrl?: string | null
 }
 
-export function BlogCard({ entry, author }: BlogCardProps) {
+export function BlogCard({ entry, author, externalUrl }: BlogCardProps) {
   const preview = extractText(entry.content, 160)
   const thumbnail = extractFirstImage(entry.content)
 
@@ -32,10 +33,11 @@ export function BlogCard({ entry, author }: BlogCardProps) {
     : null
 
   const authorHandle = author?.handle || entry.authorDid
+  const isNetworkPost = !!externalUrl
 
-  return (
-    <article className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]">
-      <Link to={`/${authorHandle}/${entry.rkey}`} className="block">
+  // Card content (shared between internal and external links)
+  const cardContent = (
+    <>
         {thumbnail && !thumbnailHasLabels && (
           <div className="aspect-video overflow-hidden bg-[var(--site-bg-secondary)]">
             <img
@@ -110,13 +112,44 @@ export function BlogCard({ entry, author }: BlogCardProps) {
                 </span>
               )}
               {formattedDate && <time dateTime={entry.createdAt}>{formattedDate}</time>}
-              <span className="px-1.5 py-0.5 rounded bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]">
-                {entry.source === 'whitewind' ? 'WW' : 'GG'}
+              <span className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                isNetworkPost
+                  ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                  : 'bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]'
+              }`}>
+                {isNetworkPost ? (
+                  <>
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                    NET
+                  </>
+                ) : entry.source === 'whitewind' ? 'WW' : 'GG'}
               </span>
             </div>
           </div>
         </div>
-      </Link>
+    </>
+  )
+
+  return (
+    <article className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]">
+      {isNetworkPost ? (
+        <a
+          href={externalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block"
+        >
+          {cardContent}
+        </a>
+      ) : (
+        <Link to={`/${authorHandle}/${entry.rkey}`} className="block">
+          {cardContent}
+        </Link>
+      )}
     </article>
   )
 }

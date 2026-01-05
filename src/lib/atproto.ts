@@ -38,7 +38,7 @@ export interface BlogEntry {
   cid: string
   authorDid: string
   rkey: string
-  source: 'whitewind' | 'greengale'
+  source: 'whitewind' | 'greengale' | 'network'
   content: string
   title?: string
   subtitle?: string

@@ -368,7 +368,8 @@ export function EditorPage() {
       setTitle(entry.title || '')
       setSubtitle(entry.subtitle || '')
       setContent(entry.content)
-      setLexicon(entry.source)
+      // Network posts aren't editable in GreenGale, default to greengale
+      setLexicon(entry.source === 'whitewind' ? 'whitewind' : 'greengale')
       setVisibility(entry.visibility || 'public')
       setOriginalCreatedAt(entry.createdAt || null)
 
@@ -453,7 +454,7 @@ export function EditorPage() {
         title: entry.title || '',
         subtitle: entry.subtitle || '',
         content: entry.content,
-        lexicon: entry.source,
+        lexicon: entry.source === 'whitewind' ? 'whitewind' : 'greengale',
         theme: entry.source === 'greengale'
           ? (entry.theme?.custom ? 'custom' : (entry.theme?.preset || 'default'))
           : 'default',

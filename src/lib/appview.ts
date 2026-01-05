@@ -15,10 +15,11 @@ export interface AppViewPost {
   rkey: string
   title: string | null
   subtitle: string | null
-  source: 'whitewind' | 'greengale'
+  source: 'whitewind' | 'greengale' | 'network'
   visibility: string
   createdAt: string | null
   indexedAt: string
+  externalUrl?: string | null
   author?: {
     did: string
     handle: string
@@ -84,6 +85,27 @@ export async function getRecentPosts(
 
   if (!response.ok) {
     throw new Error(`Failed to fetch recent posts: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get recent posts from the network (site.standard posts from external sites)
+ */
+export async function getNetworkPosts(
+  limit = 50,
+  cursor?: string
+): Promise<RecentPostsResponse> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.feed.getNetworkPosts?${params}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch network posts: ${response.statusText}`)
   }
 
   return response.json()

@@ -21,7 +21,7 @@ interface BlogViewerProps {
   theme?: Theme
   latex?: boolean
   author?: AuthorProfile
-  source?: 'whitewind' | 'greengale'
+  source?: 'whitewind' | 'greengale' | 'network'
   blobs?: BlogEntry['blobs']
   postUrl?: string
 }

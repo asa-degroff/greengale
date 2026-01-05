@@ -318,6 +318,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Extract V2-specific fields (site.standard uses 'site' AT-URI instead of 'url')
       const documentUrl = isV2Document ? (record?.url as string) || null : null
       const documentPath = (isV2Document || isSiteStandardDocument) ? (record?.path as string) || null : null
+      // Extract site AT-URI for site.standard.document (points to site.standard.publication)
+      const siteUri = isSiteStandardDocument ? (record?.site as string) || null : null
 
       // Store theme data - either preset name or JSON for custom themes
       let themePreset: string | null = null
@@ -349,8 +351,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
         : null
 
       await this.env.DB.prepare(`
-        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uri) DO UPDATE SET
           title = excluded.title,
           subtitle = excluded.subtitle,
@@ -362,11 +364,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
           first_image_cid = excluded.first_image_cid,
           url = excluded.url,
           path = excluded.path,
+          site_uri = excluded.site_uri,
           indexed_at = datetime('now')
       `).bind(
         uri, did, rkey, title, subtitle, slug, source, visibility,
         createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
-        documentUrl, documentPath
+        documentUrl, documentPath, siteUri
       ).run()
 
       // Ensure author exists

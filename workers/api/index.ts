@@ -713,6 +713,103 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
   }
 })
 
+// Get recent posts from the network (site.standard.document posts with external URLs)
+app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
+  const cursor = c.req.query('cursor')
+
+  // Build cache key
+  const cacheKey = `network_posts:${limit}:${cursor || ''}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    // Cache miss - query database
+    // Join with publications to get external URL, only include posts where we have the publication URL
+    // Exclude posts that also have a GreenGale version (dual-published from GreenGale)
+    let query = `
+      SELECT
+        p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
+        p.visibility, p.created_at, p.indexed_at, p.path,
+        a.handle, a.display_name, a.avatar_url,
+        pub.url as publication_url
+      FROM posts p
+      LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
+      WHERE p.visibility = 'public'
+        AND p.uri LIKE '%/site.standard.document/%'
+        AND pub.url IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM posts gg
+          WHERE gg.author_did = p.author_did
+            AND gg.rkey = p.rkey
+            AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+              OR gg.uri LIKE '%/app.greengale.document/%')
+        )
+    `
+
+    const params: (string | number)[] = []
+
+    if (cursor) {
+      query += ` AND p.indexed_at < ?`
+      params.push(cursor)
+    }
+
+    query += ` ORDER BY p.indexed_at DESC LIMIT ?`
+    params.push(limit + 1)
+
+    const result = await c.env.DB.prepare(query).bind(...params).all()
+    const posts = result.results || []
+
+    const hasMore = posts.length > limit
+    const returnPosts = hasMore ? posts.slice(0, limit) : posts
+
+    // Format posts with external URL
+    const formattedPosts = returnPosts.map((row) => {
+      const pubUrl = (row.publication_url as string || '').replace(/\/$/, '')
+      const path = row.path as string || ''
+      const externalUrl = pubUrl && path ? `${pubUrl}${path}` : null
+
+      return {
+        uri: row.uri,
+        author: {
+          did: row.author_did,
+          handle: row.handle || '',
+          displayName: row.display_name || null,
+          avatarUrl: row.avatar_url || null,
+        },
+        rkey: row.rkey,
+        title: row.title || null,
+        subtitle: row.subtitle || null,
+        source: 'network',
+        visibility: row.visibility,
+        createdAt: row.created_at,
+        indexedAt: row.indexed_at,
+        externalUrl,
+      }
+    })
+
+    const response = {
+      posts: formattedPosts,
+      cursor: hasMore ? (returnPosts[returnPosts.length - 1] as Record<string, unknown>).indexed_at : undefined,
+    }
+
+    // Store in cache with TTL
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: RECENT_POSTS_CACHE_TTL,
+    })
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error fetching network posts:', error)
+    return c.json({ error: 'Failed to fetch network posts' }, 500)
+  }
+})
+
 // Get posts by author
 // Optional viewer parameter: if viewer DID matches author DID, includes private posts
 app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {

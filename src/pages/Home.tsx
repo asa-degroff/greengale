@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { BlogCard } from '@/components/BlogCard'
 import { TextLogo } from '@/components/TextLogo'
-import { getRecentPosts, type AppViewPost } from '@/lib/appview'
+import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
+
+type FeedTab = 'greengale' | 'network'
 
 // Convert AppView post to BlogEntry format for BlogCard
 function toBlogEntry(post: AppViewPost): BlogEntry {
@@ -30,12 +32,23 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
 }
 
 export function HomePage() {
+  const [activeTab, setActiveTab] = useState<FeedTab>('greengale')
+
+  // GreenGale feed state
   const [recentPosts, setRecentPosts] = useState<AppViewPost[]>([])
   const [loading, setLoading] = useState(true)
   const [appViewAvailable, setAppViewAvailable] = useState(false)
   const [cursor, setCursor] = useState<string | undefined>()
   const [loadCount, setLoadCount] = useState(1)
   const [loadingMore, setLoadingMore] = useState(false)
+
+  // Network feed state
+  const [networkPosts, setNetworkPosts] = useState<AppViewPost[]>([])
+  const [networkLoading, setNetworkLoading] = useState(false)
+  const [networkLoaded, setNetworkLoaded] = useState(false)
+  const [networkCursor, setNetworkCursor] = useState<string | undefined>()
+  const [networkLoadCount, setNetworkLoadCount] = useState(1)
+  const [networkLoadingMore, setNetworkLoadingMore] = useState(false)
 
   useEffect(() => {
     async function loadRecentPosts() {
@@ -65,6 +78,40 @@ export function HomePage() {
       setLoadCount(prev => prev + 1)
     } finally {
       setLoadingMore(false)
+    }
+  }
+
+  // Lazy-load network posts when tab is switched
+  useEffect(() => {
+    if (activeTab === 'network' && !networkLoaded && !networkLoading) {
+      loadNetworkPosts()
+    }
+  }, [activeTab, networkLoaded, networkLoading])
+
+  async function loadNetworkPosts() {
+    setNetworkLoading(true)
+    try {
+      const { posts, cursor: nextCursor } = await getNetworkPosts(12)
+      setNetworkPosts(posts)
+      setNetworkCursor(nextCursor)
+      setNetworkLoaded(true)
+    } catch {
+      // Network feed not available
+    } finally {
+      setNetworkLoading(false)
+    }
+  }
+
+  async function handleLoadMoreNetwork() {
+    if (!networkCursor || networkLoadingMore || networkLoadCount >= 12) return
+    setNetworkLoadingMore(true)
+    try {
+      const { posts, cursor: nextCursor } = await getNetworkPosts(12, networkCursor)
+      setNetworkPosts(prev => [...prev, ...posts])
+      setNetworkCursor(nextCursor)
+      setNetworkLoadCount(prev => prev + 1)
+    } finally {
+      setNetworkLoadingMore(false)
     }
   }
 
@@ -114,40 +161,127 @@ export function HomePage() {
           </form>
         </div>
 
-        {/* Recent Posts Section */}
-        {appViewAvailable && recentPosts.length > 0 && (
+        {/* Posts Section with Tabs */}
+        {appViewAvailable && (
           <div className="mb-12">
-            <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
-              Recent Posts
-            </h2>
-            <div className="grid md:grid-cols-2 gap-6">
-              {recentPosts.map((post) => (
-                <BlogCard
-                  key={post.uri}
-                  entry={toBlogEntry(post)}
-                  author={toAuthorProfile(post)}
-                />
-              ))}
+            {/* Tab navigation */}
+            <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
+              <button
+                onClick={() => setActiveTab('greengale')}
+                className={`px-4 py-2 font-medium transition-colors relative ${
+                  activeTab === 'greengale'
+                    ? 'text-[var(--site-accent)]'
+                    : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+                }`}
+              >
+                Recents
+                {activeTab === 'greengale' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('network')}
+                className={`px-4 py-2 font-medium transition-colors relative ${
+                  activeTab === 'network'
+                    ? 'text-[var(--site-accent)]'
+                    : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+                }`}
+              >
+                From the Network (Beta)
+                {activeTab === 'network' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
+                )}
+              </button>
             </div>
-            {cursor && loadCount < 12 && (
-              <div className="mt-8 text-center">
-                <button
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                  className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loadingMore ? 'Loading...' : 'More'}
-                </button>
-              </div>
+
+            {/* GreenGale feed */}
+            {activeTab === 'greengale' && (
+              <>
+                {recentPosts.length > 0 ? (
+                  <>
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {recentPosts.map((post) => (
+                        <BlogCard
+                          key={post.uri}
+                          entry={toBlogEntry(post)}
+                          author={toAuthorProfile(post)}
+                        />
+                      ))}
+                    </div>
+                    {cursor && loadCount < 12 && (
+                      <div className="mt-8 text-center">
+                        <button
+                          onClick={handleLoadMore}
+                          disabled={loadingMore}
+                          className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {loadingMore ? 'Loading...' : 'More'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : !loading && (
+                  <p className="text-center text-[var(--site-text-secondary)] py-8">
+                    No posts yet.
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Network feed */}
+            {activeTab === 'network' && (
+              <>
+                {networkLoading ? (
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg animate-pulse" />
+                    ))}
+                  </div>
+                ) : networkPosts.length > 0 ? (
+                  <>
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {networkPosts.map((post) => (
+                        <BlogCard
+                          key={post.uri}
+                          entry={toBlogEntry(post)}
+                          author={toAuthorProfile(post)}
+                          externalUrl={post.externalUrl}
+                        />
+                      ))}
+                    </div>
+                    {networkCursor && networkLoadCount < 12 && (
+                      <div className="mt-8 text-center">
+                        <button
+                          onClick={handleLoadMoreNetwork}
+                          disabled={networkLoadingMore}
+                          className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {networkLoadingMore ? 'Loading...' : 'More'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-center text-[var(--site-text-secondary)] py-8">
+                    No network posts available yet.
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
 
         {loading && (
           <div className="mb-12">
-            <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
-              Recent Posts
-            </h2>
+            <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
+              <div className="px-4 py-2 font-medium text-[var(--site-accent)] relative">
+                GreenGale
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
+              </div>
+              <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
+                From the Network
+              </div>
+            </div>
             <div className="grid md:grid-cols-2 gap-6">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg animate-pulse" />
