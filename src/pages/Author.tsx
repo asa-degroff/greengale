@@ -27,7 +27,7 @@ import {
 
 // Recent palettes storage (shared with Editor)
 const RECENT_PALETTES_KEY = 'recent-custom-palettes'
-const MAX_RECENT_PALETTES = 5
+const MAX_RECENT_PALETTES = 10
 
 interface SavedPalette {
   background: string

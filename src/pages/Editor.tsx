@@ -34,7 +34,7 @@ const VISIBILITY_OPTIONS = [
 ] as const
 
 const RECENT_PALETTES_KEY = 'recent-custom-palettes'
-const MAX_RECENT_PALETTES = 5
+const MAX_RECENT_PALETTES = 10
 
 interface SavedPalette {
   background: string
