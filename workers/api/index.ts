@@ -732,20 +732,18 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     }
 
     // Cache miss - query database
-    // Join with publications to get external URL, only include posts where we have the publication URL
+    // Use external_url column (pre-computed during indexing)
     // Exclude posts that also have a GreenGale version (dual-published from GreenGale)
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-        p.visibility, p.created_at, p.indexed_at, p.path,
-        a.handle, a.display_name, a.avatar_url,
-        pub.url as publication_url
+        p.visibility, p.created_at, p.indexed_at, p.external_url,
+        a.handle, a.display_name, a.avatar_url
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
-      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.visibility = 'public'
         AND p.uri LIKE '%/site.standard.document/%'
-        AND pub.url IS NOT NULL
+        AND p.external_url IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM posts gg
           WHERE gg.author_did = p.author_did
@@ -771,30 +769,24 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     const hasMore = posts.length > limit
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
 
-    // Format posts with external URL
-    const formattedPosts = returnPosts.map((row) => {
-      const pubUrl = (row.publication_url as string || '').replace(/\/$/, '')
-      const path = row.path as string || ''
-      const externalUrl = pubUrl && path ? `${pubUrl}${path}` : null
-
-      return {
-        uri: row.uri,
-        author: {
-          did: row.author_did,
-          handle: row.handle || '',
-          displayName: row.display_name || null,
-          avatarUrl: row.avatar_url || null,
-        },
-        rkey: row.rkey,
-        title: row.title || null,
-        subtitle: row.subtitle || null,
-        source: 'network',
-        visibility: row.visibility,
-        createdAt: row.created_at,
-        indexedAt: row.indexed_at,
-        externalUrl,
-      }
-    })
+    // Format posts
+    const formattedPosts = returnPosts.map((row) => ({
+      uri: row.uri,
+      author: {
+        did: row.author_did,
+        handle: row.handle || '',
+        displayName: row.display_name || null,
+        avatarUrl: row.avatar_url || null,
+      },
+      rkey: row.rkey,
+      title: row.title || null,
+      subtitle: row.subtitle || null,
+      source: 'network',
+      visibility: row.visibility,
+      createdAt: row.created_at,
+      indexedAt: row.indexed_at,
+      externalUrl: row.external_url,
+    }))
 
     const response = {
       posts: formattedPosts,

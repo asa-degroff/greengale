@@ -321,6 +321,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Extract site AT-URI for site.standard.document (points to site.standard.publication)
       const siteUri = isSiteStandardDocument ? (record?.site as string) || null : null
 
+      // For site.standard.document, resolve the publication to get external URL
+      let externalUrl: string | null = null
+      if (isSiteStandardDocument && siteUri && documentPath) {
+        externalUrl = await this.resolveExternalUrl(siteUri, documentPath)
+      }
+
       // Store theme data - either preset name or JSON for custom themes
       let themePreset: string | null = null
       if (record?.theme) {
@@ -351,8 +357,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
         : null
 
       await this.env.DB.prepare(`
-        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri, external_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(uri) DO UPDATE SET
           title = excluded.title,
           subtitle = excluded.subtitle,
@@ -365,11 +371,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
           url = excluded.url,
           path = excluded.path,
           site_uri = excluded.site_uri,
+          external_url = excluded.external_url,
           indexed_at = datetime('now')
       `).bind(
         uri, did, rkey, title, subtitle, slug, source, visibility,
         createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
-        documentUrl, documentPath, siteUri
+        documentUrl, documentPath, siteUri, externalUrl
       ).run()
 
       // Ensure author exists
@@ -497,6 +504,80 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
 
     return null
+  }
+
+  /**
+   * Resolve a site.standard.publication AT-URI to get the external URL
+   * Returns the full URL (publication.url + document.path) or null if resolution fails
+   */
+  private async resolveExternalUrl(siteUri: string, documentPath: string): Promise<string | null> {
+    try {
+      // Parse the AT-URI: at://did/collection/rkey
+      const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+      if (!match) {
+        console.error(`Invalid site AT-URI: ${siteUri}`)
+        return null
+      }
+
+      const [, pubDid, collection, rkey] = match
+
+      // First check if we have this publication cached in our database
+      const cached = await this.env.DB.prepare(
+        'SELECT url FROM publications WHERE author_did = ?'
+      ).bind(pubDid).first()
+
+      if (cached?.url) {
+        const baseUrl = (cached.url as string).replace(/\/$/, '')
+        return `${baseUrl}${documentPath}`
+      }
+
+      // Fetch the publication record from the network
+      // Try to resolve the DID to find the PDS
+      const didDocResponse = await fetch(`https://plc.directory/${pubDid}`)
+      if (!didDocResponse.ok) {
+        console.error(`Failed to resolve DID: ${pubDid}`)
+        return null
+      }
+
+      const didDoc = await didDocResponse.json() as {
+        service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+      }
+
+      const pdsService = didDoc.service?.find(
+        s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+      )
+
+      if (!pdsService?.serviceEndpoint) {
+        console.error(`No PDS endpoint found for: ${pubDid}`)
+        return null
+      }
+
+      // Fetch the publication record
+      const recordUrl = `${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+      const recordResponse = await fetch(recordUrl)
+
+      if (!recordResponse.ok) {
+        console.error(`Failed to fetch publication: ${recordUrl}`)
+        return null
+      }
+
+      const record = await recordResponse.json() as {
+        value?: { url?: string }
+      }
+
+      const pubUrl = record.value?.url
+      if (!pubUrl) {
+        console.error(`Publication has no URL: ${siteUri}`)
+        return null
+      }
+
+      // Construct the full external URL
+      const baseUrl = pubUrl.replace(/\/$/, '')
+      return `${baseUrl}${documentPath}`
+    } catch (error) {
+      console.error(`Error resolving external URL for ${siteUri}:`, error)
+      return null
+    }
   }
 
   private async ensureAuthor(did: string) {
