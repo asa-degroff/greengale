@@ -53,7 +53,7 @@ export function HomePage() {
   useEffect(() => {
     async function loadRecentPosts() {
       try {
-        const { posts, cursor: nextCursor } = await getRecentPosts(12)
+        const { posts, cursor: nextCursor } = await getRecentPosts(24)
         setRecentPosts(posts)
         setCursor(nextCursor)
         setAppViewAvailable(true)
@@ -72,7 +72,7 @@ export function HomePage() {
     if (!cursor || loadingMore || loadCount >= 12) return
     setLoadingMore(true)
     try {
-      const { posts, cursor: nextCursor } = await getRecentPosts(12, cursor)
+      const { posts, cursor: nextCursor } = await getRecentPosts(24, cursor)
       setRecentPosts(prev => [...prev, ...posts])
       setCursor(nextCursor)
       setLoadCount(prev => prev + 1)
@@ -91,7 +91,7 @@ export function HomePage() {
   async function loadNetworkPosts() {
     setNetworkLoading(true)
     try {
-      const { posts, cursor: nextCursor } = await getNetworkPosts(12)
+      const { posts, cursor: nextCursor } = await getNetworkPosts(24)
       setNetworkPosts(posts)
       setNetworkCursor(nextCursor)
       setNetworkLoaded(true)
@@ -106,7 +106,7 @@ export function HomePage() {
     if (!networkCursor || networkLoadingMore || networkLoadCount >= 12) return
     setNetworkLoadingMore(true)
     try {
-      const { posts, cursor: nextCursor } = await getNetworkPosts(12, networkCursor)
+      const { posts, cursor: nextCursor } = await getNetworkPosts(24, networkCursor)
       setNetworkPosts(prev => [...prev, ...posts])
       setNetworkCursor(nextCursor)
       setNetworkLoadCount(prev => prev + 1)

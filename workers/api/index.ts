@@ -1214,7 +1214,7 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
     }
 
     // Invalidate recent posts cache
-    await c.env.CACHE.delete('recent_posts:12:')
+    await c.env.CACHE.delete('recent_posts:24:')
 
     return c.json({
       success: true,
@@ -1413,7 +1413,7 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
         }
 
         // Invalidate recent posts cache
-        await c.env.CACHE.delete('recent_posts:12:')
+        await c.env.CACHE.delete('recent_posts:24:')
 
         result = {
           success: true,
@@ -1765,7 +1765,7 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
 
     // Invalidate cache if we indexed anything
     if (indexed > 0) {
-      await c.env.CACHE.delete('recent_posts:12:')
+      await c.env.CACHE.delete('recent_posts:24:')
     }
 
     return c.json({
@@ -1884,7 +1884,7 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
 
     // Clear network posts cache if we updated anything
     if (updated > 0) {
-      await c.env.CACHE.delete('network_posts:12:')
+      await c.env.CACHE.delete('network_posts:24:')
     }
 
     return c.json({
