@@ -28,11 +28,34 @@ app.get('/xrpc/_health', (c) => {
 })
 
 // site.standard publication verification
-// Returns the AT-URI of GreenGale's platform publication record
+// Returns the AT-URI of a publication record
+// Without ?handle param: returns GreenGale's platform publication
+// With ?handle=user.bsky.social: returns that user's site.standard.publication
 // See: https://standard.site
-app.get('/.well-known/site.standard.publication', (c) => {
-  // GreenGale platform account DID: did:plc:purpkfw7haimc4zu5a57slza
-  return c.text('at://did:plc:purpkfw7haimc4zu5a57slza/app.greengale.publication/self')
+app.get('/.well-known/site.standard.publication', async (c) => {
+  const handle = c.req.query('handle')
+
+  if (!handle) {
+    // Return platform publication (existing behavior)
+    // GreenGale platform account DID: did:plc:purpkfw7haimc4zu5a57slza
+    return c.text('at://did:plc:purpkfw7haimc4zu5a57slza/site.standard.publication/self')
+  }
+
+  // Look up user's DID from handle
+  try {
+    const author = await c.env.DB.prepare(
+      'SELECT did FROM authors WHERE handle = ?'
+    ).bind(handle).first()
+
+    if (!author) {
+      return c.text('', 404)
+    }
+
+    // Return user's site.standard.publication AT-URI
+    return c.text(`at://${author.did}/site.standard.publication/self`)
+  } catch {
+    return c.text('', 500)
+  }
 })
 
 // OG image cache TTL (7 days)

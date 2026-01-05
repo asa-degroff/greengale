@@ -11,13 +11,17 @@ const BLOG_COLLECTIONS = [
   'com.whtwnd.blog.entry',
   'app.greengale.blog.entry',
   'app.greengale.document',
+  'site.standard.document',  // site.standard dual-publish support
 ]
 
-// Publication collection (separate from blog posts)
-const PUBLICATION_COLLECTION = 'app.greengale.publication'
+// Publication collections (separate from blog posts)
+const PUBLICATION_COLLECTIONS = [
+  'app.greengale.publication',
+  'site.standard.publication',  // site.standard dual-publish support
+]
 
 // All collections to monitor
-const ALL_COLLECTIONS = [...BLOG_COLLECTIONS, PUBLICATION_COLLECTION]
+const ALL_COLLECTIONS = [...BLOG_COLLECTIONS, ...PUBLICATION_COLLECTIONS]
 
 // Jetstream event types
 interface JetstreamCommit {
@@ -248,20 +252,20 @@ export class FirehoseConsumer extends DurableObject<Env> {
     const commit = event as JetstreamCommit
     const { did, commit: { operation, collection, rkey, record } } = commit
 
-    // Handle publication records separately
-    if (collection === PUBLICATION_COLLECTION) {
-      console.log(`Processing ${operation} for publication: ${did}`)
+    // Handle publication records (including site.standard.publication)
+    if (PUBLICATION_COLLECTIONS.includes(collection)) {
+      console.log(`Processing ${operation} for publication (${collection}): ${did}`)
       if (operation === 'delete') {
         await this.deletePublication(did)
       } else if (operation === 'create' || operation === 'update') {
-        await this.indexPublication(did, record)
+        await this.indexPublication(did, record, collection)
       }
     } else if (BLOG_COLLECTIONS.includes(collection)) {
-      // Handle blog posts
+      // Handle blog posts (including site.standard.document)
       const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
       const uri = `at://${did}/${collection}/${rkey}`
 
-      console.log(`Processing ${operation} for ${source} post: ${uri}`)
+      console.log(`Processing ${operation} for ${source} post (${collection}): ${uri}`)
 
       if (operation === 'delete') {
         await this.deletePost(uri)
@@ -289,22 +293,31 @@ export class FirehoseConsumer extends DurableObject<Env> {
     collection?: string
   ) {
     try {
-      // Extract metadata from record
-      const title = (record?.title as string) || null
-      const subtitle = (record?.subtitle as string) || null
-      const visibility = (record?.visibility as string) || 'public'
-      const content = (record?.content as string) || ''
-      const hasLatex = source === 'greengale' && (record?.latex === true)
-
-      // Handle date field - V2 uses publishedAt, V1/WhiteWind uses createdAt
+      // Determine document type
       const isV2Document = collection === 'app.greengale.document'
-      const createdAt = isV2Document
+      const isSiteStandardDocument = collection === 'site.standard.document'
+
+      // Extract metadata from record (handle site.standard field differences)
+      const title = (record?.title as string) || null
+      // site.standard uses 'description' instead of 'subtitle'
+      const subtitle = isSiteStandardDocument
+        ? (record?.description as string) || null
+        : (record?.subtitle as string) || null
+      const visibility = (record?.visibility as string) || 'public'
+      // site.standard uses 'textContent' for plaintext, or content may be a ref object
+      const content = isSiteStandardDocument
+        ? (record?.textContent as string) || ''
+        : (record?.content as string) || ''
+      const hasLatex = source === 'greengale' && !isSiteStandardDocument && (record?.latex === true)
+
+      // Handle date field - V2 and site.standard use publishedAt, V1/WhiteWind uses createdAt
+      const createdAt = (isV2Document || isSiteStandardDocument)
         ? (record?.publishedAt as string) || null
         : (record?.createdAt as string) || null
 
-      // Extract V2-specific fields
+      // Extract V2-specific fields (site.standard uses 'site' AT-URI instead of 'url')
       const documentUrl = isV2Document ? (record?.url as string) || null : null
-      const documentPath = isV2Document ? (record?.path as string) || null : null
+      const documentPath = (isV2Document || isSiteStandardDocument) ? (record?.path as string) || null : null
 
       // Store theme data - either preset name or JSON for custom themes
       let themePreset: string | null = null
@@ -553,8 +566,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
   }
 
-  private async indexPublication(did: string, record?: Record<string, unknown>) {
+  private async indexPublication(did: string, record?: Record<string, unknown>, collection?: string) {
     try {
+      const isSiteStandard = collection === 'site.standard.publication'
+
       const name = (record?.name as string) || null
       const description = (record?.description as string) || null
       const url = (record?.url as string) || null
@@ -565,10 +580,19 @@ export class FirehoseConsumer extends DurableObject<Env> {
       }
 
       // Store theme data - either preset name or JSON for custom themes
+      // site.standard uses 'basicTheme' instead of 'theme'
       let themePreset: string | null = null
-      if (record?.theme) {
-        const themeData = record.theme as Record<string, unknown>
-        if (themeData.custom) {
+      const themeSource = isSiteStandard ? record?.basicTheme : record?.theme
+      if (themeSource) {
+        const themeData = themeSource as Record<string, unknown>
+        if (isSiteStandard) {
+          // site.standard basicTheme has primaryColor, backgroundColor, accentColor
+          themePreset = JSON.stringify({
+            background: themeData.backgroundColor,
+            text: themeData.primaryColor,
+            accent: themeData.accentColor,
+          })
+        } else if (themeData.custom) {
           themePreset = JSON.stringify(themeData.custom)
         } else if (themeData.preset) {
           themePreset = themeData.preset as string

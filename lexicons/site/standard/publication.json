@@ -1,0 +1,67 @@
+{
+  "lexicon": 1,
+  "id": "site.standard.publication",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A publication record for cross-platform blog discovery and verification.",
+      "key": "self",
+      "record": {
+        "type": "object",
+        "required": ["url", "name"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Required base publication URL (e.g., https://standard.site)"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 1280,
+            "maxGraphemes": 128,
+            "description": "Required name of the publication"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300,
+            "description": "Optional brief description of the publication"
+          },
+          "icon": {
+            "type": "blob",
+            "accept": ["image/*"],
+            "maxSize": 1000000,
+            "description": "Optional square image to identify the publication. Should be at least 256x256."
+          },
+          "basicTheme": {
+            "type": "ref",
+            "ref": "#basicTheme",
+            "description": "Optional simplified publication theme for tools and apps"
+          },
+          "preferences": {
+            "type": "unknown",
+            "description": "Optional object containing platform-specific preferences"
+          }
+        }
+      }
+    },
+    "basicTheme": {
+      "type": "object",
+      "description": "Simplified theme for display in tools and apps",
+      "properties": {
+        "primaryColor": {
+          "type": "string",
+          "description": "Primary/text color"
+        },
+        "backgroundColor": {
+          "type": "string",
+          "description": "Background color"
+        },
+        "accentColor": {
+          "type": "string",
+          "description": "Accent/link color"
+        }
+      }
+    }
+  }
+}

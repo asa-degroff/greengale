@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS posts (
   theme_preset TEXT,
   first_image_cid TEXT,
   url TEXT,
-  path TEXT
+  path TEXT,
+  has_site_standard INTEGER DEFAULT 0
 );
 
 -- Indexes for common queries
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS publications (
   description TEXT,
   theme_preset TEXT,
   url TEXT NOT NULL,
+  enable_site_standard INTEGER DEFAULT 0,
   updated_at TEXT DEFAULT (datetime('now'))
 );
 

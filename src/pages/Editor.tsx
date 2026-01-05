@@ -13,7 +13,7 @@ import {
 import { ImageMetadataEditor } from '@/components/ImageMetadataEditor'
 import { MarkdownToolbar, useToolbarCollapsed } from '@/components/MarkdownToolbar'
 import { extractCidFromBlobref } from '@/lib/image-labels'
-import { getPdsEndpoint, getPublication, savePublication } from '@/lib/atproto'
+import { getPdsEndpoint, getPublication, savePublication, saveSiteStandardDocument, extractPlaintext } from '@/lib/atproto'
 import {
   THEME_PRESETS,
   THEME_LABELS,
@@ -661,6 +661,8 @@ export function EditorPage() {
       }
 
       // Auto-create publication record if one doesn't exist (GreenGale posts only)
+      // Also check if site.standard publishing is enabled for dual-publish
+      let publicationEnablesSiteStandard = false
       if (!isWhiteWind && session.did) {
         try {
           const existingPublication = await getPublication(session.did)
@@ -670,10 +672,40 @@ export function EditorPage() {
               name: handle || 'My Blog',
               url: 'https://greengale.app',
             })
+          } else {
+            publicationEnablesSiteStandard = existingPublication.enableSiteStandard || false
           }
         } catch (pubErr) {
           // Don't fail the post save if publication creation fails
           console.warn('Failed to auto-create publication:', pubErr)
+        }
+      }
+
+      // Dual-publish to site.standard.document if enabled in publication settings
+      if (!isWhiteWind && publicationEnablesSiteStandard && resultRkey) {
+        try {
+          const greengaleUri = `at://${session.did}/app.greengale.document/${resultRkey}`
+          const siteStandardPublicationUri = `at://${session.did}/site.standard.publication/self`
+
+          await saveSiteStandardDocument(
+            session,
+            {
+              site: siteStandardPublicationUri,
+              path: `/@${handle}/${resultRkey}`,
+              title: title.trim(),
+              description: subtitle || undefined,
+              publishedAt,
+              updatedAt: isEditing ? new Date().toISOString() : undefined,
+              textContent: extractPlaintext(content),
+              content: {
+                uri: greengaleUri,
+              },
+            },
+            resultRkey
+          )
+        } catch (siteStdErr) {
+          // Don't fail the main save if site.standard fails
+          console.warn('Failed to dual-publish to site.standard.document:', siteStdErr)
         }
       }
 

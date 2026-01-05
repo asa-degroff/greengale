@@ -29,6 +29,11 @@
             "type": "ref",
             "ref": "app.greengale.blog.defs#theme",
             "description": "Default theme for posts in this publication"
+          },
+          "enableSiteStandard": {
+            "type": "boolean",
+            "default": false,
+            "description": "When enabled, also publishes to site.standard.publication and site.standard.document collections for cross-platform compatibility"
           }
         }
       }

@@ -86,6 +86,7 @@ export function AuthorPage() {
   })
   const [pubSaving, setPubSaving] = useState(false)
   const [pubError, setPubError] = useState<string | null>(null)
+  const [pubEnableSiteStandard, setPubEnableSiteStandard] = useState(false)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
@@ -173,6 +174,7 @@ export function AuthorPage() {
           codeBackground: publication.theme.custom.codeBackground || '',
         })
       }
+      setPubEnableSiteStandard(publication.enableSiteStandard || false)
     } else {
       // Default values for new publication
       setPubName(author?.displayName || '')
@@ -184,6 +186,7 @@ export function AuthorPage() {
         accent: '#0969da',
         codeBackground: '',
       })
+      setPubEnableSiteStandard(false)
     }
     setPubError(null)
     setShowPublicationModal(true)
@@ -207,6 +210,7 @@ export function AuthorPage() {
               preset: pubTheme,
               custom: pubTheme === 'custom' ? pubCustomColors : undefined,
             },
+        enableSiteStandard: pubEnableSiteStandard || undefined,
       }
 
       await savePublication(
@@ -655,6 +659,26 @@ export function AuthorPage() {
                   )}
                 </div>
               )}
+
+              {/* site.standard Publishing */}
+              <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pubEnableSiteStandard}
+                    onChange={(e) => setPubEnableSiteStandard(e.target.checked)}
+                    className="mt-1 w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-[var(--site-text)]">
+                      Enable site.standard publishing
+                    </span>
+                    <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
+                      Also publish to site.standard.publication and site.standard.document collections for cross-platform compatibility and verification
+                    </p>
+                  </div>
+                </label>
+              </div>
 
               {/* Error message */}
               {pubError && (

@@ -1,0 +1,79 @@
+{
+  "lexicon": 1,
+  "id": "site.standard.document",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A document record for cross-platform content discovery and verification.",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["site", "title", "publishedAt"],
+        "properties": {
+          "site": {
+            "type": "string",
+            "format": "uri",
+            "description": "Required URI for parent site or publication (https:// or at://). Use https:// for loose documents. Avoid trailing slashes."
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Optional path, combined with site url value to construct a full url to the document. Prepend with a leading slash."
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 1280,
+            "maxGraphemes": 128,
+            "description": "Required title of the document"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 3000,
+            "maxGraphemes": 300,
+            "description": "Optional brief description or excerpt of the document"
+          },
+          "coverImage": {
+            "type": "blob",
+            "accept": ["image/*"],
+            "maxSize": 1000000,
+            "description": "Optional image to use as the documents cover. Less than 1MB in size."
+          },
+          "content": {
+            "type": "unknown",
+            "description": "Optional open union to construct content within the record. Can be extended with other lexicons to define any content format."
+          },
+          "textContent": {
+            "type": "string",
+            "maxLength": 100000,
+            "description": "Optional plaintext representation of the documents contents. Useful for search and other cases."
+          },
+          "bskyPostRef": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef",
+            "description": "Optional strong reference to a Bluesky post. Useful to keep track of comments off-platform."
+          },
+          "tags": {
+            "type": "array",
+            "maxLength": 100,
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "maxGraphemes": 50
+            },
+            "description": "Optional array of strings used to tag/categorize the document. Avoid prepending tags with hashtags."
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Required timestamp of the documents publication"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Optional timestamp of the documents last edit"
+          }
+        }
+      }
+    }
+  }
+}
