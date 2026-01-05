@@ -88,6 +88,11 @@ export function AuthorPage() {
   const [pubError, setPubError] = useState<string | null>(null)
   const [pubEnableSiteStandard, setPubEnableSiteStandard] = useState(false)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
+  // Orphaned records cleanup state
+  const [orphanedRecords, setOrphanedRecords] = useState<Array<{ rkey: string; title: string }>>([])
+  const [scanningOrphans, setScanningOrphans] = useState(false)
+  const [deletingOrphans, setDeletingOrphans] = useState(false)
+  const [orphanScanComplete, setOrphanScanComplete] = useState(false)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
   // Check if custom colors have valid contrast
@@ -258,6 +263,82 @@ export function AuthorPage() {
       setPubError(err instanceof Error ? err.message : 'Failed to save publication')
     } finally {
       setPubSaving(false)
+    }
+  }
+
+  // Scan for orphaned site.standard.document records
+  const handleScanOrphans = async () => {
+    if (!session) return
+
+    setScanningOrphans(true)
+    setOrphanedRecords([])
+    setOrphanScanComplete(false)
+
+    try {
+      // Fetch all site.standard.document records
+      const listResponse = await fetch(
+        `https://bsky.social/xrpc/com.atproto.repo.listRecords?repo=${session.did}&collection=site.standard.document&limit=100`
+      )
+      if (!listResponse.ok) {
+        throw new Error('Failed to fetch site.standard.document records')
+      }
+      const listData = await listResponse.json()
+      const siteStandardRecords = listData.records || []
+
+      // Check each one for a corresponding app.greengale.document
+      const orphans: Array<{ rkey: string; title: string }> = []
+
+      for (const record of siteStandardRecords) {
+        const rkey = record.uri.split('/').pop()
+        const title = record.value?.title || 'Untitled'
+
+        // Check if greengale document exists
+        const checkResponse = await fetch(
+          `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${session.did}&collection=app.greengale.document&rkey=${rkey}`
+        )
+
+        if (!checkResponse.ok) {
+          // Record not found - this is an orphan
+          orphans.push({ rkey, title })
+        }
+      }
+
+      setOrphanedRecords(orphans)
+      setOrphanScanComplete(true)
+    } catch (err) {
+      console.error('Error scanning for orphans:', err)
+      setPubError(err instanceof Error ? err.message : 'Failed to scan for orphaned records')
+    } finally {
+      setScanningOrphans(false)
+    }
+  }
+
+  // Delete orphaned site.standard.document records
+  const handleDeleteOrphans = async () => {
+    if (!session || orphanedRecords.length === 0) return
+
+    setDeletingOrphans(true)
+
+    try {
+      for (const orphan of orphanedRecords) {
+        await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: 'site.standard.document',
+            rkey: orphan.rkey,
+          }),
+        })
+      }
+
+      setOrphanedRecords([])
+      setOrphanScanComplete(false)
+    } catch (err) {
+      console.error('Error deleting orphans:', err)
+      setPubError(err instanceof Error ? err.message : 'Failed to delete orphaned records')
+    } finally {
+      setDeletingOrphans(false)
     }
   }
 
@@ -681,6 +762,50 @@ export function AuthorPage() {
                     </p>
                   </div>
                 </label>
+
+                {/* Orphaned records cleanup */}
+                <div className="mt-3 pt-3 border-t border-[var(--site-border)]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs text-[var(--site-text-secondary)]">
+                        Cleanup orphaned records
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleScanOrphans}
+                      disabled={scanningOrphans || deletingOrphans}
+                      className="px-3 py-1 text-xs border border-[var(--site-border)] rounded hover:bg-[var(--site-bg)] text-[var(--site-text-secondary)] disabled:opacity-50"
+                    >
+                      {scanningOrphans ? 'Scanning...' : 'Scan'}
+                    </button>
+                  </div>
+
+                  {orphanScanComplete && (
+                    <div className="mt-2">
+                      {orphanedRecords.length === 0 ? (
+                        <p className="text-xs text-green-500">No orphaned records found.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-amber-500">
+                            Found {orphanedRecords.length} orphaned record{orphanedRecords.length !== 1 ? 's' : ''}:
+                          </p>
+                          <ul className="text-xs text-[var(--site-text-secondary)] space-y-1 max-h-24 overflow-y-auto">
+                            {orphanedRecords.map((r) => (
+                              <li key={r.rkey} className="truncate">• {r.title}</li>
+                            ))}
+                          </ul>
+                          <button
+                            onClick={handleDeleteOrphans}
+                            disabled={deletingOrphans}
+                            className="px-3 py-1 text-xs bg-red-500/10 border border-red-500/30 text-red-500 rounded hover:bg-red-500/20 disabled:opacity-50"
+                          >
+                            {deletingOrphans ? 'Deleting...' : `Delete ${orphanedRecords.length} orphaned record${orphanedRecords.length !== 1 ? 's' : ''}`}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Error message */}
