@@ -800,6 +800,23 @@ export function EditorPage() {
         throw new Error(errorData.message || 'Failed to delete post')
       }
 
+      // Also delete the site.standard.document record if it exists (for GreenGale posts)
+      if (!isWhiteWind) {
+        try {
+          await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              repo: session.did,
+              collection: 'site.standard.document',
+              rkey,
+            }),
+          })
+        } catch {
+          // Ignore errors - the site.standard.document may not exist
+        }
+      }
+
       // Prevent the unsaved changes blocker from triggering
       setJustSaved(true)
       setShowDeleteConfirm(false)
