@@ -35,6 +35,18 @@ export function BlogCard({ entry, author, externalUrl }: BlogCardProps) {
   const authorHandle = author?.handle || entry.authorDid
   const isNetworkPost = !!externalUrl
 
+  // Extract domain from external URL for network posts
+  const externalDomain = useMemo(() => {
+    if (!externalUrl) return null
+    try {
+      const url = new URL(externalUrl)
+      // Remove 'www.' prefix if present
+      return url.hostname.replace(/^www\./, '')
+    } catch {
+      return null
+    }
+  }, [externalUrl])
+
   // Card content (shared between internal and external links)
   const cardContent = (
     <>
@@ -80,55 +92,71 @@ export function BlogCard({ entry, author, externalUrl }: BlogCardProps) {
           <p className="text-sm text-[var(--site-text-secondary)] line-clamp-3 mb-3">
             {preview}
           </p>
-          <div className="flex items-center justify-between text-xs text-[var(--site-text-secondary)] gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              {author?.avatar && (
-                <img
-                  src={author.avatar}
-                  alt=""
-                  className="w-5 h-5 rounded-full flex-shrink-0"
-                />
-              )}
-              <span className="truncate">@{authorHandle}</span>
+          {isNetworkPost ? (
+            /* Network post: two-row layout */
+            <div className="space-y-2 text-xs text-[var(--site-text-secondary)]">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {author?.avatar && (
+                    <img
+                      src={author.avatar}
+                      alt=""
+                      className="w-5 h-5 rounded-full flex-shrink-0"
+                    />
+                  )}
+                  <span className="truncate">@{authorHandle}</span>
+                </div>
+                {formattedDate && <time dateTime={entry.createdAt} className="flex-shrink-0">{formattedDate}</time>}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <svg className="w-3 h-3 text-purple-600 dark:text-purple-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                {externalDomain && <span className="truncate">{externalDomain}</span>}
+              </div>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Visibility indicator for non-public posts */}
-              {entry.visibility === 'author' && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                  Private
-                </span>
-              )}
-              {entry.visibility === 'url' && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                  </svg>
-                  Unlisted
-                </span>
-              )}
-              {formattedDate && <time dateTime={entry.createdAt}>{formattedDate}</time>}
-              <span className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                isNetworkPost
-                  ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                  : 'bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]'
-              }`}>
-                {isNetworkPost ? (
-                  <>
+          ) : (
+            /* Non-network post: single-row layout */
+            <div className="flex items-center justify-between text-xs text-[var(--site-text-secondary)] gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                {author?.avatar && (
+                  <img
+                    src={author.avatar}
+                    alt=""
+                    className="w-5 h-5 rounded-full flex-shrink-0"
+                  />
+                )}
+                <span className="truncate">@{authorHandle}</span>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Visibility indicator for non-public posts */}
+                {entry.visibility === 'author' && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
                     <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                      <polyline points="15 3 21 3 21 9" />
-                      <line x1="10" y1="14" x2="21" y2="3" />
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                     </svg>
-                  </>
-                ) : entry.source === 'whitewind' ? 'WW' : 'GG'}
-              </span>
+                    Private
+                  </span>
+                )}
+                {entry.visibility === 'url' && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                    Unlisted
+                  </span>
+                )}
+                {formattedDate && <time dateTime={entry.createdAt}>{formattedDate}</time>}
+                <span className="px-1.5 py-0.5 rounded bg-[var(--site-bg-secondary)]">
+                  {entry.source === 'whitewind' ? 'WW' : 'GG'}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
     </>
   )
