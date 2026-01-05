@@ -22,6 +22,10 @@ class_name = "FirehoseConsumer"
 tag = "v1"
 new_sqlite_classes = ["FirehoseConsumer"]
 
+# Cron triggers for firehose watchdog
+[triggers]
+crons = ["*/5 * * * *"]  # Every 5 minutes
+
 # Environment variables
 [vars]
 RELAY_URL = "wss://bsky.network"

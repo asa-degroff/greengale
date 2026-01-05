@@ -236,12 +236,15 @@ app.get('/og/:handle/:filename', async (c) => {
     }
 
     // Fetch post + author data from D1 (including first_image_cid and pds_endpoint for OG thumbnails)
+    // Exclude site.standard.document posts since they don't have theme data
+    // (dual-published posts share the same rkey, so we want the GreenGale version)
     const post = await c.env.DB.prepare(`
       SELECT p.title, p.subtitle, p.theme_preset, p.first_image_cid,
              a.handle, a.display_name, a.avatar_url, a.pds_endpoint
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND p.rkey = ?
+        AND p.uri NOT LIKE '%/site.standard.document/%'
     `).bind(authorDid, rkey).first()
 
     if (!post) {
@@ -908,6 +911,7 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
       }
     }
 
+    // Exclude site.standard.document posts since dual-published posts share the same rkey
     const post = await c.env.DB.prepare(`
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -916,6 +920,7 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND p.rkey = ?
+        AND p.uri NOT LIKE '%/site.standard.document/%'
     `).bind(authorDid, rkey).first()
 
     if (!post) {
@@ -1419,6 +1424,193 @@ app.post('/xrpc/app.greengale.admin.backfillFirstImageCid', async (c) => {
   }
 })
 
+// Backfill missed posts from known authors
+// This checks each author's PDS for recent posts that might have been missed by the firehose
+// Usage: POST /xrpc/app.greengale.admin.backfillMissedPosts?limit=10
+app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100)
+
+  try {
+    // Get authors who have posted recently (last 30 days)
+    const authors = await c.env.DB.prepare(`
+      SELECT DISTINCT a.did, a.handle, a.pds_endpoint
+      FROM authors a
+      INNER JOIN posts p ON a.did = p.author_did
+      WHERE p.indexed_at > datetime('now', '-30 days')
+      ORDER BY p.indexed_at DESC
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!authors.results?.length) {
+      return c.json({ success: true, message: 'No recent authors to check', checked: 0, found: 0, indexed: 0 })
+    }
+
+    const collections = [
+      'app.greengale.document',
+      'app.greengale.blog.entry',
+      'com.whtwnd.blog.entry',
+    ]
+
+    let checked = 0
+    let found = 0
+    let indexed = 0
+    const errors: string[] = []
+
+    for (const author of authors.results) {
+      const did = author.did as string
+      const handle = author.handle as string
+      let pdsEndpoint = author.pds_endpoint as string | null
+
+      // If no PDS endpoint cached, look it up
+      if (!pdsEndpoint) {
+        try {
+          const didDocResponse = await fetch(`https://plc.directory/${did}`)
+          if (didDocResponse.ok) {
+            const didDoc = await didDocResponse.json() as {
+              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+            }
+            const pdsService = didDoc.service?.find(
+              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+            )
+            pdsEndpoint = pdsService?.serviceEndpoint || null
+          }
+        } catch {
+          // Continue without PDS endpoint
+        }
+      }
+
+      if (!pdsEndpoint) {
+        errors.push(`${handle}: No PDS endpoint`)
+        continue
+      }
+
+      // Check each collection for recent posts
+      for (const collection of collections) {
+        try {
+          const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&limit=10`
+          const response = await fetch(listUrl)
+
+          if (!response.ok) continue
+
+          const data = await response.json() as {
+            records?: Array<{
+              uri: string
+              cid: string
+              value: Record<string, unknown>
+            }>
+          }
+
+          if (!data.records?.length) continue
+
+          found += data.records.length
+
+          for (const record of data.records) {
+            checked++
+            const uri = record.uri
+            const rkey = uri.split('/').pop()!
+
+            // Check if we already have this post
+            const existing = await c.env.DB.prepare(
+              'SELECT 1 FROM posts WHERE uri = ?'
+            ).bind(uri).first()
+
+            if (existing) continue
+
+            // Index the missing post
+            const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
+            const isV2 = collection === 'app.greengale.document'
+            const value = record.value
+
+            const title = (value.title as string) || null
+            const subtitle = (value.subtitle as string) || null
+            const content = (value.content as string) || ''
+            const visibility = (value.visibility as string) || 'public'
+            const createdAt = isV2
+              ? (value.publishedAt as string) || null
+              : (value.createdAt as string) || null
+            const hasLatex = source === 'greengale' && value.latex === true
+            const documentPath = isV2 ? (value.path as string) || null : null
+
+            // Theme
+            let themePreset: string | null = null
+            if (value.theme) {
+              const themeData = value.theme as Record<string, unknown>
+              if (themeData.custom) {
+                themePreset = JSON.stringify(themeData.custom)
+              } else if (themeData.preset) {
+                themePreset = themeData.preset as string
+              }
+            }
+
+            // First image CID
+            let firstImageCid: string | null = null
+            const blobs = value.blobs as Array<Record<string, unknown>> | undefined
+            if (blobs?.length) {
+              for (const blob of blobs) {
+                const blobref = blob.blobref as Record<string, unknown> | undefined
+                if (blobref?.ref) {
+                  const ref = blobref.ref as Record<string, unknown>
+                  if (typeof ref.$link === 'string') {
+                    firstImageCid = ref.$link
+                    break
+                  }
+                }
+              }
+            }
+
+            // Content preview
+            const contentPreview = content
+              .replace(/[#*`\[\]()!]/g, '')
+              .replace(/\n+/g, ' ')
+              .slice(0, 300)
+
+            // Slug
+            const slug = title
+              ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+              : null
+
+            await c.env.DB.prepare(`
+              INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, path)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(uri) DO NOTHING
+            `).bind(
+              uri, did, rkey, title, subtitle, slug, source, visibility,
+              createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid, documentPath
+            ).run()
+
+            indexed++
+            console.log(`Backfilled missed post: ${uri}`)
+          }
+        } catch (err) {
+          errors.push(`${handle}/${collection}: ${err instanceof Error ? err.message : 'Unknown'}`)
+        }
+      }
+    }
+
+    // Invalidate cache if we indexed anything
+    if (indexed > 0) {
+      await c.env.CACHE.delete('recent_posts:12:')
+    }
+
+    return c.json({
+      success: true,
+      authorsChecked: authors.results.length,
+      recordsChecked: checked,
+      recordsFound: found,
+      postsIndexed: indexed,
+      errors: errors.slice(0, 10),
+    })
+  } catch (error) {
+    console.error('Error backfilling missed posts:', error)
+    return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Format post from DB row to API response
 function formatPost(row: Record<string, unknown>) {
   return {
@@ -1440,4 +1632,71 @@ function formatPost(row: Record<string, unknown>) {
   }
 }
 
-export default app
+// Scheduled handler for cron-based firehose watchdog
+async function scheduled(
+  _event: ScheduledEvent,
+  env: { DB: D1Database; CACHE: KVNamespace; FIREHOSE: DurableObjectNamespace },
+  _ctx: ExecutionContext
+) {
+  console.log('Firehose watchdog cron triggered')
+
+  try {
+    // Get firehose status
+    const id = env.FIREHOSE.idFromName('main')
+    const stub = env.FIREHOSE.get(id)
+    const statusResponse = await stub.fetch(new Request('http://internal/status'))
+    const status = await statusResponse.json() as {
+      enabled: boolean
+      connected: boolean
+      cursor: number
+      lastTimeUs: number
+      processedCount: number
+      errorCount: number
+    }
+
+    console.log('Firehose status:', JSON.stringify(status))
+
+    // Check if firehose needs to be restarted
+    const now = Date.now() * 1000 // Convert to microseconds
+    const lastEventAge = status.lastTimeUs ? (now - status.lastTimeUs) / 1_000_000 : Infinity // seconds
+    const staleThresholdSec = 10 * 60 // 10 minutes
+
+    let shouldRestart = false
+    let reason = ''
+
+    if (!status.enabled) {
+      shouldRestart = true
+      reason = 'Firehose not enabled'
+    } else if (!status.connected) {
+      shouldRestart = true
+      reason = 'Firehose not connected'
+    } else if (lastEventAge > staleThresholdSec) {
+      shouldRestart = true
+      reason = `No events for ${Math.round(lastEventAge / 60)} minutes`
+    }
+
+    if (shouldRestart) {
+      console.log(`Restarting firehose: ${reason}`)
+      await stub.fetch(new Request('http://internal/start', { method: 'POST' }))
+      console.log('Firehose restart initiated')
+    } else {
+      console.log('Firehose healthy, no action needed')
+    }
+  } catch (error) {
+    console.error('Firehose watchdog error:', error)
+    // Try to restart anyway on error
+    try {
+      const id = env.FIREHOSE.idFromName('main')
+      const stub = env.FIREHOSE.get(id)
+      await stub.fetch(new Request('http://internal/start', { method: 'POST' }))
+      console.log('Firehose restart initiated after error')
+    } catch (restartError) {
+      console.error('Failed to restart firehose:', restartError)
+    }
+  }
+}
+
+export default {
+  fetch: app.fetch,
+  scheduled,
+}
