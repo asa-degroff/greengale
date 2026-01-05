@@ -206,7 +206,7 @@ export function AuthorPage() {
     try {
       const newPublication: Publication = {
         name: pubName.trim(),
-        url: `https://greengale.app/${author?.handle || handle}`,
+        url: 'https://greengale.app',
         description: pubDescription.trim() || undefined,
         theme: pubTheme === 'default' && !pubCustomColors.background
           ? undefined
