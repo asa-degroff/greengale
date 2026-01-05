@@ -1271,6 +1271,185 @@ app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
   }
 })
 
+// Re-index a specific post from PDS (admin only)
+// This fetches fresh data including theme and updates the database
+// Usage: POST /xrpc/app.greengale.admin.reindexPost
+// Body: { "handle": "user.bsky.social", "rkey": "abc123" }
+app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const body = await c.req.json() as { handle?: string; rkey?: string; did?: string }
+    const { handle, rkey } = body
+    let { did } = body
+
+    if (!rkey) {
+      return c.json({ error: 'Missing rkey parameter' }, 400)
+    }
+
+    // Resolve handle to DID if needed
+    if (!did && handle) {
+      const authorRow = await c.env.DB.prepare(
+        'SELECT did, pds_endpoint FROM authors WHERE handle = ?'
+      ).bind(handle).first()
+
+      if (!authorRow) {
+        return c.json({ error: 'Author not found' }, 404)
+      }
+      did = authorRow.did as string
+    }
+
+    if (!did) {
+      return c.json({ error: 'Missing did or handle parameter' }, 400)
+    }
+
+    // Get PDS endpoint
+    let pdsEndpoint = await fetchPdsEndpoint(did)
+    if (!pdsEndpoint) {
+      return c.json({ error: 'Could not determine PDS endpoint' }, 500)
+    }
+
+    // Try each collection
+    const collections = [
+      'app.greengale.document',
+      'app.greengale.blog.entry',
+      'com.whtwnd.blog.entry',
+    ]
+
+    let found = false
+    let result: Record<string, unknown> = {}
+
+    for (const collection of collections) {
+      try {
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (!response.ok) continue
+
+        const data = await response.json() as {
+          uri: string
+          cid: string
+          value: Record<string, unknown>
+        }
+
+        found = true
+        const uri = data.uri
+        const value = data.value
+        const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
+        const isV2 = collection === 'app.greengale.document'
+
+        const title = (value.title as string) || null
+        const subtitle = (value.subtitle as string) || null
+        const content = (value.content as string) || ''
+        const visibility = (value.visibility as string) || 'public'
+        const createdAt = isV2
+          ? (value.publishedAt as string) || null
+          : (value.createdAt as string) || null
+        const hasLatex = source === 'greengale' && value.latex === true
+        const documentPath = isV2 ? (value.path as string) || null : null
+        const documentUrl = isV2 ? (value.url as string) || null : null
+
+        // Theme extraction
+        let themePreset: string | null = null
+        if (value.theme) {
+          const themeData = value.theme as Record<string, unknown>
+          if (themeData.custom) {
+            themePreset = JSON.stringify(themeData.custom)
+          } else if (themeData.preset) {
+            themePreset = themeData.preset as string
+          }
+        }
+
+        // First image CID
+        let firstImageCid: string | null = null
+        const blobs = value.blobs as Array<Record<string, unknown>> | undefined
+        if (blobs?.length) {
+          for (const blob of blobs) {
+            const blobref = blob.blobref as Record<string, unknown> | undefined
+            if (blobref?.ref) {
+              const ref = blobref.ref as Record<string, unknown>
+              if (typeof ref.$link === 'string') {
+                firstImageCid = ref.$link
+                break
+              }
+            }
+          }
+        }
+
+        // Content preview
+        const contentPreview = content
+          .replace(/[#*`\[\]()!]/g, '')
+          .replace(/\n+/g, ' ')
+          .slice(0, 300)
+
+        // Slug
+        const slug = title
+          ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+          : null
+
+        // Update the post (using ON CONFLICT DO UPDATE to update existing)
+        await c.env.DB.prepare(`
+          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(uri) DO UPDATE SET
+            title = excluded.title,
+            subtitle = excluded.subtitle,
+            slug = excluded.slug,
+            visibility = excluded.visibility,
+            content_preview = excluded.content_preview,
+            has_latex = excluded.has_latex,
+            theme_preset = excluded.theme_preset,
+            first_image_cid = excluded.first_image_cid,
+            url = excluded.url,
+            path = excluded.path,
+            indexed_at = datetime('now')
+        `).bind(
+          uri, did, rkey, title, subtitle, slug, source, visibility,
+          createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
+          documentUrl, documentPath
+        ).run()
+
+        // Invalidate OG cache
+        const authorRow = await c.env.DB.prepare(
+          'SELECT handle FROM authors WHERE did = ?'
+        ).bind(did).first()
+        if (authorRow?.handle) {
+          await c.env.CACHE.delete(`og:${authorRow.handle}:${rkey}`)
+        }
+
+        // Invalidate recent posts cache
+        await c.env.CACHE.delete('recent_posts:12:')
+
+        result = {
+          success: true,
+          uri,
+          collection,
+          title,
+          themePreset,
+          firstImageCid,
+          message: `Re-indexed post and invalidated caches`,
+        }
+        break
+      } catch (err) {
+        // Try next collection
+        continue
+      }
+    }
+
+    if (!found) {
+      return c.json({ error: 'Post not found in any collection' }, 404)
+    }
+
+    return c.json(result)
+  } catch (error) {
+    console.error('Error re-indexing post:', error)
+    return c.json({ error: 'Failed to re-index post', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Helper function to fetch PDS endpoint from DID document
 async function fetchPdsEndpoint(did: string): Promise<string | null> {
   try {
