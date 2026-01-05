@@ -1782,6 +1782,123 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
   }
 })
 
+// Backfill external_url for site.standard posts
+// This re-resolves publication URLs for posts that have NULL external_url
+// Usage: POST /xrpc/app.greengale.admin.backfillExternalUrls?limit=50
+app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+
+  try {
+    // Get site.standard posts with NULL external_url
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, path
+      FROM posts
+      WHERE uri LIKE '%/site.standard.document/%'
+        AND external_url IS NULL
+        AND path IS NOT NULL
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ success: true, message: 'No posts to backfill', updated: 0 })
+    }
+
+    let updated = 0
+    const errors: string[] = []
+
+    for (const post of posts.results) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const path = post.path as string
+
+      try {
+        // Fetch the site.standard.document record to get the site AT-URI
+        const recordResponse = await fetch(
+          `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=site.standard.document&rkey=${uri.split('/').pop()}`
+        )
+
+        if (!recordResponse.ok) {
+          errors.push(`${uri}: Failed to fetch document`)
+          continue
+        }
+
+        const record = await recordResponse.json() as {
+          value?: { site?: string }
+        }
+
+        const siteUri = record.value?.site
+        if (!siteUri) {
+          errors.push(`${uri}: No site URI`)
+          continue
+        }
+
+        // Parse the site AT-URI to get publication details
+        const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+        if (!match) {
+          errors.push(`${uri}: Invalid site URI`)
+          continue
+        }
+
+        const [, pubDid, collection, rkey] = match
+
+        // Fetch the publication record
+        const pubResponse = await fetch(
+          `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        )
+
+        if (!pubResponse.ok) {
+          errors.push(`${uri}: Failed to fetch publication`)
+          continue
+        }
+
+        const pub = await pubResponse.json() as {
+          value?: { url?: string }
+        }
+
+        const pubUrl = pub.value?.url
+        if (!pubUrl) {
+          errors.push(`${uri}: Publication has no URL`)
+          continue
+        }
+
+        // Construct the external URL
+        const baseUrl = pubUrl.replace(/\/$/, '')
+        const externalUrl = `${baseUrl}${path}`
+
+        // Update the post
+        await c.env.DB.prepare(
+          'UPDATE posts SET external_url = ? WHERE uri = ?'
+        ).bind(externalUrl, uri).run()
+
+        updated++
+        console.log(`Backfilled external_url for ${uri}: ${externalUrl}`)
+      } catch (err) {
+        errors.push(`${uri}: ${err instanceof Error ? err.message : 'Unknown'}`)
+      }
+    }
+
+    // Clear network posts cache if we updated anything
+    if (updated > 0) {
+      await c.env.CACHE.delete('network_posts:12:')
+    }
+
+    return c.json({
+      success: true,
+      postsChecked: posts.results.length,
+      postsUpdated: updated,
+      errors: errors.slice(0, 20),
+    })
+  } catch (error) {
+    console.error('Error backfilling external URLs:', error)
+    return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Format post from DB row to API response
 function formatPost(row: Record<string, unknown>) {
   return {

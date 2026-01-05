@@ -521,17 +521,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       const [, pubDid, collection, rkey] = match
 
-      // First check if we have this publication cached in our database
-      const cached = await this.env.DB.prepare(
-        'SELECT url FROM publications WHERE author_did = ?'
-      ).bind(pubDid).first()
-
-      if (cached?.url) {
-        const baseUrl = (cached.url as string).replace(/\/$/, '')
-        return `${baseUrl}${documentPath}`
-      }
-
-      // Fetch the publication record from the network
+      // Always fetch the publication record from the network
+      // Don't use our cached publications table since users can have multiple publications
+      // with different rkeys (e.g., GreenGale "self" + pckt.blog with different rkey)
       // Try to resolve the DID to find the PDS
       const didDocResponse = await fetch(`https://plc.directory/${pubDid}`)
       if (!didDocResponse.ok) {
