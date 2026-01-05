@@ -677,6 +677,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
     `
 
     const params: (string | number)[] = []
@@ -757,6 +758,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND ${visibilityFilter}
+        AND p.uri NOT LIKE '%/site.standard.document/%'
     `
 
     const params: (string | number)[] = [authorDid]
