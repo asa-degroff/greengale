@@ -26,6 +26,154 @@ let fontRegularData: ArrayBuffer | null = null
 let fontBoldData: ArrayBuffer | null = null
 let fontTitleData: ArrayBuffer | null = null
 
+// Emoji cache to avoid re-fetching
+const emojiCache = new Map<string, string>()
+
+// Constants for emoji handling (from official Twemoji)
+const U200D = String.fromCharCode(8205) // Zero Width Joiner
+const UFE0Fg = /\uFE0F/g // Variation Selector
+
+/**
+ * Convert unicode string to codepoint string
+ * Handles surrogate pairs correctly
+ * Based on https://github.com/twitter/twemoji
+ */
+function toCodePoint(unicodeSurrogates: string): string {
+  const r: string[] = []
+  let c = 0
+  let p = 0
+  let i = 0
+
+  while (i < unicodeSurrogates.length) {
+    c = unicodeSurrogates.charCodeAt(i++)
+    if (p) {
+      r.push((65536 + ((p - 55296) << 10) + (c - 56320)).toString(16))
+      p = 0
+    } else if (55296 <= c && c <= 56319) {
+      p = c
+    } else {
+      r.push(c.toString(16))
+    }
+  }
+  return r.join('-')
+}
+
+/**
+ * Get emoji codepoint for Twemoji lookup
+ * Removes variation selectors unless emoji contains zero-width joiner
+ */
+function getIconCode(char: string): string {
+  return toCodePoint(char.indexOf(U200D) < 0 ? char.replace(UFE0Fg, '') : char)
+}
+
+/**
+ * Convert emoji character to Twemoji CDN URL
+ * Based on https://github.com/twitter/twemoji
+ */
+function getEmojiUrl(emoji: string): string {
+  const code = getIconCode(emoji)
+  // Use cdnjs (same as official Satori implementation)
+  return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${code.toLowerCase()}.svg`
+}
+
+/**
+ * Load emoji as SVG data URL for Satori
+ */
+async function loadEmoji(emoji: string): Promise<string | null> {
+  // Check cache first (use normalized key)
+  const cacheKey = getIconCode(emoji)
+  const cached = emojiCache.get(cacheKey)
+  if (cached) return cached
+
+  try {
+    const url = getEmojiUrl(emoji)
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      console.warn(`Failed to load emoji ${emoji} from ${url}: ${response.status}`)
+      return null
+    }
+
+    // Get SVG text directly
+    const svgText = await response.text()
+    const base64 = btoa(svgText)
+    const dataUrl = `data:image/svg+xml;base64,${base64}`
+
+    // Cache the result
+    emojiCache.set(cacheKey, dataUrl)
+
+    return dataUrl
+  } catch (e) {
+    console.warn(`Error loading emoji ${emoji}:`, e)
+    return null
+  }
+}
+
+/**
+ * Regex to detect if a grapheme contains emoji
+ */
+const EMOJI_DETECT_REGEX = /\p{Emoji}/u
+
+/**
+ * Extract all emoji graphemes from text using Intl.Segmenter
+ * This correctly handles compound emojis (skin tones, flags, ZWJ sequences)
+ */
+function extractEmojis(text: string): string[] {
+  const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' })
+  const emojis: string[] = []
+  const seen = new Set<string>()
+
+  for (const { segment } of segmenter.segment(text)) {
+    // Check if this grapheme contains emoji and we haven't seen it
+    if (EMOJI_DETECT_REGEX.test(segment) && !seen.has(segment)) {
+      // Skip if it's just a number or basic ASCII
+      if (!/^[0-9#*]$/.test(segment)) {
+        emojis.push(segment)
+        seen.add(segment)
+      }
+    }
+  }
+
+  return emojis
+}
+
+/**
+ * Build graphemeImages map for all emojis in text
+ */
+async function buildEmojiMap(text: string): Promise<Record<string, string>> {
+  const emojis = extractEmojis(text)
+  if (emojis.length === 0) return {}
+
+  const map: Record<string, string> = {}
+
+  await Promise.all(
+    emojis.map(async (emoji) => {
+      const dataUrl = await loadEmoji(emoji)
+      if (dataUrl) {
+        map[emoji] = dataUrl
+      }
+    })
+  )
+
+  return map
+}
+
+/**
+ * Satori loadAdditionalAsset callback for emoji support (fallback)
+ */
+async function loadAdditionalAsset(
+  languageCode: string,
+  segment: string
+): Promise<string | Array<{ name: string; data: ArrayBuffer; weight: number; style: string }>> {
+  if (languageCode === 'emoji') {
+    const emojiData = await loadEmoji(segment)
+    if (emojiData) {
+      return emojiData
+    }
+  }
+  return []
+}
+
 interface BaseFonts {
   regular: ArrayBuffer
   bold: ArrayBuffer
@@ -245,6 +393,9 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   // Build fonts array with fallback fonts for non-Latin scripts
   const fonts = await buildFontsArray(baseFonts, allText)
 
+  // Build emoji map for any emojis in the text
+  const graphemeImages = await buildEmojiMap(allText)
+
   // Build the image HTML using workers-og JSX-like syntax
   const html = buildImageHtml({
     title,
@@ -261,6 +412,8 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
     width: 1200,
     height: 630,
     fonts,
+    graphemeImages,
+    loadAdditionalAsset,
   })
 }
 
@@ -273,7 +426,7 @@ export async function generateHomepageOGImage(): Promise<Response> {
   const colors = resolveThemeColors()
   const isDark = isDarkTheme(colors)
 
-  // Homepage only uses Latin text, no fallback fonts needed
+  // Homepage only uses Latin text, no fallback fonts or emojis needed
   const baseFonts = await loadBaseFonts()
   const fonts = await buildFontsArray(baseFonts, '')
   const html = buildHomepageHtml(colors, isDark)
@@ -310,12 +463,18 @@ export async function generateProfileOGImage(data: ProfileOGImageData): Promise<
 
   // Build fonts array with fallback fonts for non-Latin scripts
   const fonts = await buildFontsArray(baseFonts, allText)
+
+  // Build emoji map for any emojis in the text
+  const graphemeImages = await buildEmojiMap(allText)
+
   const html = buildProfileHtml(data, colors, isDark)
 
   return new ImageResponse(html, {
     width: 1200,
     height: 630,
     fonts,
+    graphemeImages,
+    loadAdditionalAsset,
   })
 }
 
