@@ -19,7 +19,7 @@ export interface OGImageData {
 const FONT_BASE_URL = 'https://greengale.app/fonts'
 const FONT_REGULAR_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Regular.ttf`
 const FONT_BOLD_URL = `${FONT_BASE_URL}/iAWriterQuattroS-Bold.ttf`
-const FONT_TITLE_URL = `${FONT_BASE_URL}/IBMPlexSans-VariableFont_wdth,wght.ttf`
+const FONT_TITLE_URL = `${FONT_BASE_URL}/IBMPlexSans-Bold.ttf`
 
 // Cache fonts in memory to avoid re-fetching
 let fontRegularData: ArrayBuffer | null = null
@@ -52,10 +52,16 @@ const SCRIPT_FONTS: FontSpec[] = [
     detect: (text: string) => /[\u0590-\u05FF\uFB1D-\uFB4F]/.test(text),
   },
   {
-    // CJK (Chinese, Japanese, Korean)
-    // Using Noto Sans SC which has good coverage for all CJK
+    // Korean (Hangul)
+    // Must be before CJK entry to ensure Korean gets its own font
+    name: 'Noto Sans KR',
+    detect: (text: string) => /[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF]/.test(text),
+  },
+  {
+    // CJK (Chinese, Japanese)
+    // Using Noto Sans SC for Chinese/Japanese shared ideographs
     name: 'Noto Sans SC',
-    detect: (text: string) => /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u1100-\u11FF\u31F0-\u31FF]/.test(text),
+    detect: (text: string) => /[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\u31F0-\u31FF]/.test(text),
   },
   {
     // Thai script
