@@ -564,8 +564,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
       }
 
       // Construct the full external URL
+      // Ensure there's exactly one slash between base URL and path
       const baseUrl = pubUrl.replace(/\/$/, '')
-      return `${baseUrl}${documentPath}`
+      const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
+      return `${baseUrl}${normalizedPath}`
     } catch (error) {
       console.error(`Error resolving external URL for ${siteUri}:`, error)
       return null
