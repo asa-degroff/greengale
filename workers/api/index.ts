@@ -1784,7 +1784,7 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
 
 // Backfill external_url for site.standard posts
 // This re-resolves publication URLs for posts that have NULL external_url
-// Usage: POST /xrpc/app.greengale.admin.backfillExternalUrls?limit=50
+// Usage: POST /xrpc/app.greengale.admin.backfillExternalUrls?limit=50&force=true
 app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
   const authError = requireAdmin(c)
   if (authError) {
@@ -1792,17 +1792,14 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
   }
 
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+  const force = c.req.query('force') === 'true'
 
   try {
-    // Get site.standard posts with NULL external_url
-    const posts = await c.env.DB.prepare(`
-      SELECT uri, author_did, path
-      FROM posts
-      WHERE uri LIKE '%/site.standard.document/%'
-        AND external_url IS NULL
-        AND path IS NOT NULL
-      LIMIT ?
-    `).bind(limit).all()
+    // Get site.standard posts - either just NULL or all if force=true
+    const query = force
+      ? `SELECT uri, author_did, path FROM posts WHERE uri LIKE '%/site.standard.document/%' AND path IS NOT NULL LIMIT ?`
+      : `SELECT uri, author_did, path FROM posts WHERE uri LIKE '%/site.standard.document/%' AND external_url IS NULL AND path IS NOT NULL LIMIT ?`
+    const posts = await c.env.DB.prepare(query).bind(limit).all()
 
     if (!posts.results?.length) {
       return c.json({ success: true, message: 'No posts to backfill', updated: 0 })
@@ -1817,9 +1814,32 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
       const path = post.path as string
 
       try {
+        // Resolve the PDS endpoint from DID document
+        const didDocResponse = await fetch(`https://plc.directory/${did}`)
+        if (!didDocResponse.ok) {
+          errors.push(`${uri}: Failed to resolve DID`)
+          continue
+        }
+
+        const didDoc = await didDocResponse.json() as {
+          service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+        }
+
+        const pdsService = didDoc.service?.find(
+          s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+        )
+
+        if (!pdsService?.serviceEndpoint) {
+          errors.push(`${uri}: No PDS endpoint`)
+          continue
+        }
+
+        const pdsEndpoint = pdsService.serviceEndpoint
+
         // Fetch the site.standard.document record to get the site AT-URI
+        const docRkey = uri.split('/').pop()
         const recordResponse = await fetch(
-          `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=site.standard.document&rkey=${uri.split('/').pop()}`
+          `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=site.standard.document&rkey=${docRkey}`
         )
 
         if (!recordResponse.ok) {
@@ -1844,11 +1864,28 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
           continue
         }
 
-        const [, pubDid, collection, rkey] = match
+        const [, pubDid, collection, pubRkey] = match
+
+        // Resolve the publication's PDS (may be different DID)
+        let pubPdsEndpoint = pdsEndpoint
+        if (pubDid !== did) {
+          const pubDidDocResponse = await fetch(`https://plc.directory/${pubDid}`)
+          if (pubDidDocResponse.ok) {
+            const pubDidDoc = await pubDidDocResponse.json() as {
+              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+            }
+            const pubPdsService = pubDidDoc.service?.find(
+              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+            )
+            if (pubPdsService?.serviceEndpoint) {
+              pubPdsEndpoint = pubPdsService.serviceEndpoint
+            }
+          }
+        }
 
         // Fetch the publication record
         const pubResponse = await fetch(
-          `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+          `${pubPdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(pubRkey)}`
         )
 
         if (!pubResponse.ok) {
@@ -1867,8 +1904,10 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
         }
 
         // Construct the external URL
+        // Ensure there's exactly one slash between base URL and path
         const baseUrl = pubUrl.replace(/\/$/, '')
-        const externalUrl = `${baseUrl}${path}`
+        const normalizedPath = path.startsWith('/') ? path : `/${path}`
+        const externalUrl = `${baseUrl}${normalizedPath}`
 
         // Update the post
         await c.env.DB.prepare(
