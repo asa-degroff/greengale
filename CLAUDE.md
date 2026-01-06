@@ -1,6 +1,6 @@
 # GreenGale - Claude Code Reference
 
-A markdown blog platform built on AT Protocol, compatible with WhiteWind.
+A markdown blog platform built on AT Protocol, compatible with WhiteWind and standard.site.
 
 ## Quick Reference
 
@@ -82,9 +82,16 @@ workers/
 ├── schema.sql               # D1 database schema
 └── migrations/              # Database migrations
 
-lexicons/app/greengale/blog/
-├── entry.json               # Blog entry record schema
-└── defs.json                # Shared type definitions
+lexicons/
+├── app/greengale/
+│   ├── blog/
+│   │   ├── entry.json       # Blog entry V1 (legacy)
+│   │   └── defs.json        # Shared type definitions
+│   ├── document.json        # Blog document V2 (current)
+│   └── publication.json     # Publication configuration
+└── site/standard/
+    ├── publication.json     # standard.site publication schema
+    └── document.json        # standard.site document schema
 ```
 
 ## Key Systems
@@ -259,6 +266,58 @@ Dynamic OG images are generated for posts, profiles, and the homepage using `wor
 
 **Implementation:** `workers/lib/og-image.ts` (generation), `workers/lib/theme-colors.ts` (theming).
 
+### Standard.site Publishing
+
+GreenGale supports dual-publishing to the [standard.site](https://standard.site) ecosystem, enabling cross-platform blog discovery.
+
+**How It Works:**
+1. Posts are saved to `app.greengale.document` (primary format)
+2. If enabled, posts are also published to `site.standard.document` (same rkey)
+3. Publication metadata is similarly dual-published to both `app.greengale.publication` and `site.standard.publication`
+
+**Configuration:**
+- **Publication level**: Toggle in Author page publication settings (`enableSiteStandard`)
+- **Per-post level**: Checkbox in Editor ("Publish to standard.site")
+- **Default**: Enabled (opt-out)
+- **Restriction**: Only public posts can be dual-published
+
+```typescript
+// Type definitions
+interface SiteStandardPublication {
+  url: string                    // Publication base URL
+  name: string                   // Publication name
+  description?: string
+  basicTheme?: {
+    primaryColor?: string        // Text color
+    backgroundColor?: string     // Background color
+    accentColor?: string         // Accent/link color
+  }
+  preferences?: unknown          // Platform-specific data
+}
+
+interface SiteStandardDocument {
+  site: string                   // AT-URI to publication
+  path?: string                  // URL path
+  title: string
+  description?: string           // Subtitle/excerpt
+  content?: { uri: string }      // AT-URI to greengale document
+  textContent?: string           // Plaintext for search
+  publishedAt: string
+  updatedAt?: string
+}
+```
+
+**Theme Conversion:**
+GreenGale themes are converted to standard.site's `basicTheme` format:
+- Preset themes map to predefined colors
+- Custom themes use colors directly
+- Full GreenGale theme stored in `preferences.greengale` for round-trip
+
+**Orphan Cleanup:**
+The Author page includes a utility to scan for orphaned `site.standard.document` records (when the corresponding GreenGale document doesn't exist) and delete them.
+
+**Implementation:** `src/lib/atproto.ts` (save functions, type definitions), `src/pages/Editor.tsx` (dual-publish logic), `src/pages/Author.tsx` (publication management).
+
 ### Data Fetching
 
 ```typescript
@@ -281,6 +340,13 @@ Base: `https://greengale.asadegroff.workers.dev`
 | `GET /xrpc/app.greengale.actor.getProfile?author=` | Author profile |
 | `GET /xrpc/app.greengale.auth.checkWhitelist?did=` | Check beta access |
 
+**Well-known endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /.well-known/site.standard.publication` | GreenGale platform publication AT-URI |
+| `GET /.well-known/site.standard.publication?handle=` | User's publication AT-URI |
+| `GET /.well-known/app.greengale.publication` | Legacy publication endpoint |
+
 Admin endpoints require `X-Admin-Secret` header:
 - `POST /xrpc/app.greengale.admin.addToWhitelist`
 - `POST /xrpc/app.greengale.admin.removeFromWhitelist`
@@ -292,7 +358,9 @@ Admin endpoints require `X-Admin-Secret` header:
 
 ## Database Schema
 
-**posts**: `uri` (PK), `author_did`, `rkey`, `title`, `subtitle`, `slug`, `source`, `visibility`, `created_at`, `indexed_at`, `content_preview`, `has_latex`, `theme_preset`, `first_image_cid`
+**posts**: `uri` (PK), `author_did`, `rkey`, `title`, `subtitle`, `slug`, `source`, `visibility`, `created_at`, `indexed_at`, `content_preview`, `has_latex`, `theme_preset`, `first_image_cid`, `site_uri`, `external_url`
+
+**publications**: `did` (PK), `url`, `name`, `description`, `theme`, `enable_site_standard`, `indexed_at`
 
 **authors**: `did` (PK), `handle`, `display_name`, `description`, `avatar_url`, `pds_endpoint`, `posts_count`
 
@@ -319,8 +387,17 @@ VITE_APPVIEW_URL=https://greengale.asadegroff.workers.dev  # prod
 
 ## Collections
 
-- `app.greengale.blog.entry` - GreenGale posts
-- `com.whtwnd.blog.entry` - WhiteWind posts (read-only compatibility)
+**Primary (V2):**
+- `app.greengale.document` - GreenGale blog posts
+- `app.greengale.publication` - Publication metadata
+
+**Standard.site (dual-published):**
+- `site.standard.document` - Cross-platform blog posts
+- `site.standard.publication` - Cross-platform publication metadata
+
+**Legacy/Compatibility:**
+- `app.greengale.blog.entry` - GreenGale V1 posts (legacy)
+- `com.whtwnd.blog.entry` - WhiteWind posts (read-only)
 
 ## Common Tasks
 
