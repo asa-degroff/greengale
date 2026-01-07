@@ -390,8 +390,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
         WHERE did = ?
       `).bind(did, did).run()
 
-      // Invalidate cache for recent posts
-      await this.env.CACHE.delete('recent_posts:12:')
+      // Invalidate cache for recent posts (all common limit values)
+      await Promise.all([
+        this.env.CACHE.delete('recent_posts:12:'),
+        this.env.CACHE.delete('recent_posts:50:'),
+        this.env.CACHE.delete('recent_posts:100:'),
+      ])
 
       // Invalidate OG image cache for this post
       const authorRow = await this.env.DB.prepare(
@@ -435,8 +439,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      // Invalidate cache for recent posts
-      await this.env.CACHE.delete('recent_posts:12:')
+      // Invalidate cache for recent posts (all common limit values)
+      await Promise.all([
+        this.env.CACHE.delete('recent_posts:12:'),
+        this.env.CACHE.delete('recent_posts:50:'),
+        this.env.CACHE.delete('recent_posts:100:'),
+      ])
 
       console.log(`Deleted post: ${uri}`)
     } catch (error) {
