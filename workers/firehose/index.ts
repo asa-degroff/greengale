@@ -372,8 +372,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const authorData = await this.fetchAuthorData(did)
 
       // Phase 2: Invalidate cache BEFORE DB write to prevent stale data
+      // Note: Homepage uses limit=24, so we must include that key
       await Promise.all([
         this.env.CACHE.delete('recent_posts:12:'),
+        this.env.CACHE.delete('recent_posts:24:'),
         this.env.CACHE.delete('recent_posts:50:'),
         this.env.CACHE.delete('recent_posts:100:'),
       ])
@@ -486,8 +488,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const handle = authorRow?.handle as string | undefined
 
       // Phase 1: Invalidate cache BEFORE DB write to prevent stale data
+      // Note: Homepage uses limit=24, so we must include that key
       await Promise.all([
         this.env.CACHE.delete('recent_posts:12:'),
+        this.env.CACHE.delete('recent_posts:24:'),
         this.env.CACHE.delete('recent_posts:50:'),
         this.env.CACHE.delete('recent_posts:100:'),
         handle ? this.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
