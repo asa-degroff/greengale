@@ -64,6 +64,17 @@ interface JetstreamAccount {
 
 type JetstreamEvent = JetstreamCommit | JetstreamIdentity | JetstreamAccount
 
+// Author data fetched from Bluesky API (separated from DB operations for atomic batching)
+interface AuthorData {
+  did: string
+  handle: string
+  displayName: string | null
+  description: string | null
+  avatar: string | null
+  banner: string | null
+  pdsEndpoint: string | null
+}
+
 // Alarm interval - check connection every 30 seconds
 const ALARM_INTERVAL_MS = 30 * 1000
 
@@ -356,53 +367,94 @@ export class FirehoseConsumer extends DurableObject<Env> {
         ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         : null
 
-      await this.env.DB.prepare(`
-        INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri, external_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(uri) DO UPDATE SET
-          title = excluded.title,
-          subtitle = excluded.subtitle,
-          slug = excluded.slug,
-          visibility = excluded.visibility,
-          content_preview = excluded.content_preview,
-          has_latex = excluded.has_latex,
-          theme_preset = excluded.theme_preset,
-          first_image_cid = excluded.first_image_cid,
-          url = excluded.url,
-          path = excluded.path,
-          site_uri = excluded.site_uri,
-          external_url = excluded.external_url,
-          indexed_at = datetime('now')
-      `).bind(
-        uri, did, rkey, title, subtitle, slug, source, visibility,
-        createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
-        documentUrl, documentPath, siteUri, externalUrl
-      ).run()
+      // Phase 1: Network operations BEFORE database batch
+      // Fetch author data separately so we can include it in the atomic batch
+      const authorData = await this.fetchAuthorData(did)
 
-      // Ensure author exists
-      await this.ensureAuthor(did)
-
-      // Update author post count
-      await this.env.DB.prepare(`
-        UPDATE authors SET posts_count = (
-          SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
-        ), updated_at = datetime('now')
-        WHERE did = ?
-      `).bind(did, did).run()
-
-      // Invalidate cache for recent posts (all common limit values)
+      // Phase 2: Invalidate cache BEFORE DB write to prevent stale data
       await Promise.all([
         this.env.CACHE.delete('recent_posts:12:'),
         this.env.CACHE.delete('recent_posts:50:'),
         this.env.CACHE.delete('recent_posts:100:'),
       ])
 
-      // Invalidate OG image cache for this post
-      const authorRow = await this.env.DB.prepare(
-        'SELECT handle FROM authors WHERE did = ?'
-      ).bind(did).first()
-      if (authorRow?.handle) {
-        await this.env.CACHE.delete(`og:${authorRow.handle}:${rkey}`)
+      // Phase 3: Atomic database batch - all operations succeed or all roll back
+      const statements: D1PreparedStatement[] = []
+
+      // Statement 1: Upsert post
+      statements.push(
+        this.env.DB.prepare(`
+          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri, external_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(uri) DO UPDATE SET
+            title = excluded.title,
+            subtitle = excluded.subtitle,
+            slug = excluded.slug,
+            visibility = excluded.visibility,
+            content_preview = excluded.content_preview,
+            has_latex = excluded.has_latex,
+            theme_preset = excluded.theme_preset,
+            first_image_cid = excluded.first_image_cid,
+            url = excluded.url,
+            path = excluded.path,
+            site_uri = excluded.site_uri,
+            external_url = excluded.external_url,
+            indexed_at = datetime('now')
+        `).bind(
+          uri, did, rkey, title, subtitle, slug, source, visibility,
+          createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
+          documentUrl, documentPath, siteUri, externalUrl
+        )
+      )
+
+      // Statement 2: Upsert author (using pre-fetched data)
+      if (authorData) {
+        statements.push(
+          this.env.DB.prepare(`
+            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(did) DO UPDATE SET
+              handle = excluded.handle,
+              display_name = excluded.display_name,
+              description = excluded.description,
+              avatar_url = excluded.avatar_url,
+              banner_url = excluded.banner_url,
+              pds_endpoint = COALESCE(excluded.pds_endpoint, authors.pds_endpoint),
+              updated_at = datetime('now')
+          `).bind(
+            authorData.did,
+            authorData.handle,
+            authorData.displayName,
+            authorData.description,
+            authorData.avatar,
+            authorData.banner,
+            authorData.pdsEndpoint
+          )
+        )
+      } else {
+        // Fallback: minimal author record if profile fetch failed
+        statements.push(
+          this.env.DB.prepare('INSERT OR IGNORE INTO authors (did) VALUES (?)').bind(did)
+        )
+      }
+
+      // Statement 3: Update author post count
+      statements.push(
+        this.env.DB.prepare(`
+          UPDATE authors SET posts_count = (
+            SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
+          ), updated_at = datetime('now')
+          WHERE did = ?
+        `).bind(did, did)
+      )
+
+      // Execute all statements atomically
+      await this.env.DB.batch(statements)
+
+      // Phase 4: Invalidate OG image cache (after batch, needs author handle)
+      const handle = authorData?.handle
+      if (handle) {
+        await this.env.CACHE.delete(`og:${handle}:${rkey}`)
       }
 
       console.log(`Indexed ${source} post: ${uri}`)
@@ -414,41 +466,48 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
   private async deletePost(uri: string) {
     try {
-      // Get post data before deleting (for cache invalidation)
+      // Get post data before deleting (for cache invalidation and author lookup)
       const post = await this.env.DB.prepare(
         'SELECT author_did, rkey FROM posts WHERE uri = ?'
       ).bind(uri).first()
 
-      await this.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri).run()
-
-      // Update author post count if we found the post
-      if (post) {
-        await this.env.DB.prepare(`
-          UPDATE authors SET posts_count = (
-            SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
-          ), updated_at = datetime('now')
-          WHERE did = ?
-        `).bind(post.author_did, post.author_did).run()
-
-        // Invalidate OG image cache for this post
-        const authorRow = await this.env.DB.prepare(
-          'SELECT handle FROM authors WHERE did = ?'
-        ).bind(post.author_did).first()
-        if (authorRow?.handle && post.rkey) {
-          await this.env.CACHE.delete(`og:${authorRow.handle}:${post.rkey}`)
-        }
+      if (!post) {
+        console.log(`Post not found for deletion: ${uri}`)
+        return
       }
 
-      // Invalidate cache for recent posts (all common limit values)
+      const authorDid = post.author_did as string
+      const rkey = post.rkey as string
+
+      // Get author handle for OG cache invalidation
+      const authorRow = await this.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(authorDid).first()
+      const handle = authorRow?.handle as string | undefined
+
+      // Phase 1: Invalidate cache BEFORE DB write to prevent stale data
       await Promise.all([
         this.env.CACHE.delete('recent_posts:12:'),
         this.env.CACHE.delete('recent_posts:50:'),
         this.env.CACHE.delete('recent_posts:100:'),
+        handle ? this.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
+      ])
+
+      // Phase 2: Atomic database batch - delete post AND update count together
+      await this.env.DB.batch([
+        this.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri),
+        this.env.DB.prepare(`
+          UPDATE authors SET posts_count = (
+            SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
+          ), updated_at = datetime('now')
+          WHERE did = ?
+        `).bind(authorDid, authorDid),
       ])
 
       console.log(`Deleted post: ${uri}`)
     } catch (error) {
       console.error(`Failed to delete post ${uri}:`, error)
+      throw error  // Rethrow to prevent cursor advancement on failure
     }
   }
 
@@ -582,73 +641,55 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
   }
 
-  private async ensureAuthor(did: string) {
-    // Fetch profile from Bluesky public API
+  /**
+   * Fetch author profile data from Bluesky API (network calls only, no DB operations)
+   * Used to separate network calls from atomic DB batch operations
+   */
+  private async fetchAuthorData(did: string): Promise<AuthorData | null> {
     try {
       const response = await fetch(
         `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
       )
 
-      if (response.ok) {
-        const profile = await response.json() as {
-          did: string
-          handle: string
-          displayName?: string
-          description?: string
-          avatar?: string
-          banner?: string
-        }
+      if (!response.ok) return null
 
-        // Also fetch PDS endpoint from DID document (needed for OG image thumbnails)
-        let pdsEndpoint: string | null = null
-        try {
-          const didDocResponse = await fetch(`https://plc.directory/${did}`)
-          if (didDocResponse.ok) {
-            const didDoc = await didDocResponse.json() as {
-              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-            }
-            const pdsService = didDoc.service?.find(
-              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-            )
-            pdsEndpoint = pdsService?.serviceEndpoint || null
-          }
-        } catch {
-          // PDS lookup failed, continue without it
-        }
-
-        // Upsert author - always update profile data to keep it fresh
-        await this.env.DB.prepare(`
-          INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(did) DO UPDATE SET
-            handle = excluded.handle,
-            display_name = excluded.display_name,
-            description = excluded.description,
-            avatar_url = excluded.avatar_url,
-            banner_url = excluded.banner_url,
-            pds_endpoint = COALESCE(excluded.pds_endpoint, authors.pds_endpoint),
-            updated_at = datetime('now')
-        `).bind(
-          profile.did,
-          profile.handle,
-          profile.displayName || null,
-          profile.description || null,
-          profile.avatar || null,
-          profile.banner || null,
-          pdsEndpoint
-        ).run()
-      } else {
-        // Insert minimal author record if we can't fetch profile
-        await this.env.DB.prepare(
-          'INSERT OR IGNORE INTO authors (did) VALUES (?)'
-        ).bind(did).run()
+      const profile = await response.json() as {
+        did: string
+        handle: string
+        displayName?: string
+        description?: string
+        avatar?: string
+        banner?: string
       }
-    } catch (error) {
-      console.error(`Failed to fetch author profile for ${did}:`, error)
-      // Insert minimal author record
-      await this.env.DB.prepare(
-        'INSERT OR IGNORE INTO authors (did) VALUES (?)'
-      ).bind(did).run()
+
+      // Also fetch PDS endpoint from DID document (needed for OG image thumbnails)
+      let pdsEndpoint: string | null = null
+      try {
+        const didDocResponse = await fetch(`https://plc.directory/${did}`)
+        if (didDocResponse.ok) {
+          const didDoc = await didDocResponse.json() as {
+            service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+          }
+          const pdsService = didDoc.service?.find(
+            s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+          )
+          pdsEndpoint = pdsService?.serviceEndpoint || null
+        }
+      } catch {
+        // PDS lookup failed, continue without it
+      }
+
+      return {
+        did: profile.did,
+        handle: profile.handle,
+        displayName: profile.displayName || null,
+        description: profile.description || null,
+        avatar: profile.avatar || null,
+        banner: profile.banner || null,
+        pdsEndpoint,
+      }
+    } catch {
+      return null
     }
   }
 
@@ -685,27 +726,63 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      await this.env.DB.prepare(`
-        INSERT INTO publications (author_did, name, description, theme_preset, url)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(author_did) DO UPDATE SET
-          name = excluded.name,
-          description = excluded.description,
-          theme_preset = excluded.theme_preset,
-          url = excluded.url,
-          updated_at = datetime('now')
-      `).bind(did, name, description, themePreset, url).run()
+      // Phase 1: Fetch author data (network calls before DB batch)
+      const authorData = await this.fetchAuthorData(did)
 
-      // Ensure author exists
-      await this.ensureAuthor(did)
-
-      // Invalidate author profile OG cache
-      const authorRow = await this.env.DB.prepare(
-        'SELECT handle FROM authors WHERE did = ?'
-      ).bind(did).first()
-      if (authorRow?.handle) {
-        await this.env.CACHE.delete(`og:profile:${authorRow.handle}`)
+      // Phase 2: Invalidate OG cache BEFORE DB write
+      if (authorData?.handle) {
+        await this.env.CACHE.delete(`og:profile:${authorData.handle}`)
       }
+
+      // Phase 3: Atomic database batch
+      const statements: D1PreparedStatement[] = []
+
+      // Statement 1: Upsert publication
+      statements.push(
+        this.env.DB.prepare(`
+          INSERT INTO publications (author_did, name, description, theme_preset, url)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(author_did) DO UPDATE SET
+            name = excluded.name,
+            description = excluded.description,
+            theme_preset = excluded.theme_preset,
+            url = excluded.url,
+            updated_at = datetime('now')
+        `).bind(did, name, description, themePreset, url)
+      )
+
+      // Statement 2: Upsert author
+      if (authorData) {
+        statements.push(
+          this.env.DB.prepare(`
+            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(did) DO UPDATE SET
+              handle = excluded.handle,
+              display_name = excluded.display_name,
+              description = excluded.description,
+              avatar_url = excluded.avatar_url,
+              banner_url = excluded.banner_url,
+              pds_endpoint = COALESCE(excluded.pds_endpoint, authors.pds_endpoint),
+              updated_at = datetime('now')
+          `).bind(
+            authorData.did,
+            authorData.handle,
+            authorData.displayName,
+            authorData.description,
+            authorData.avatar,
+            authorData.banner,
+            authorData.pdsEndpoint
+          )
+        )
+      } else {
+        statements.push(
+          this.env.DB.prepare('INSERT OR IGNORE INTO authors (did) VALUES (?)').bind(did)
+        )
+      }
+
+      // Execute atomically
+      await this.env.DB.batch(statements)
 
       console.log(`Indexed publication for ${did}: ${name}`)
     } catch (error) {
@@ -716,19 +793,24 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
   private async deletePublication(did: string) {
     try {
-      await this.env.DB.prepare('DELETE FROM publications WHERE author_did = ?').bind(did).run()
-
-      // Invalidate author profile OG cache
+      // Get author handle for OG cache invalidation before deleting
       const authorRow = await this.env.DB.prepare(
         'SELECT handle FROM authors WHERE did = ?'
       ).bind(did).first()
-      if (authorRow?.handle) {
-        await this.env.CACHE.delete(`og:profile:${authorRow.handle}`)
+      const handle = authorRow?.handle as string | undefined
+
+      // Phase 1: Invalidate OG cache BEFORE DB write
+      if (handle) {
+        await this.env.CACHE.delete(`og:profile:${handle}`)
       }
+
+      // Phase 2: Delete publication
+      await this.env.DB.prepare('DELETE FROM publications WHERE author_did = ?').bind(did).run()
 
       console.log(`Deleted publication for ${did}`)
     } catch (error) {
       console.error(`Failed to delete publication for ${did}:`, error)
+      throw error  // Rethrow to prevent cursor advancement on failure
     }
   }
 }
