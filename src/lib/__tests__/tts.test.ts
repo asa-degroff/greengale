@@ -14,27 +14,11 @@ import {
   type TTSStatus,
 } from '../tts'
 
-// Mock the image-labels module
-vi.mock('../image-labels', () => ({
-  extractCidFromBlobUrl: vi.fn((url: string) => {
-    // Extract CID from blob URLs like "at://did:plc:xxx/blob/cid123"
-    const match = url.match(/\/blob\/([^/]+)/)
-    return match ? match[1] : null
-  }),
-  getBlobAltMap: vi.fn((blobs: Array<{ cid: string; alt?: string }>) => {
-    const map = new Map<string, string>()
-    if (blobs) {
-      for (const blob of blobs) {
-        if (blob.alt) {
-          map.set(blob.cid, blob.alt)
-        }
-      }
-    }
-    return map
-  }),
-}))
+// Use REAL image-labels module - no mock needed as these are pure functions
+// The functions extractCidFromBlobUrl and getBlobAltMap work on data structures
 
-// Mock the bluesky module
+// Mock bluesky module at the network boundary (it makes fetch calls)
+// This is appropriate because bluesky.ts represents an external API dependency
 vi.mock('../bluesky', () => ({
   getBlueskyPost: vi.fn(),
   getBlueskyInteractions: vi.fn(),
@@ -133,17 +117,27 @@ That's it.`
       })
 
       it('uses blob alt text over markdown alt when available', () => {
-        const markdown = 'Image: ![Markdown alt](at://did:plc:xxx/blob/cid123)'
-        const blobs = [{ cid: 'cid123', alt: 'Blob alt text description' }]
-        const result = extractTextForTTS(markdown, blobs)
+        // Use realistic PDS blob URL with ?cid= parameter
+        const cid = 'bafyreig5m3k3bnv7kbzxzwwqxwqyqzxw'
+        const markdown = `Image: ![Markdown alt](https://pds.bsky.social/xrpc/com.atproto.sync.getBlob?did=did:plc:xxx&cid=${cid})`
+        // Use realistic blob structure with blobref (as BlogEntry['blobs'] expects)
+        const blobs = [{
+          blobref: { $link: cid },
+          alt: 'Blob alt text description',
+        }]
+        const result = extractTextForTTS(markdown, blobs as unknown as Parameters<typeof extractTextForTTS>[1])
         expect(result).toContain('Image: Blob alt text description.')
         expect(result).not.toContain('Markdown alt')
       })
 
       it('falls back to markdown alt when blob has no alt', () => {
-        const markdown = '![Fallback description](at://did:plc:xxx/blob/cid456)'
-        const blobs = [{ cid: 'cid456' }] // No alt text
-        const result = extractTextForTTS(markdown, blobs)
+        const cid = 'bafyreig5m3k3bnv7kbzxzwwqxwqyqzxw'
+        const markdown = `![Fallback description](https://pds.bsky.social/xrpc/com.atproto.sync.getBlob?did=did:plc:xxx&cid=${cid})`
+        // Blob exists but has no alt text
+        const blobs = [{
+          blobref: { $link: cid },
+        }]
+        const result = extractTextForTTS(markdown, blobs as unknown as Parameters<typeof extractTextForTTS>[1])
         expect(result).toContain('Image: Fallback description.')
       })
 
@@ -158,6 +152,18 @@ That's it.`
         const result = extractTextForTTS(markdown)
         expect(result).toContain('Image: First.')
         expect(result).toContain('Image: Second.')
+      })
+
+      it('handles CID extraction from various URL formats', () => {
+        // Test with both URL format and ?cid= parameter
+        const cid = 'bafyreig5m3k3bnv7test'
+        const markdown = `![Alt](https://cdn.bsky.app/img?cid=${cid})`
+        const blobs = [{
+          blobref: { $link: cid },
+          alt: 'Custom blob alt',
+        }]
+        const result = extractTextForTTS(markdown, blobs as unknown as Parameters<typeof extractTextForTTS>[1])
+        expect(result).toContain('Image: Custom blob alt.')
       })
     })
 
@@ -561,9 +567,6 @@ https://bsky.app/profile/user2.bsky.social/post/def`
 
     it('fetches and appends discussions when postUrl is provided', async () => {
       vi.mocked(getBlueskyInteractions).mockResolvedValueOnce({
-        likes: 10,
-        reposts: 5,
-        quotes: 2,
         posts: [
           {
             uri: 'at://did:plc:1/app.bsky.feed.post/1',
@@ -571,6 +574,11 @@ https://bsky.app/profile/user2.bsky.social/post/def`
             author: { did: 'did:plc:1', handle: 'commenter.bsky.social', displayName: 'Commenter' },
             text: 'Great article! https://example.com',
             createdAt: '2024-01-01T00:00:00.000Z',
+            indexedAt: '2024-01-01T00:00:00.000Z',
+            likeCount: 0,
+            repostCount: 0,
+            replyCount: 0,
+            quoteCount: 0,
           },
         ],
       })
@@ -587,9 +595,6 @@ https://bsky.app/profile/user2.bsky.social/post/def`
 
     it('includes replies in discussions', async () => {
       vi.mocked(getBlueskyInteractions).mockResolvedValueOnce({
-        likes: 0,
-        reposts: 0,
-        quotes: 0,
         posts: [
           {
             uri: 'at://did:plc:1/app.bsky.feed.post/1',
@@ -597,6 +602,11 @@ https://bsky.app/profile/user2.bsky.social/post/def`
             author: { did: 'did:plc:1', handle: 'poster.bsky.social', displayName: 'Poster' },
             text: 'Original comment',
             createdAt: '2024-01-01T00:00:00.000Z',
+            indexedAt: '2024-01-01T00:00:00.000Z',
+            likeCount: 0,
+            repostCount: 0,
+            replyCount: 0,
+            quoteCount: 0,
             replies: [
               {
                 uri: 'at://did:plc:2/app.bsky.feed.post/2',
@@ -604,6 +614,11 @@ https://bsky.app/profile/user2.bsky.social/post/def`
                 author: { did: 'did:plc:2', handle: 'replier.bsky.social', displayName: 'Replier' },
                 text: 'Reply to the comment',
                 createdAt: '2024-01-01T00:00:00.000Z',
+                indexedAt: '2024-01-01T00:00:00.000Z',
+                likeCount: 0,
+                repostCount: 0,
+                replyCount: 0,
+                quoteCount: 0,
               },
             ],
           },
