@@ -463,7 +463,7 @@ export function AuthorPage() {
             </h2>
             <div className="grid md:grid-cols-2 gap-6">
               {entries.map((entry) => (
-                <BlogCard key={entry.uri} entry={entry} author={author || undefined} />
+                <BlogCard key={entry.uri} entry={entry} author={author || undefined} externalUrl={entry.externalUrl} />
               ))}
             </div>
           </>

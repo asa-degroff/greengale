@@ -55,6 +55,8 @@ export interface BlogEntry {
   // V2 document fields (site.standard compatible)
   url?: string
   path?: string
+  // External URL for site.standard posts (resolved from publication)
+  externalUrl?: string
 }
 
 function parseTheme(rawTheme: unknown): Theme | undefined {
@@ -291,6 +293,69 @@ export async function getBlogEntry(
 }
 
 /**
+ * Resolve a site.standard.publication AT-URI to get the external URL
+ * @param siteUri AT-URI like at://did/site.standard.publication/rkey
+ * @param documentPath Path component from the document (e.g., "/posts/my-post")
+ * @returns Full external URL or null if resolution fails
+ */
+export async function resolveExternalUrl(siteUri: string, documentPath: string): Promise<string | null> {
+  try {
+    // Parse AT-URI: at://did/collection/rkey
+    const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+    if (!match) return null
+
+    const [, pubDid, collection, rkey] = match
+
+    // Resolve DID to find PDS endpoint
+    const didDocRes = await fetch(`https://plc.directory/${pubDid}`)
+    if (!didDocRes.ok) return null
+    const didDoc = (await didDocRes.json()) as {
+      service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+    }
+
+    const pdsService = didDoc.service?.find(
+      (s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+    )
+    if (!pdsService?.serviceEndpoint) return null
+
+    // Fetch publication record
+    const recordUrl = `${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+    const recordRes = await fetch(recordUrl)
+    if (!recordRes.ok) return null
+
+    const record = (await recordRes.json()) as { value?: { url?: string } }
+    const pubUrl = record.value?.url
+    if (!pubUrl) return null
+
+    // Construct full URL
+    const baseUrl = pubUrl.replace(/\/$/, '')
+    const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
+    return `${baseUrl}${normalizedPath}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * De-duplicate blog entries by rkey, preferring GreenGale/WhiteWind over network posts
+ * When the same rkey exists in multiple collections (dual-published), keep the richer version
+ */
+export function deduplicateBlogEntries(entries: BlogEntry[]): BlogEntry[] {
+  const seen = new Map<string, BlogEntry>()
+  for (const entry of entries) {
+    const key = entry.rkey
+    const existing = seen.get(key)
+    if (!existing) {
+      seen.set(key, entry)
+    } else if (entry.source !== 'network' && existing.source === 'network') {
+      // Prefer GreenGale/WhiteWind over site.standard (network)
+      seen.set(key, entry)
+    }
+  }
+  return Array.from(seen.values())
+}
+
+/**
  * List blog entries for an author
  * @param viewerDid Optional viewer's DID - if matches author, includes private posts
  * @param maxPerCollection Maximum posts to fetch per collection (default 1000)
@@ -310,12 +375,16 @@ export async function listBlogEntries(
   const isOwnProfile = options.viewerDid && options.viewerDid === did
   const maxPerCollection = options.maxPerCollection || 2000
 
-  // Fetch from all three collections independently (cursors are collection-specific)
-  for (const collection of [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
+  // Collect entries that need external URL resolution (site.standard posts)
+  const pendingUrlResolutions: Array<{ entry: BlogEntry; siteUri: string; path: string }> = []
+
+  // Fetch from all four collections independently (cursors are collection-specific)
+  for (const collection of [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION, SITE_STANDARD_DOCUMENT]) {
     try {
       let cursor: string | undefined
       let fetched = 0
       const isV2 = collection === DOCUMENT_COLLECTION
+      const isSiteStandard = collection === SITE_STANDARD_DOCUMENT
 
       // Paginate through all records in this collection
       while (fetched < maxPerCollection) {
@@ -329,7 +398,8 @@ export async function listBlogEntries(
 
         for (const item of response.data.records) {
           const record = item.value as Record<string, unknown>
-          const visibility = (record.visibility as string | undefined) || 'public'
+          // site.standard posts are always public (no visibility field)
+          const visibility = isSiteStandard ? 'public' : ((record.visibility as string | undefined) || 'public')
 
           // Filter by visibility
           if (!isOwnProfile && visibility !== 'public') {
@@ -337,20 +407,43 @@ export async function listBlogEntries(
             continue
           }
 
-          // V2 documents use publishedAt, V1/WhiteWind use createdAt
-          const createdAt = isV2
+          // Field mapping: site.standard uses different field names
+          // V2/site.standard use publishedAt, V1/WhiteWind use createdAt
+          const createdAt = (isV2 || isSiteStandard)
             ? (record.publishedAt as string | undefined)
             : (record.createdAt as string | undefined)
 
-          entries.push({
+          // site.standard uses 'description' for subtitle, 'textContent' for content
+          const subtitle = isSiteStandard
+            ? (record.description as string | undefined)
+            : (record.subtitle as string | undefined)
+
+          const content = isSiteStandard
+            ? (record.textContent as string) || ''
+            : (record.content as string) || ''
+
+          // Determine source type
+          let source: BlogEntry['source']
+          if (collection === WHITEWIND_COLLECTION) {
+            source = 'whitewind'
+          } else if (isSiteStandard) {
+            source = 'network'
+          } else {
+            source = 'greengale'
+          }
+
+          // Get path for both V2 and site.standard
+          const path = (isV2 || isSiteStandard) ? (record.path as string | undefined) : undefined
+
+          const entry: BlogEntry = {
             uri: item.uri,
             cid: item.cid,
             authorDid: did,
             rkey: item.uri.split('/').pop() || '',
-            source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
-            content: (record.content as string) || '',
+            source,
+            content,
             title: record.title as string | undefined,
-            subtitle: record.subtitle as string | undefined,
+            subtitle,
             createdAt,
             theme: parseTheme(record.theme),
             visibility: visibility as 'public' | 'url' | 'author',
@@ -358,8 +451,18 @@ export async function listBlogEntries(
             blobs: record.blobs as BlogEntry['blobs'],
             // V2 fields
             url: isV2 ? (record.url as string | undefined) : undefined,
-            path: isV2 ? (record.path as string | undefined) : undefined,
-          })
+            path,
+          }
+
+          entries.push(entry)
+
+          // Queue external URL resolution for site.standard posts
+          if (isSiteStandard) {
+            const siteUri = record.site as string | undefined
+            if (siteUri && path) {
+              pendingUrlResolutions.push({ entry, siteUri, path })
+            }
+          }
         }
 
         fetched += response.data.records.length
@@ -375,14 +478,32 @@ export async function listBlogEntries(
     }
   }
 
+  // Resolve external URLs for site.standard posts (in parallel)
+  if (pendingUrlResolutions.length > 0) {
+    const resolutions = await Promise.all(
+      pendingUrlResolutions.map(async ({ entry, siteUri, path }) => {
+        const externalUrl = await resolveExternalUrl(siteUri, path)
+        return { entry, externalUrl }
+      })
+    )
+    for (const { entry, externalUrl } of resolutions) {
+      if (externalUrl) {
+        entry.externalUrl = externalUrl
+      }
+    }
+  }
+
+  // De-duplicate dual-published posts (prefer GreenGale/WhiteWind over network)
+  const deduplicatedEntries = deduplicateBlogEntries(entries)
+
   // Sort by createdAt descending
-  entries.sort((a, b) => {
+  deduplicatedEntries.sort((a, b) => {
     const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0
     const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0
     return dateB - dateA
   })
 
-  return { entries }
+  return { entries: deduplicatedEntries }
 }
 
 /**
