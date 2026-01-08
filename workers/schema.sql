@@ -31,9 +31,10 @@ CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(url);
 
 -- Authors table: caches author profile information
+-- Note: handle is NOT unique because handles can transfer between DIDs
 CREATE TABLE IF NOT EXISTS authors (
   did TEXT PRIMARY KEY,
-  handle TEXT UNIQUE,
+  handle TEXT,
   display_name TEXT,
   description TEXT,
   avatar_url TEXT,

@@ -39,12 +39,14 @@ Cache is now invalidated BEFORE the database write:
 ## High Severity Issues
 
 ### 4. Handle Uniqueness Constraint Violation Risk
-**Location:** `workers/firehose/index.ts:620-639`, `workers/schema.sql:36`
-**Status:** Open
+**Location:** `workers/schema.sql:36`
+**Status:** FIXED (2026-01-07)
 
-The `authors` table has `handle TEXT UNIQUE`. If two users with different DIDs try to claim the same handle simultaneously (handle transfers), one fails with a constraint violation, causing post indexing to fail.
-
-**Fix:** Use ON CONFLICT for handle updates, or remove UNIQUE constraint and handle duplicates in queries.
+Removed UNIQUE constraint from `authors.handle` column:
+- Handles can transfer between DIDs, so uniqueness cannot be enforced
+- DIDs remain the true identity (primary key)
+- Non-unique index retained for efficient handle lookups
+- Migration: `workers/migrations/008_handle_not_unique.sql`
 
 ---
 
