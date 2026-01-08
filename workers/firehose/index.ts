@@ -78,6 +78,33 @@ interface AuthorData {
 // Alarm interval - check connection every 30 seconds
 const ALARM_INTERVAL_MS = 30 * 1000
 
+// Timeout for external URL resolution fetches (3 seconds each)
+const EXTERNAL_URL_TIMEOUT_MS = 3000
+
+/**
+ * Fetch with timeout using AbortController
+ * Returns null on timeout instead of throwing, to avoid blocking firehose processing
+ */
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number = EXTERNAL_URL_TIMEOUT_MS
+): Promise<Response | null> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    return response
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn(`Fetch timed out after ${timeoutMs}ms: ${url}`)
+    }
+    return null
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 // Content labels that indicate sensitive images (should not be used for OG thumbnails)
 const SENSITIVE_LABELS = ['nudity', 'sexual', 'porn', 'graphic-media']
 
@@ -580,6 +607,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
   /**
    * Resolve a site.standard.publication AT-URI to get the external URL
    * Returns the full URL (publication.url + document.path) or null if resolution fails
+   * Uses timeouts to prevent blocking firehose processing if external services are slow
    */
   private async resolveExternalUrl(siteUri: string, documentPath: string): Promise<string | null> {
     try {
@@ -595,10 +623,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Always fetch the publication record from the network
       // Don't use our cached publications table since users can have multiple publications
       // with different rkeys (e.g., GreenGale "self" + pckt.blog with different rkey)
-      // Try to resolve the DID to find the PDS
-      const didDocResponse = await fetch(`https://plc.directory/${pubDid}`)
-      if (!didDocResponse.ok) {
-        console.error(`Failed to resolve DID: ${pubDid}`)
+      // Try to resolve the DID to find the PDS (with timeout to avoid blocking)
+      const didDocResponse = await fetchWithTimeout(`https://plc.directory/${pubDid}`)
+      if (!didDocResponse || !didDocResponse.ok) {
+        if (didDocResponse) {
+          console.error(`Failed to resolve DID: ${pubDid}`)
+        }
         return null
       }
 
@@ -615,12 +645,14 @@ export class FirehoseConsumer extends DurableObject<Env> {
         return null
       }
 
-      // Fetch the publication record
+      // Fetch the publication record (with timeout to avoid blocking)
       const recordUrl = `${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
-      const recordResponse = await fetch(recordUrl)
+      const recordResponse = await fetchWithTimeout(recordUrl)
 
-      if (!recordResponse.ok) {
-        console.error(`Failed to fetch publication: ${recordUrl}`)
+      if (!recordResponse || !recordResponse.ok) {
+        if (recordResponse) {
+          console.error(`Failed to fetch publication: ${recordUrl}`)
+        }
         return null
       }
 

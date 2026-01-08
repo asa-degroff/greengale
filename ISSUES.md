@@ -51,12 +51,13 @@ Removed UNIQUE constraint from `authors.handle` column:
 ---
 
 ### 5. External URL Resolution Blocks Firehose Processing
-**Location:** `workers/firehose/index.ts:324-328`
-**Status:** Open
+**Location:** `workers/firehose/index.ts`
+**Status:** FIXED (2026-01-07)
 
-Makes two sequential network calls (plc.directory + PDS) during firehose processing with no timeouts. If plc.directory is slow, all indexing stops.
-
-**Fix:** Add timeouts, move to async background task, or queue for later resolution.
+Added `fetchWithTimeout` helper with 3-second timeout per request:
+- Both plc.directory and PDS fetch calls now have timeouts
+- Returns null on timeout instead of blocking (post still indexes, just without external URL)
+- Prevents slow external services from blocking firehose processing
 
 ---
 
