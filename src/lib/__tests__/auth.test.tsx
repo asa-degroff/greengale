@@ -24,8 +24,11 @@ vi.mock('@atproto/oauth-client-browser', () => ({
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
-// Import after mocking
-import { AuthProvider, useAuth } from '../auth'
+// Import after mocking - now importing REAL functions via __test__ export
+import { AuthProvider, useAuth, __test__ } from '../auth'
+
+// Use the REAL functions from auth.tsx
+const { checkWhitelist, resolveHandleFromDid, OAUTH_SCOPE } = __test__
 
 describe('Auth Module', () => {
   beforeEach(() => {
@@ -49,20 +52,7 @@ describe('Auth Module', () => {
   })
 
   describe('checkWhitelist utility', () => {
-    // Test the whitelist checking logic by simulating what the function does
-    async function checkWhitelist(did: string): Promise<boolean> {
-      try {
-        const response = await fetch(
-          `http://127.0.0.1:8788/xrpc/app.greengale.auth.checkWhitelist?did=${encodeURIComponent(did)}`
-        )
-        if (!response.ok) return false
-        const data = await response.json()
-        return data.whitelisted === true
-      } catch {
-        return false
-      }
-    }
-
+    // Test the REAL checkWhitelist function exported from auth.tsx
     it('returns true when user is whitelisted', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -115,19 +105,7 @@ describe('Auth Module', () => {
   })
 
   describe('resolveHandleFromDid utility', () => {
-    async function resolveHandleFromDid(did: string): Promise<string | null> {
-      try {
-        const response = await fetch(
-          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
-        )
-        if (!response.ok) return null
-        const data = await response.json()
-        return data.handle || null
-      } catch {
-        return null
-      }
-    }
-
+    // Test the REAL resolveHandleFromDid function exported from auth.tsx
     it('returns handle from successful response', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -669,9 +647,7 @@ describe('Auth Module', () => {
 
   describe('OAuth Scope', () => {
     it('includes all required collections', () => {
-      const OAUTH_SCOPE =
-        'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/*'
-
+      // Test the REAL OAUTH_SCOPE constant from auth.tsx
       expect(OAUTH_SCOPE).toContain('app.greengale.blog.entry')
       expect(OAUTH_SCOPE).toContain('app.greengale.document')
       expect(OAUTH_SCOPE).toContain('app.greengale.publication')
