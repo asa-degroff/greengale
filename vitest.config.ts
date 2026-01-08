@@ -4,7 +4,7 @@ import { resolve } from 'path'
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts', 'workers/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'workers/**/*.test.ts'],
     globals: true,
   },
   resolve: {
