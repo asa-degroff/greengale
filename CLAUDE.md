@@ -13,6 +13,8 @@ npm run worker:dev       # API worker (port 8787)
 npm run test             # Watch mode (re-runs on file changes)
 npm run test:run         # Single run
 npm run test:ui          # Browser UI for test exploration
+npm run test:e2e         # Playwright E2E tests
+npm run test:e2e -- --ui # E2E tests with interactive UI
 
 # Deployment
 npm run deploy           # Full deploy (build + worker + pages)
@@ -465,6 +467,64 @@ it('renders component', async () => {
   })
 })
 ```
+
+### E2E Tests (Playwright)
+
+End-to-end tests use [Playwright](https://playwright.dev/) to test the full application in a real browser.
+
+**Running E2E tests:**
+```bash
+npm run test:e2e           # Run all E2E tests
+npm run test:e2e -- --ui   # Interactive UI mode
+npm run test:e2e -- --grep "Homepage"  # Run specific tests
+```
+
+**Test structure:**
+```
+e2e/
+├── home.spec.ts      # Homepage tests (title, posts, navigation)
+├── post.spec.ts      # Post page tests (content, author, TOC)
+├── author.spec.ts    # Author page tests (profile, posts)
+├── auth.spec.ts      # Authentication flow tests
+├── og-image.spec.ts  # OG image generation tests
+└── seed.sql          # Test data for local D1 database
+```
+
+**Local setup for E2E tests:**
+```bash
+# Install Playwright browsers (first time only)
+npx playwright install chromium
+
+# Seed the local database with test data
+npx wrangler d1 execute greengale --local --file=./workers/schema.sql
+npx wrangler d1 execute greengale --local --file=./e2e/seed.sql
+
+# Run tests (starts frontend + API worker automatically)
+npm run test:e2e
+```
+
+**Configuration:** `playwright.config.ts`
+- Starts both frontend (`npm run dev`) and API worker (`npm run worker:dev`)
+- Uses Chromium browser
+- Retries twice in CI, no retries locally
+- Screenshots on failure, traces on retry
+
+**Note:** Some tests (OG image generation) are skipped in local dev because they require the full Cloudflare environment.
+
+### Continuous Integration
+
+GitHub Actions runs on every push/PR to main:
+
+| Job | Description |
+|-----|-------------|
+| `unit-tests` | Runs 823+ Vitest unit tests |
+| `e2e-tests` | Runs Playwright E2E tests (after unit tests pass) |
+| `typecheck` | TypeScript type checking |
+| `build` | Production build verification |
+
+**Workflow file:** `.github/workflows/ci.yml`
+
+Test artifacts (Playwright report, failure screenshots) are uploaded and retained for 30 days.
 
 ## API Endpoints
 
