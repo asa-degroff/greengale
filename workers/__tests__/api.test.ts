@@ -1,8 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { Hono } from 'hono'
 
-// We need to test the API by importing and calling the routes directly
-// First, let's create mock implementations
+// Mock Cloudflare Workers modules
+vi.mock('cloudflare:workers', () => ({
+  DurableObject: class DurableObject {
+    constructor() {}
+  },
+}))
+
+// Mock the og-image module to avoid font loading issues in tests
+vi.mock('../lib/og-image', () => ({
+  generateOGImage: vi.fn().mockResolvedValue(new Response(new ArrayBuffer(100), {
+    headers: { 'Content-Type': 'image/png' },
+  })),
+  generateHomepageOGImage: vi.fn().mockResolvedValue(new Response(new ArrayBuffer(100), {
+    headers: { 'Content-Type': 'image/png' },
+  })),
+  generateProfileOGImage: vi.fn().mockResolvedValue(new Response(new ArrayBuffer(100), {
+    headers: { 'Content-Type': 'image/png' },
+  })),
+}))
+
+// Import the REAL app after mocking dependencies
+import api from '../api/index'
 
 // Mock D1 Database
 function createMockD1() {
@@ -49,444 +68,43 @@ function createMockFirehose() {
   }
 }
 
-// Helper to create a test app with mocked bindings
-function createTestApp() {
-  const mockDB = createMockD1()
-  const mockCache = createMockKV()
-  const mockFirehose = createMockFirehose()
+// Create test environment with all bindings
+function createTestEnv() {
+  return {
+    DB: createMockD1(),
+    CACHE: createMockKV(),
+    FIREHOSE: createMockFirehose(),
+    RELAY_URL: 'wss://test.relay',
+    ADMIN_SECRET: 'test-admin-secret',
+  }
+}
 
-  // Import the actual app structure - we'll recreate key routes for testing
-  const app = new Hono<{
-    Bindings: {
-      DB: ReturnType<typeof createMockD1>
-      CACHE: ReturnType<typeof createMockKV>
-      FIREHOSE: ReturnType<typeof createMockFirehose>
-      ADMIN_SECRET?: string
-    }
-  }>()
-
-  // Bind mock env to all requests
-  app.use('*', async (c, next) => {
-    c.env = {
-      DB: mockDB as unknown as ReturnType<typeof createMockD1>,
-      CACHE: mockCache as unknown as ReturnType<typeof createMockKV>,
-      FIREHOSE: mockFirehose as unknown as ReturnType<typeof createMockFirehose>,
-      ADMIN_SECRET: 'test-admin-secret',
-    }
-    await next()
-  })
-
-  return { app, mockDB, mockCache, mockFirehose }
+// Helper to make requests to the real API
+async function makeRequest(
+  env: ReturnType<typeof createTestEnv>,
+  path: string,
+  options: RequestInit = {}
+) {
+  const url = `http://localhost${path}`
+  const request = new Request(url, options)
+  return api.fetch(request, env, {} as ExecutionContext)
 }
 
 describe('API Endpoints', () => {
-  let app: ReturnType<typeof createTestApp>['app']
-  let mockDB: ReturnType<typeof createMockD1>
-  let mockCache: ReturnType<typeof createMockKV>
+  let env: ReturnType<typeof createTestEnv>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    const testApp = createTestApp()
-    app = testApp.app
-    mockDB = testApp.mockDB
-    mockCache = testApp.mockCache
-    setupRoutes(app)
+    env = createTestEnv()
   })
 
-  // Setup routes matching the actual API
-  function setupRoutes(app: ReturnType<typeof createTestApp>['app']) {
-    // Health check
-    app.get('/xrpc/_health', (c) => {
-      return c.json({ status: 'ok', version: '0.1.0' })
-    })
-
-    // Get recent posts
-    app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
-      const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
-      const cursor = c.req.query('cursor')
-
-      const cacheKey = `recent_posts:${limit}:${cursor || ''}`
-
-      try {
-        const cached = await c.env.CACHE.get(cacheKey, 'json')
-        if (cached) {
-          return c.json(cached)
-        }
-
-        let query = `
-          SELECT p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-                 p.visibility, p.created_at, p.indexed_at,
-                 a.handle, a.display_name, a.avatar_url
-          FROM posts p
-          LEFT JOIN authors a ON p.author_did = a.did
-          WHERE p.visibility = 'public'
-            AND p.uri NOT LIKE '%/site.standard.document/%'
-        `
-
-        const params: (string | number)[] = []
-
-        if (cursor) {
-          query += ` AND p.indexed_at < ?`
-          params.push(cursor)
-        }
-
-        query += ` ORDER BY p.indexed_at DESC LIMIT ?`
-        params.push(limit + 1)
-
-        const result = await c.env.DB.prepare(query).bind(...params).all()
-        const posts = result.results || []
-
-        const hasMore = posts.length > limit
-        const returnPosts = hasMore ? posts.slice(0, limit) : posts
-
-        const response = {
-          posts: returnPosts.map(formatPost),
-          cursor: hasMore ? (returnPosts[returnPosts.length - 1] as Record<string, unknown>).indexed_at : undefined,
-        }
-
-        await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
-          expirationTtl: 30 * 60,
-        })
-
-        return c.json(response)
-      } catch (error) {
-        console.error('Error fetching recent posts:', error)
-        return c.json({ error: 'Failed to fetch posts' }, 500)
-      }
-    })
-
-    // Get author posts
-    app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
-      const author = c.req.query('author')
-      if (!author) {
-        return c.json({ error: 'Missing author parameter' }, 400)
-      }
-
-      const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
-      const cursor = c.req.query('cursor')
-      const viewer = c.req.query('viewer')
-
-      try {
-        let authorDid = author
-        if (!author.startsWith('did:')) {
-          const authorRow = await c.env.DB.prepare(
-            'SELECT did FROM authors WHERE handle = ?'
-          ).bind(author).first()
-
-          if (!authorRow) {
-            return c.json({ posts: [], cursor: undefined })
-          }
-          authorDid = authorRow.did as string
-        }
-
-        const isOwnProfile = viewer && viewer === authorDid
-        let visibilityFilter: string
-        if (isOwnProfile) {
-          visibilityFilter = `p.visibility IN ('public', 'url', 'author')`
-        } else {
-          visibilityFilter = `p.visibility = 'public'`
-        }
-
-        let query = `
-          SELECT p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-                 p.visibility, p.created_at, p.indexed_at,
-                 a.handle, a.display_name, a.avatar_url
-          FROM posts p
-          LEFT JOIN authors a ON p.author_did = a.did
-          WHERE p.author_did = ? AND ${visibilityFilter}
-            AND p.uri NOT LIKE '%/site.standard.document/%'
-        `
-
-        const params: (string | number)[] = [authorDid]
-
-        if (cursor) {
-          query += ` AND p.indexed_at < ?`
-          params.push(cursor)
-        }
-
-        query += ` ORDER BY p.created_at DESC LIMIT ?`
-        params.push(limit + 1)
-
-        const result = await c.env.DB.prepare(query).bind(...params).all()
-        const posts = result.results || []
-
-        const hasMore = posts.length > limit
-        const returnPosts = hasMore ? posts.slice(0, limit) : posts
-
-        return c.json({
-          posts: returnPosts.map(formatPost),
-          cursor: hasMore ? (returnPosts[returnPosts.length - 1] as Record<string, unknown>).indexed_at : undefined,
-        })
-      } catch (error) {
-        console.error('Error fetching author posts:', error)
-        return c.json({ error: 'Failed to fetch posts' }, 500)
-      }
-    })
-
-    // Get single post
-    app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
-      const author = c.req.query('author')
-      const rkey = c.req.query('rkey')
-      const viewer = c.req.query('viewer')
-
-      if (!author || !rkey) {
-        return c.json({ error: 'Missing author or rkey parameter' }, 400)
-      }
-
-      try {
-        let authorDid = author
-        if (!author.startsWith('did:')) {
-          const authorRow = await c.env.DB.prepare(
-            'SELECT did FROM authors WHERE handle = ?'
-          ).bind(author).first()
-
-          if (authorRow) {
-            authorDid = authorRow.did as string
-          }
-        }
-
-        const post = await c.env.DB.prepare(`
-          SELECT p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-                 p.visibility, p.created_at, p.indexed_at,
-                 a.handle, a.display_name, a.avatar_url
-          FROM posts p
-          LEFT JOIN authors a ON p.author_did = a.did
-          WHERE p.author_did = ? AND p.rkey = ?
-            AND p.uri NOT LIKE '%/site.standard.document/%'
-        `).bind(authorDid, rkey).first()
-
-        if (!post) {
-          return c.json({ error: 'Post not found' }, 404)
-        }
-
-        const visibility = post.visibility as string
-        const isAuthor = viewer && viewer === authorDid
-
-        if (visibility === 'author' && !isAuthor) {
-          return c.json({ error: 'Post not found' }, 404)
-        }
-
-        return c.json({ post: formatPost(post as Record<string, unknown>) })
-      } catch (error) {
-        console.error('Error fetching post:', error)
-        return c.json({ error: 'Failed to fetch post' }, 500)
-      }
-    })
-
-    // Get author profile
-    app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
-      const author = c.req.query('author')
-      if (!author) {
-        return c.json({ error: 'Missing author parameter' }, 400)
-      }
-
-      try {
-        const query = author.startsWith('did:')
-          ? `SELECT a.*, p.name as pub_name, p.description as pub_description
-             FROM authors a
-             LEFT JOIN publications p ON a.did = p.author_did
-             WHERE a.did = ?`
-          : `SELECT a.*, p.name as pub_name, p.description as pub_description
-             FROM authors a
-             LEFT JOIN publications p ON a.did = p.author_did
-             WHERE a.handle = ?`
-
-        const authorRow = await c.env.DB.prepare(query).bind(author).first()
-
-        if (!authorRow) {
-          return c.json({ error: 'Author not found' }, 404)
-        }
-
-        const publication = authorRow.pub_name ? {
-          name: authorRow.pub_name,
-          description: authorRow.pub_description || undefined,
-        } : undefined
-
-        return c.json({
-          did: authorRow.did,
-          handle: authorRow.handle,
-          displayName: authorRow.display_name,
-          avatar: authorRow.avatar_url,
-          description: authorRow.description,
-          postsCount: authorRow.posts_count || 0,
-          publication,
-        })
-      } catch (error) {
-        console.error('Error fetching author:', error)
-        return c.json({ error: 'Failed to fetch author' }, 500)
-      }
-    })
-
-    // Check whitelist
-    app.get('/xrpc/app.greengale.auth.checkWhitelist', async (c) => {
-      const did = c.req.query('did')
-      if (!did) {
-        return c.json({ error: 'Missing did parameter' }, 400)
-      }
-
-      try {
-        const row = await c.env.DB.prepare(
-          'SELECT did, handle FROM whitelist WHERE did = ?'
-        ).bind(did).first()
-
-        return c.json({
-          whitelisted: !!row,
-          did: row?.did,
-          handle: row?.handle,
-        })
-      } catch (error) {
-        console.error('Error checking whitelist:', error)
-        return c.json({ error: 'Failed to check whitelist' }, 500)
-      }
-    })
-
-    // Admin: Add to whitelist
-    app.post('/xrpc/app.greengale.admin.addToWhitelist', async (c) => {
-      const adminSecret = c.env.ADMIN_SECRET
-      if (!adminSecret) {
-        return c.json({ error: 'Admin endpoints not configured' }, 503)
-      }
-
-      const providedSecret = c.req.header('X-Admin-Secret')
-      if (!providedSecret || providedSecret !== adminSecret) {
-        return c.json({ error: 'Unauthorized' }, 401)
-      }
-
-      try {
-        const body = await c.req.json() as { did: string; handle?: string; notes?: string }
-        const { did, handle, notes } = body
-
-        if (!did) {
-          return c.json({ error: 'Missing did parameter' }, 400)
-        }
-
-        await c.env.DB.prepare(`
-          INSERT INTO whitelist (did, handle, notes)
-          VALUES (?, ?, ?)
-          ON CONFLICT(did) DO UPDATE SET handle = excluded.handle, notes = excluded.notes
-        `).bind(did, handle || null, notes || null).run()
-
-        return c.json({ success: true, did, handle })
-      } catch (error) {
-        console.error('Error adding to whitelist:', error)
-        return c.json({ error: 'Failed to add to whitelist' }, 500)
-      }
-    })
-
-    // Admin: Remove from whitelist
-    app.post('/xrpc/app.greengale.admin.removeFromWhitelist', async (c) => {
-      const adminSecret = c.env.ADMIN_SECRET
-      if (!adminSecret) {
-        return c.json({ error: 'Admin endpoints not configured' }, 503)
-      }
-
-      const providedSecret = c.req.header('X-Admin-Secret')
-      if (!providedSecret || providedSecret !== adminSecret) {
-        return c.json({ error: 'Unauthorized' }, 401)
-      }
-
-      try {
-        const body = await c.req.json() as { did: string }
-        const { did } = body
-
-        if (!did) {
-          return c.json({ error: 'Missing did parameter' }, 400)
-        }
-
-        await c.env.DB.prepare('DELETE FROM whitelist WHERE did = ?').bind(did).run()
-
-        return c.json({ success: true, did })
-      } catch (error) {
-        console.error('Error removing from whitelist:', error)
-        return c.json({ error: 'Failed to remove from whitelist' }, 500)
-      }
-    })
-
-    // Admin: List whitelist
-    app.get('/xrpc/app.greengale.admin.listWhitelist', async (c) => {
-      const adminSecret = c.env.ADMIN_SECRET
-      if (!adminSecret) {
-        return c.json({ error: 'Admin endpoints not configured' }, 503)
-      }
-
-      const providedSecret = c.req.header('X-Admin-Secret')
-      if (!providedSecret || providedSecret !== adminSecret) {
-        return c.json({ error: 'Unauthorized' }, 401)
-      }
-
-      try {
-        const result = await c.env.DB.prepare(
-          'SELECT did, handle, added_at, notes FROM whitelist ORDER BY added_at DESC'
-        ).all()
-
-        return c.json({ users: result.results || [] })
-      } catch (error) {
-        console.error('Error listing whitelist:', error)
-        return c.json({ error: 'Failed to list whitelist' }, 500)
-      }
-    })
-
-    // Admin: Invalidate OG cache
-    app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
-      const adminSecret = c.env.ADMIN_SECRET
-      if (!adminSecret) {
-        return c.json({ error: 'Admin endpoints not configured' }, 503)
-      }
-
-      const providedSecret = c.req.header('X-Admin-Secret')
-      if (!providedSecret || providedSecret !== adminSecret) {
-        return c.json({ error: 'Unauthorized' }, 401)
-      }
-
-      try {
-        const body = await c.req.json() as { handle?: string; rkey?: string; type?: string }
-        const { handle, rkey, type } = body
-
-        let cacheKey: string
-        if (type === 'site') {
-          cacheKey = 'og:site'
-        } else if (handle && rkey) {
-          cacheKey = `og:${handle}:${rkey}`
-        } else if (handle) {
-          cacheKey = `og:profile:${handle}`
-        } else {
-          return c.json({ error: 'Missing parameters: need handle+rkey, handle, or type=site' }, 400)
-        }
-
-        await c.env.CACHE.delete(cacheKey)
-
-        return c.json({ success: true, cacheKey, message: `Invalidated cache for ${cacheKey}` })
-      } catch (error) {
-        console.error('Error invalidating OG cache:', error)
-        return c.json({ error: 'Failed to invalidate cache' }, 500)
-      }
-    })
-  }
-
-  // Helper function matching the API
-  function formatPost(row: Record<string, unknown>) {
-    return {
-      uri: row.uri,
-      authorDid: row.author_did,
-      rkey: row.rkey,
-      title: row.title,
-      subtitle: row.subtitle,
-      source: row.source,
-      visibility: row.visibility,
-      createdAt: row.created_at,
-      indexedAt: row.indexed_at,
-      author: row.handle ? {
-        did: row.author_did,
-        handle: row.handle,
-        displayName: row.display_name,
-        avatar: row.avatar_url,
-      } : undefined,
-    }
-  }
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
 
   describe('Health Check', () => {
     it('returns ok status', async () => {
-      const res = await app.request('/xrpc/_health')
+      const res = await makeRequest(env, '/xrpc/_health')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -494,11 +112,38 @@ describe('API Endpoints', () => {
     })
   })
 
+  describe('Well-known Endpoints', () => {
+    it('returns platform publication without handle', async () => {
+      const res = await makeRequest(env, '/.well-known/site.standard.publication')
+      expect(res.status).toBe(200)
+
+      const text = await res.text()
+      expect(text).toBe('at://did:plc:purpkfw7haimc4zu5a57slza/site.standard.publication/self')
+    })
+
+    it('returns user publication with handle', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:user123' })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=test.bsky.social')
+      expect(res.status).toBe(200)
+
+      const text = await res.text()
+      expect(text).toBe('at://did:plc:user123/site.standard.publication/self')
+    })
+
+    it('returns 404 for unknown handle', async () => {
+      env.DB._statement.first.mockResolvedValueOnce(null)
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=unknown.bsky.social')
+      expect(res.status).toBe(404)
+    })
+  })
+
   describe('getRecentPosts', () => {
     it('returns empty posts array when no posts exist', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      const res = await app.request('/xrpc/app.greengale.feed.getRecentPosts')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -523,9 +168,9 @@ describe('API Endpoints', () => {
           avatar_url: 'https://example.com/avatar.jpg',
         },
       ]
-      mockDB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
 
-      const res = await app.request('/xrpc/app.greengale.feed.getRecentPosts')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -536,20 +181,20 @@ describe('API Endpoints', () => {
     })
 
     it('respects limit parameter', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      await app.request('/xrpc/app.greengale.feed.getRecentPosts?limit=10')
+      await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts?limit=10')
 
-      expect(mockDB.prepare).toHaveBeenCalled()
-      expect(mockDB._statement.bind).toHaveBeenCalledWith(11) // limit + 1 for hasMore check
+      expect(env.DB.prepare).toHaveBeenCalled()
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(11) // limit + 1 for hasMore check
     })
 
     it('caps limit at 100', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      await app.request('/xrpc/app.greengale.feed.getRecentPosts?limit=500')
+      await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts?limit=500')
 
-      expect(mockDB._statement.bind).toHaveBeenCalledWith(101) // 100 + 1
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(101) // 100 + 1
     })
 
     it('returns cursor when more posts available', async () => {
@@ -562,9 +207,9 @@ describe('API Endpoints', () => {
         visibility: 'public',
         indexed_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
       }))
-      mockDB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
 
-      const res = await app.request('/xrpc/app.greengale.feed.getRecentPosts')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
       const data = await res.json()
 
       expect(data.posts).toHaveLength(50)
@@ -572,30 +217,30 @@ describe('API Endpoints', () => {
     })
 
     it('uses cursor for pagination', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      await app.request('/xrpc/app.greengale.feed.getRecentPosts?cursor=2024-01-15T00:00:00Z')
+      await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts?cursor=2024-01-15T00:00:00Z')
 
-      expect(mockDB._statement.bind).toHaveBeenCalledWith('2024-01-15T00:00:00Z', 51)
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('2024-01-15T00:00:00Z', 51)
     })
 
     it('returns cached response when available', async () => {
       const cachedResponse = { posts: [{ uri: 'cached' }], cursor: undefined }
-      mockCache.get.mockResolvedValueOnce(cachedResponse)
+      env.CACHE.get.mockResolvedValueOnce(cachedResponse)
 
-      const res = await app.request('/xrpc/app.greengale.feed.getRecentPosts')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
       const data = await res.json()
 
       expect(data.posts[0].uri).toBe('cached')
-      expect(mockDB.prepare).not.toHaveBeenCalled()
+      expect(env.DB.prepare).not.toHaveBeenCalled()
     })
 
     it('caches response after fetching from DB', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      await app.request('/xrpc/app.greengale.feed.getRecentPosts')
+      await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
 
-      expect(mockCache.put).toHaveBeenCalledWith(
+      expect(env.CACHE.put).toHaveBeenCalledWith(
         'recent_posts:50:',
         expect.any(String),
         expect.objectContaining({ expirationTtl: 1800 })
@@ -605,7 +250,7 @@ describe('API Endpoints', () => {
 
   describe('getAuthorPosts', () => {
     it('returns 400 when author parameter is missing', async () => {
-      const res = await app.request('/xrpc/app.greengale.feed.getAuthorPosts')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts')
       expect(res.status).toBe(400)
 
       const data = await res.json()
@@ -613,9 +258,9 @@ describe('API Endpoints', () => {
     })
 
     it('returns empty posts for unknown author', async () => {
-      mockDB._statement.first.mockResolvedValueOnce(null)
+      env.DB._statement.first.mockResolvedValueOnce(null)
 
-      const res = await app.request('/xrpc/app.greengale.feed.getAuthorPosts?author=unknown.bsky.social')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=unknown.bsky.social')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -623,29 +268,29 @@ describe('API Endpoints', () => {
     })
 
     it('resolves handle to DID before querying', async () => {
-      mockDB._statement.first.mockResolvedValueOnce({ did: 'did:plc:resolved' })
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:resolved' })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      await app.request('/xrpc/app.greengale.feed.getAuthorPosts?author=test.bsky.social')
+      await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=test.bsky.social')
 
       // First call resolves handle
-      expect(mockDB._statement.bind).toHaveBeenNthCalledWith(1, 'test.bsky.social')
+      expect(env.DB._statement.bind).toHaveBeenNthCalledWith(1, 'test.bsky.social')
       // Second call uses resolved DID
-      expect(mockDB._statement.bind).toHaveBeenNthCalledWith(2, 'did:plc:resolved', 51)
+      expect(env.DB._statement.bind).toHaveBeenNthCalledWith(2, 'did:plc:resolved', 51)
     })
 
     it('uses DID directly when provided', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-      await app.request('/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc123')
+      await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc123')
 
       // Should not call first() to resolve handle
-      expect(mockDB._statement.first).not.toHaveBeenCalled()
-      expect(mockDB._statement.bind).toHaveBeenCalledWith('did:plc:abc123', 51)
+      expect(env.DB._statement.first).not.toHaveBeenCalled()
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('did:plc:abc123', 51)
     })
 
     it('shows all visibility levels when viewer is the author', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({
+      env.DB._statement.all.mockResolvedValueOnce({
         results: [
           { uri: 'public-post', visibility: 'public' },
           { uri: 'url-post', visibility: 'url' },
@@ -653,7 +298,8 @@ describe('API Endpoints', () => {
         ],
       })
 
-      const res = await app.request(
+      const res = await makeRequest(
+        env,
         '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc&viewer=did:plc:abc'
       )
       const data = await res.json()
@@ -662,33 +308,34 @@ describe('API Endpoints', () => {
     })
 
     it('shows only public posts when viewer is not the author', async () => {
-      mockDB._statement.all.mockResolvedValueOnce({
+      env.DB._statement.all.mockResolvedValueOnce({
         results: [{ uri: 'public-post', visibility: 'public' }],
       })
 
-      const res = await app.request(
+      await makeRequest(
+        env,
         '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc&viewer=did:plc:other'
       )
 
       // The query should filter for public only
-      const prepareCall = mockDB.prepare.mock.calls[0][0]
+      const prepareCall = env.DB.prepare.mock.calls[0][0]
       expect(prepareCall).toContain("p.visibility = 'public'")
     })
   })
 
   describe('getPost', () => {
     it('returns 400 when author or rkey is missing', async () => {
-      const res1 = await app.request('/xrpc/app.greengale.feed.getPost?author=test')
+      const res1 = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=test')
       expect(res1.status).toBe(400)
 
-      const res2 = await app.request('/xrpc/app.greengale.feed.getPost?rkey=abc')
+      const res2 = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?rkey=abc')
       expect(res2.status).toBe(400)
     })
 
     it('returns 404 when post not found', async () => {
-      mockDB._statement.first.mockResolvedValueOnce(null)
+      env.DB._statement.first.mockResolvedValueOnce(null)
 
-      const res = await app.request('/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
       expect(res.status).toBe(404)
 
       const data = await res.json()
@@ -703,9 +350,9 @@ describe('API Endpoints', () => {
         title: 'Test Post',
         visibility: 'public',
       }
-      mockDB._statement.first.mockResolvedValueOnce(mockPost)
+      env.DB._statement.first.mockResolvedValueOnce(mockPost)
 
-      const res = await app.request('/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -720,9 +367,10 @@ describe('API Endpoints', () => {
         title: 'Private Post',
         visibility: 'author',
       }
-      mockDB._statement.first.mockResolvedValueOnce(mockPost)
+      env.DB._statement.first.mockResolvedValueOnce(mockPost)
 
-      const res = await app.request(
+      const res = await makeRequest(
+        env,
         '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz&viewer=did:plc:other'
       )
       expect(res.status).toBe(404)
@@ -736,9 +384,10 @@ describe('API Endpoints', () => {
         title: 'Private Post',
         visibility: 'author',
       }
-      mockDB._statement.first.mockResolvedValueOnce(mockPost)
+      env.DB._statement.first.mockResolvedValueOnce(mockPost)
 
-      const res = await app.request(
+      const res = await makeRequest(
+        env,
         '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz&viewer=did:plc:abc'
       )
       expect(res.status).toBe(200)
@@ -755,16 +404,17 @@ describe('API Endpoints', () => {
         title: 'Unlisted Post',
         visibility: 'url',
       }
-      mockDB._statement.first.mockResolvedValueOnce(mockPost)
+      env.DB._statement.first.mockResolvedValueOnce(mockPost)
 
-      const res = await app.request(
+      const res = await makeRequest(
+        env,
         '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz'
       )
       expect(res.status).toBe(200)
     })
 
     it('resolves handle to DID', async () => {
-      mockDB._statement.first
+      env.DB._statement.first
         .mockResolvedValueOnce({ did: 'did:plc:resolved' }) // Handle resolution
         .mockResolvedValueOnce({ // Post query
           uri: 'at://did:plc:resolved/app.greengale.document/xyz',
@@ -774,7 +424,8 @@ describe('API Endpoints', () => {
           visibility: 'public',
         })
 
-      const res = await app.request(
+      const res = await makeRequest(
+        env,
         '/xrpc/app.greengale.feed.getPost?author=test.bsky.social&rkey=xyz'
       )
       expect(res.status).toBe(200)
@@ -783,7 +434,7 @@ describe('API Endpoints', () => {
 
   describe('getProfile', () => {
     it('returns 400 when author parameter is missing', async () => {
-      const res = await app.request('/xrpc/app.greengale.actor.getProfile')
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile')
       expect(res.status).toBe(400)
 
       const data = await res.json()
@@ -791,9 +442,9 @@ describe('API Endpoints', () => {
     })
 
     it('returns 404 when author not found', async () => {
-      mockDB._statement.first.mockResolvedValueOnce(null)
+      env.DB._statement.first.mockResolvedValueOnce(null)
 
-      const res = await app.request('/xrpc/app.greengale.actor.getProfile?author=unknown')
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=unknown')
       expect(res.status).toBe(404)
 
       const data = await res.json()
@@ -809,9 +460,9 @@ describe('API Endpoints', () => {
         description: 'A test user',
         posts_count: 42,
       }
-      mockDB._statement.first.mockResolvedValueOnce(mockAuthor)
+      env.DB._statement.first.mockResolvedValueOnce(mockAuthor)
 
-      const res = await app.request('/xrpc/app.greengale.actor.getProfile?author=test.bsky.social')
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=test.bsky.social')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -829,9 +480,9 @@ describe('API Endpoints', () => {
         pub_name: 'My Blog',
         pub_description: 'A blog about things',
       }
-      mockDB._statement.first.mockResolvedValueOnce(mockAuthor)
+      env.DB._statement.first.mockResolvedValueOnce(mockAuthor)
 
-      const res = await app.request('/xrpc/app.greengale.actor.getProfile?author=test.bsky.social')
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=test.bsky.social')
       const data = await res.json()
 
       expect(data.publication).toBeDefined()
@@ -840,22 +491,22 @@ describe('API Endpoints', () => {
     })
 
     it('handles DID as author parameter', async () => {
-      mockDB._statement.first.mockResolvedValueOnce({
+      env.DB._statement.first.mockResolvedValueOnce({
         did: 'did:plc:abc',
         handle: 'test.bsky.social',
         posts_count: 0,
       })
 
-      await app.request('/xrpc/app.greengale.actor.getProfile?author=did:plc:abc')
+      await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=did:plc:abc')
 
-      const query = mockDB.prepare.mock.calls[0][0]
+      const query = env.DB.prepare.mock.calls[0][0]
       expect(query).toContain('WHERE a.did = ?')
     })
   })
 
   describe('checkWhitelist', () => {
     it('returns 400 when did parameter is missing', async () => {
-      const res = await app.request('/xrpc/app.greengale.auth.checkWhitelist')
+      const res = await makeRequest(env, '/xrpc/app.greengale.auth.checkWhitelist')
       expect(res.status).toBe(400)
 
       const data = await res.json()
@@ -863,9 +514,9 @@ describe('API Endpoints', () => {
     })
 
     it('returns whitelisted: false when not found', async () => {
-      mockDB._statement.first.mockResolvedValueOnce(null)
+      env.DB._statement.first.mockResolvedValueOnce(null)
 
-      const res = await app.request('/xrpc/app.greengale.auth.checkWhitelist?did=did:plc:unknown')
+      const res = await makeRequest(env, '/xrpc/app.greengale.auth.checkWhitelist?did=did:plc:unknown')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -873,12 +524,12 @@ describe('API Endpoints', () => {
     })
 
     it('returns whitelisted: true with user data when found', async () => {
-      mockDB._statement.first.mockResolvedValueOnce({
+      env.DB._statement.first.mockResolvedValueOnce({
         did: 'did:plc:abc',
         handle: 'test.bsky.social',
       })
 
-      const res = await app.request('/xrpc/app.greengale.auth.checkWhitelist?did=did:plc:abc')
+      const res = await makeRequest(env, '/xrpc/app.greengale.auth.checkWhitelist?did=did:plc:abc')
       expect(res.status).toBe(200)
 
       const data = await res.json()
@@ -891,7 +542,7 @@ describe('API Endpoints', () => {
   describe('Admin Endpoints', () => {
     describe('Authentication', () => {
       it('returns 401 when no secret provided', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.listWhitelist')
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.listWhitelist')
         expect(res.status).toBe(401)
 
         const data = await res.json()
@@ -899,25 +550,37 @@ describe('API Endpoints', () => {
       })
 
       it('returns 401 when wrong secret provided', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.listWhitelist', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.listWhitelist', {
           headers: { 'X-Admin-Secret': 'wrong-secret' },
         })
         expect(res.status).toBe(401)
       })
 
       it('allows access with correct secret', async () => {
-        mockDB._statement.all.mockResolvedValueOnce({ results: [] })
+        env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
-        const res = await app.request('/xrpc/app.greengale.admin.listWhitelist', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.listWhitelist', {
           headers: { 'X-Admin-Secret': 'test-admin-secret' },
         })
         expect(res.status).toBe(200)
+      })
+
+      it('returns 503 when admin secret not configured', async () => {
+        const envNoSecret = { ...env, ADMIN_SECRET: undefined }
+
+        const res = await makeRequest(envNoSecret as unknown as ReturnType<typeof createTestEnv>, '/xrpc/app.greengale.admin.listWhitelist', {
+          headers: { 'X-Admin-Secret': 'any-secret' },
+        })
+        expect(res.status).toBe(503)
+
+        const data = await res.json()
+        expect(data.error).toBe('Admin endpoints not configured')
       })
     })
 
     describe('addToWhitelist', () => {
       it('adds user to whitelist', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.addToWhitelist', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.addToWhitelist', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -933,11 +596,11 @@ describe('API Endpoints', () => {
         const data = await res.json()
         expect(data.success).toBe(true)
         expect(data.did).toBe('did:plc:newuser')
-        expect(mockDB._statement.run).toHaveBeenCalled()
+        expect(env.DB._statement.run).toHaveBeenCalled()
       })
 
       it('returns 400 when did is missing', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.addToWhitelist', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.addToWhitelist', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -952,7 +615,7 @@ describe('API Endpoints', () => {
 
     describe('removeFromWhitelist', () => {
       it('removes user from whitelist', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.removeFromWhitelist', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.removeFromWhitelist', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -964,20 +627,20 @@ describe('API Endpoints', () => {
         expect(res.status).toBe(200)
         const data = await res.json()
         expect(data.success).toBe(true)
-        expect(mockDB._statement.run).toHaveBeenCalled()
+        expect(env.DB._statement.run).toHaveBeenCalled()
       })
     })
 
     describe('listWhitelist', () => {
       it('returns list of whitelisted users', async () => {
-        mockDB._statement.all.mockResolvedValueOnce({
+        env.DB._statement.all.mockResolvedValueOnce({
           results: [
             { did: 'did:plc:user1', handle: 'user1.bsky.social', added_at: '2024-01-01' },
             { did: 'did:plc:user2', handle: 'user2.bsky.social', added_at: '2024-01-02' },
           ],
         })
 
-        const res = await app.request('/xrpc/app.greengale.admin.listWhitelist', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.listWhitelist', {
           headers: { 'X-Admin-Secret': 'test-admin-secret' },
         })
 
@@ -989,7 +652,7 @@ describe('API Endpoints', () => {
 
     describe('invalidateOGCache', () => {
       it('invalidates post OG cache', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.invalidateOGCache', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateOGCache', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -1002,11 +665,11 @@ describe('API Endpoints', () => {
         const data = await res.json()
         expect(data.success).toBe(true)
         expect(data.cacheKey).toBe('og:test.bsky.social:abc123')
-        expect(mockCache.delete).toHaveBeenCalledWith('og:test.bsky.social:abc123')
+        expect(env.CACHE.delete).toHaveBeenCalledWith('og:test.bsky.social:abc123')
       })
 
       it('invalidates profile OG cache', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.invalidateOGCache', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateOGCache', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -1021,7 +684,7 @@ describe('API Endpoints', () => {
       })
 
       it('invalidates site OG cache', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.invalidateOGCache', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateOGCache', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -1036,7 +699,7 @@ describe('API Endpoints', () => {
       })
 
       it('returns 400 when no valid parameters', async () => {
-        const res = await app.request('/xrpc/app.greengale.admin.invalidateOGCache', {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateOGCache', {
           method: 'POST',
           headers: {
             'X-Admin-Secret': 'test-admin-secret',
@@ -1048,13 +711,27 @@ describe('API Endpoints', () => {
         expect(res.status).toBe(400)
       })
     })
+
+    describe('startFirehose', () => {
+      it('starts the firehose', async () => {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.startFirehose', {
+          method: 'POST',
+          headers: { 'X-Admin-Secret': 'test-admin-secret' },
+        })
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.status).toBe('started')
+        expect(env.FIREHOSE.idFromName).toHaveBeenCalledWith('main')
+      })
+    })
   })
 
   describe('Error Handling', () => {
     it('returns 500 on database error in getRecentPosts', async () => {
-      mockDB._statement.all.mockRejectedValueOnce(new Error('DB error'))
+      env.DB._statement.all.mockRejectedValueOnce(new Error('DB error'))
 
-      const res = await app.request('/xrpc/app.greengale.feed.getRecentPosts')
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
       expect(res.status).toBe(500)
 
       const data = await res.json()
@@ -1062,39 +739,68 @@ describe('API Endpoints', () => {
     })
 
     it('returns 500 on database error in getProfile', async () => {
-      mockDB._statement.first.mockRejectedValueOnce(new Error('DB error'))
+      env.DB._statement.first.mockRejectedValueOnce(new Error('DB error'))
 
-      const res = await app.request('/xrpc/app.greengale.actor.getProfile?author=test')
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=test')
       expect(res.status).toBe(500)
 
       const data = await res.json()
       expect(data.error).toBe('Failed to fetch author')
     })
   })
+
+  describe('OG Image Endpoints', () => {
+    it('serves cached site OG image', async () => {
+      const imageBuffer = new ArrayBuffer(100)
+      env.CACHE.get.mockResolvedValueOnce(imageBuffer)
+
+      const res = await makeRequest(env, '/og/site.png')
+      expect(res.status).toBe(200)
+      expect(res.headers.get('Content-Type')).toBe('image/png')
+      expect(res.headers.get('X-Cache')).toBe('HIT')
+    })
+
+    it('returns 404 for profile OG when author not found', async () => {
+      env.DB._statement.first.mockResolvedValueOnce(null)
+
+      const res = await makeRequest(env, '/og/profile/unknown.png')
+      expect(res.status).toBe(404)
+    })
+
+    it('returns 400 for post OG with invalid filename', async () => {
+      const res = await makeRequest(env, '/og/test.bsky.social/invalid')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Invalid image format')
+    })
+  })
+
+  describe('Bluesky Integration', () => {
+    it('returns 400 when url parameter is missing for interactions', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getBlueskyInteractions')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Missing url parameter')
+    })
+
+    it('returns 400 when handle or rkey is missing for post', async () => {
+      const res1 = await makeRequest(env, '/xrpc/app.greengale.feed.getBlueskyPost?handle=test')
+      expect(res1.status).toBe(400)
+
+      const res2 = await makeRequest(env, '/xrpc/app.greengale.feed.getBlueskyPost?rkey=abc')
+      expect(res2.status).toBe(400)
+    })
+  })
 })
 
 describe('formatPost', () => {
-  function formatPost(row: Record<string, unknown>) {
-    return {
-      uri: row.uri,
-      authorDid: row.author_did,
-      rkey: row.rkey,
-      title: row.title,
-      subtitle: row.subtitle,
-      source: row.source,
-      visibility: row.visibility,
-      createdAt: row.created_at,
-      indexedAt: row.indexed_at,
-      author: row.handle ? {
-        did: row.author_did,
-        handle: row.handle,
-        displayName: row.display_name,
-        avatar: row.avatar_url,
-      } : undefined,
-    }
-  }
+  // The formatPost function is internal to the API module, but we can test its behavior
+  // through the API responses. These tests verify the output format is correct.
 
-  it('formats post with all fields', () => {
+  it('formats post with all fields via API response', async () => {
+    const env = createTestEnv()
     const row = {
       uri: 'at://did:plc:abc/collection/rkey',
       author_did: 'did:plc:abc',
@@ -1110,16 +816,20 @@ describe('formatPost', () => {
       avatar_url: 'https://avatar.url',
     }
 
-    const formatted = formatPost(row)
+    env.DB._statement.first.mockResolvedValueOnce(row)
 
-    expect(formatted.uri).toBe('at://did:plc:abc/collection/rkey')
-    expect(formatted.authorDid).toBe('did:plc:abc')
-    expect(formatted.title).toBe('Title')
-    expect(formatted.author).toBeDefined()
-    expect(formatted.author?.handle).toBe('test.bsky.social')
+    const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=rkey')
+    const data = await res.json()
+
+    expect(data.post.uri).toBe('at://did:plc:abc/collection/rkey')
+    expect(data.post.authorDid).toBe('did:plc:abc')
+    expect(data.post.title).toBe('Title')
+    expect(data.post.author).toBeDefined()
+    expect(data.post.author?.handle).toBe('test.bsky.social')
   })
 
-  it('omits author when handle is missing', () => {
+  it('omits author when handle is missing via API response', async () => {
+    const env = createTestEnv()
     const row = {
       uri: 'at://did:plc:abc/collection/rkey',
       author_did: 'did:plc:abc',
@@ -1129,24 +839,11 @@ describe('formatPost', () => {
       // No handle
     }
 
-    const formatted = formatPost(row)
+    env.DB._statement.first.mockResolvedValueOnce(row)
 
-    expect(formatted.author).toBeUndefined()
-  })
+    const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=rkey')
+    const data = await res.json()
 
-  it('preserves null values', () => {
-    const row = {
-      uri: 'at://did:plc:abc/collection/rkey',
-      author_did: 'did:plc:abc',
-      rkey: 'rkey',
-      title: null,
-      subtitle: null,
-      visibility: 'public',
-    }
-
-    const formatted = formatPost(row)
-
-    expect(formatted.title).toBeNull()
-    expect(formatted.subtitle).toBeNull()
+    expect(data.post.author).toBeUndefined()
   })
 })
