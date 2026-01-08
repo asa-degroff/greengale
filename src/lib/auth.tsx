@@ -226,3 +226,11 @@ export function useAuth() {
   }
   return context
 }
+
+// Export internal utilities for testing
+export const __test__ = {
+  checkWhitelist,
+  resolveHandleFromDid,
+  OAUTH_SCOPE,
+  API_BASE,
+}
