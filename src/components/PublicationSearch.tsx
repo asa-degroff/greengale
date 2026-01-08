@@ -16,7 +16,7 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Minimum query length before searching (must match API requirement)
   const MIN_QUERY_LENGTH = 2
