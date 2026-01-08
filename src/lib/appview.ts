@@ -186,3 +186,42 @@ export async function getAuthorProfile(
 
   return response.json()
 }
+
+/**
+ * Search result from publication search
+ */
+export interface SearchResult {
+  did: string
+  handle: string
+  displayName: string | null
+  avatarUrl: string | null
+  publication: {
+    name: string
+    url: string | null
+  } | null
+  matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl'
+}
+
+export interface SearchPublicationsResponse {
+  results: SearchResult[]
+}
+
+/**
+ * Search for authors by handle, display name, publication name, or URL
+ */
+export async function searchPublications(
+  query: string,
+  limit = 10
+): Promise<SearchPublicationsResponse> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.search.publications?${params}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to search publications: ${response.statusText}`)
+  }
+
+  return response.json()
+}

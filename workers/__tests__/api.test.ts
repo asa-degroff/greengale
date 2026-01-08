@@ -504,6 +504,243 @@ describe('API Endpoints', () => {
     })
   })
 
+  describe('searchPublications', () => {
+    it('returns 400 when q parameter is missing', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Missing or empty q parameter')
+    })
+
+    it('returns 400 when q parameter is empty', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Missing or empty q parameter')
+    })
+
+    it('returns 400 when q parameter is whitespace only', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=%20%20')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Missing or empty q parameter')
+    })
+
+    it('returns 400 when query is less than 2 characters', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=a')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Query must be at least 2 characters')
+      expect(data.results).toEqual([])
+    })
+
+    it('returns empty results when no matches found', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=nonexistent')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.results).toEqual([])
+    })
+
+    it('returns search results with correct format', async () => {
+      const mockResults = [
+        {
+          did: 'did:plc:abc',
+          handle: 'test.bsky.social',
+          display_name: 'Test User',
+          avatar_url: 'https://example.com/avatar.jpg',
+          pub_name: 'My Blog',
+          pub_url: 'https://myblog.com',
+          match_priority: 1,
+          match_type: 'handle',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.results).toHaveLength(1)
+      expect(data.results[0]).toEqual({
+        did: 'did:plc:abc',
+        handle: 'test.bsky.social',
+        displayName: 'Test User',
+        avatarUrl: 'https://example.com/avatar.jpg',
+        publication: {
+          name: 'My Blog',
+          url: 'https://myblog.com',
+        },
+        matchType: 'handle',
+      })
+    })
+
+    it('handles results without publication data', async () => {
+      const mockResults = [
+        {
+          did: 'did:plc:abc',
+          handle: 'test.bsky.social',
+          display_name: null,
+          avatar_url: null,
+          pub_name: null,
+          pub_url: null,
+          match_priority: 2,
+          match_type: 'handle',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      const data = await res.json()
+
+      expect(data.results[0].displayName).toBeNull()
+      expect(data.results[0].avatarUrl).toBeNull()
+      expect(data.results[0].publication).toBeNull()
+    })
+
+    it('respects limit parameter', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test&limit=5')
+
+      // Verify limit is passed to the query (as the 16th parameter)
+      expect(env.DB._statement.bind).toHaveBeenCalled()
+      const bindArgs = env.DB._statement.bind.mock.calls[0]
+      expect(bindArgs[bindArgs.length - 1]).toBe(5)
+    })
+
+    it('caps limit at 25', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test&limit=100')
+
+      const bindArgs = env.DB._statement.bind.mock.calls[0]
+      expect(bindArgs[bindArgs.length - 1]).toBe(25)
+    })
+
+    it('uses default limit of 10', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+
+      const bindArgs = env.DB._statement.bind.mock.calls[0]
+      expect(bindArgs[bindArgs.length - 1]).toBe(10)
+    })
+
+    it('performs case-insensitive search', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=TEST')
+
+      // Check that the search term is lowercased
+      const bindArgs = env.DB._statement.bind.mock.calls[0]
+      expect(bindArgs[0]).toBe('test')
+    })
+
+    it('creates correct search patterns', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=foo')
+
+      const bindArgs = env.DB._statement.bind.mock.calls[0]
+      // The first 5 bindings should be: exact, prefix, contains, contains, contains
+      expect(bindArgs[0]).toBe('foo')       // exact match
+      expect(bindArgs[1]).toBe('foo%')      // prefix match
+      expect(bindArgs[2]).toBe('%foo%')     // contains
+      expect(bindArgs[3]).toBe('%foo%')     // contains
+      expect(bindArgs[4]).toBe('%foo%')     // contains
+    })
+
+    it('returns multiple results ordered by priority', async () => {
+      const mockResults = [
+        { did: 'did:1', handle: 'exact', match_priority: 1, match_type: 'handle' },
+        { did: 'did:2', handle: 'prefix-match', match_priority: 2, match_type: 'handle' },
+        { did: 'did:3', handle: 'other', display_name: 'Name Match', match_priority: 3, match_type: 'displayName' },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=match')
+      const data = await res.json()
+
+      expect(data.results).toHaveLength(3)
+      expect(data.results[0].handle).toBe('exact')
+      expect(data.results[1].handle).toBe('prefix-match')
+      expect(data.results[2].handle).toBe('other')
+    })
+
+    it('handles different match types', async () => {
+      const mockResults = [
+        { did: 'did:1', handle: 'user1', match_type: 'handle' },
+        { did: 'did:2', handle: 'user2', display_name: 'Display', match_type: 'displayName' },
+        { did: 'did:3', handle: 'user3', pub_name: 'Blog Name', match_type: 'publicationName' },
+        { did: 'did:4', handle: 'user4', pub_url: 'https://example.com', match_type: 'publicationUrl' },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      const data = await res.json()
+
+      expect(data.results.map((r: { matchType: string }) => r.matchType)).toEqual([
+        'handle',
+        'displayName',
+        'publicationName',
+        'publicationUrl',
+      ])
+    })
+
+    it('returns 500 on database error', async () => {
+      env.DB._statement.all.mockRejectedValueOnce(new Error('DB error'))
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      expect(res.status).toBe(500)
+
+      const data = await res.json()
+      expect(data.error).toBe('Failed to search publications')
+    })
+
+    it('returns cached response when available', async () => {
+      const cachedResponse = { results: [{ did: 'cached', handle: 'cached.user' }] }
+      env.CACHE.get.mockResolvedValueOnce(cachedResponse)
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      const data = await res.json()
+
+      expect(data.results[0].did).toBe('cached')
+      expect(env.DB.prepare).not.toHaveBeenCalled()
+    })
+
+    it('caches response after fetching from DB', async () => {
+      const mockResults = [{ did: 'did:plc:abc', handle: 'test.user', match_type: 'handle' }]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+
+      expect(env.CACHE.put).toHaveBeenCalledWith(
+        'search:test:10',
+        expect.any(String),
+        expect.objectContaining({ expirationTtl: 60 })
+      )
+    })
+
+    it('uses correct cache key with limit', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.search.publications?q=hello&limit=5')
+
+      expect(env.CACHE.put).toHaveBeenCalledWith(
+        'search:hello:5',
+        expect.any(String),
+        expect.objectContaining({ expirationTtl: 60 })
+      )
+    })
+  })
+
   describe('checkWhitelist', () => {
     it('returns 400 when did parameter is missing', async () => {
       const res = await makeRequest(env, '/xrpc/app.greengale.auth.checkWhitelist')

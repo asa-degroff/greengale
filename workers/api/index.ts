@@ -997,6 +997,111 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
   }
 })
 
+// Cache TTL for search results (60 seconds)
+const SEARCH_CACHE_TTL = 60
+
+// Search publications by handle, display name, publication name, or URL
+app.get('/xrpc/app.greengale.search.publications', async (c) => {
+  const query = c.req.query('q')
+  if (!query || query.trim().length === 0) {
+    return c.json({ error: 'Missing or empty q parameter' }, 400)
+  }
+
+  const searchTerm = query.trim().toLowerCase()
+
+  // Require minimum 2 characters to prevent expensive single-char searches
+  if (searchTerm.length < 2) {
+    return c.json({ error: 'Query must be at least 2 characters', results: [] }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 25)
+  const cacheKey = `search:${searchTerm}:${limit}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    const prefixPattern = `${searchTerm}%`
+    const containsPattern = `%${searchTerm}%`
+
+    // Search with priority ranking:
+    // 1. Exact handle match
+    // 2. Handle prefix match
+    // 3. Display name contains
+    // 4. Publication name contains
+    // 5. Publication URL contains
+    const result = await c.env.DB.prepare(`
+      SELECT DISTINCT
+        a.did,
+        a.handle,
+        a.display_name,
+        a.avatar_url,
+        p.name as pub_name,
+        p.url as pub_url,
+        CASE
+          WHEN LOWER(a.handle) = ? THEN 1
+          WHEN LOWER(a.handle) LIKE ? THEN 2
+          WHEN LOWER(a.display_name) LIKE ? THEN 3
+          WHEN LOWER(p.name) LIKE ? THEN 4
+          WHEN LOWER(p.url) LIKE ? THEN 5
+        END as match_priority,
+        CASE
+          WHEN LOWER(a.handle) = ? THEN 'handle'
+          WHEN LOWER(a.handle) LIKE ? THEN 'handle'
+          WHEN LOWER(a.display_name) LIKE ? THEN 'displayName'
+          WHEN LOWER(p.name) LIKE ? THEN 'publicationName'
+          WHEN LOWER(p.url) LIKE ? THEN 'publicationUrl'
+        END as match_type
+      FROM authors a
+      LEFT JOIN publications p ON a.did = p.author_did
+      WHERE
+        LOWER(a.handle) = ?
+        OR LOWER(a.handle) LIKE ?
+        OR LOWER(a.display_name) LIKE ?
+        OR LOWER(p.name) LIKE ?
+        OR LOWER(p.url) LIKE ?
+      ORDER BY match_priority ASC, a.posts_count DESC
+      LIMIT ?
+    `).bind(
+      // For CASE priority
+      searchTerm, prefixPattern, containsPattern, containsPattern, containsPattern,
+      // For CASE match_type
+      searchTerm, prefixPattern, containsPattern, containsPattern, containsPattern,
+      // For WHERE clause
+      searchTerm, prefixPattern, containsPattern, containsPattern, containsPattern,
+      // Limit
+      limit
+    ).all()
+
+    const results = (result.results || []).map((row) => ({
+      did: row.did,
+      handle: row.handle,
+      displayName: row.display_name || null,
+      avatarUrl: row.avatar_url || null,
+      publication: row.pub_name ? {
+        name: row.pub_name,
+        url: row.pub_url || null,
+      } : null,
+      matchType: row.match_type as 'handle' | 'displayName' | 'publicationName' | 'publicationUrl',
+    }))
+
+    const response = { results }
+
+    // Cache the response
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: SEARCH_CACHE_TTL,
+    })
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error searching publications:', error)
+    return c.json({ error: 'Failed to search publications' }, 500)
+  }
+})
+
 // Admin authentication middleware
 function requireAdmin(c: { env: Bindings; req: { header: (name: string) => string | undefined } }) {
   const adminSecret = c.env.ADMIN_SECRET

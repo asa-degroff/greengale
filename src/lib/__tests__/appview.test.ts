@@ -6,6 +6,7 @@ import {
   getAuthorPosts,
   getPost,
   getAuthorProfile,
+  searchPublications,
 } from '../appview'
 
 // Mock fetch globally
@@ -342,6 +343,116 @@ describe('AppView API Client', () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringMatching(/author=did%3Aplc%3Atest/)
+      )
+    })
+  })
+
+  describe('searchPublications', () => {
+    it('searches for publications with query', async () => {
+      const results = [
+        {
+          did: 'did:plc:abc',
+          handle: 'test.bsky.social',
+          displayName: 'Test User',
+          avatarUrl: 'https://example.com/avatar.jpg',
+          publication: { name: 'My Blog', url: 'https://myblog.com' },
+          matchType: 'handle',
+        },
+      ]
+      mockFetch.mockResolvedValueOnce(mockResponse({ results }))
+
+      const response = await searchPublications('test')
+
+      expect(response.results).toEqual(results)
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/search\.publications\?q=test/)
+      )
+    })
+
+    it('uses default limit of 10', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
+
+      await searchPublications('query')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/limit=10/)
+      )
+    })
+
+    it('accepts custom limit', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
+
+      await searchPublications('query', 25)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/limit=25/)
+      )
+    })
+
+    it('encodes query parameter', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
+
+      await searchPublications('user+name')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/q=user%2Bname/)
+      )
+    })
+
+    it('returns empty results when no matches', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
+
+      const response = await searchPublications('nonexistent')
+
+      expect(response.results).toEqual([])
+    })
+
+    it('returns multiple results', async () => {
+      const results = [
+        { did: 'did:1', handle: 'user1', matchType: 'handle' },
+        { did: 'did:2', handle: 'user2', matchType: 'displayName' },
+        { did: 'did:3', handle: 'user3', matchType: 'publicationName' },
+      ]
+      mockFetch.mockResolvedValueOnce(mockResponse({ results }))
+
+      const response = await searchPublications('query')
+
+      expect(response.results).toHaveLength(3)
+    })
+
+    it('handles results with null publication', async () => {
+      const results = [
+        {
+          did: 'did:plc:abc',
+          handle: 'test.bsky.social',
+          displayName: null,
+          avatarUrl: null,
+          publication: null,
+          matchType: 'handle',
+        },
+      ]
+      mockFetch.mockResolvedValueOnce(mockResponse({ results }))
+
+      const response = await searchPublications('test')
+
+      expect(response.results[0].publication).toBeNull()
+    })
+
+    it('throws error on failed request', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({}, { ok: false, status: 500, statusText: 'Internal Server Error' })
+      )
+
+      await expect(searchPublications('query')).rejects.toThrow('Failed to search publications')
+    })
+
+    it('handles special characters in query', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
+
+      await searchPublications('test@example.com')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/q=test%40example\.com/)
       )
     })
   })

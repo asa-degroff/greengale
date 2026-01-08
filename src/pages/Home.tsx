@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BlogCard } from '@/components/BlogCard'
 import { TextLogo } from '@/components/TextLogo'
+import { PublicationSearch } from '@/components/PublicationSearch'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 
@@ -128,36 +129,12 @@ export function HomePage() {
 
         <div className="bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)]">
           <h2 className="text-xl font-bold mb-4 text-[var(--site-text)]">
-            View a Blog
+            Find a Blog
           </h2>
           <p className="text-[var(--site-text-secondary)] mb-4">
-            Enter an @ handle to view their blog posts:
+            Search by handle, display name, publication name, or URL:
           </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const form = e.target as HTMLFormElement
-              const input = form.elements.namedItem('handle') as HTMLInputElement
-              const handle = input.value.trim().replace('@', '')
-              if (handle) {
-                window.location.href = `/${handle}`
-              }
-            }}
-            className="flex gap-2"
-          >
-            <input
-              type="text"
-              name="handle"
-              placeholder="handle.bsky.social"
-              className="flex-1 px-4 py-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:border-transparent"
-            />
-            <button
-              type="submit"
-              className="px-6 py-2 bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors font-medium"
-            >
-              View Blog
-            </button>
-          </form>
+          <PublicationSearch className="w-full" />
         </div>
 
         {/* Posts Section with Tabs */}
