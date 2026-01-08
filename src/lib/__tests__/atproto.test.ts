@@ -1,6 +1,19 @@
-import { describe, it, expect } from 'vitest'
-import { slugify, toBasicTheme, extractPlaintext } from '../atproto'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { slugify, toBasicTheme, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries } from '../atproto'
+import type { BlogEntry } from '../atproto'
 import type { Theme } from '../themes'
+
+// Mock fetch globally for resolveExternalUrl tests
+const mockFetch = vi.fn()
+
+// Helper to create a mock Response
+function mockResponse(data: unknown, options: { ok?: boolean } = {}) {
+  const { ok = true } = options
+  return {
+    ok,
+    json: () => Promise.resolve(data),
+  } as Response
+}
 
 describe('AT Protocol Utilities', () => {
   describe('slugify', () => {
@@ -388,6 +401,402 @@ Third.`
       const markdown = 'Check **[bold link](url)** here.'
       const result = extractPlaintext(markdown)
       expect(result).toBe('Check bold link here.')
+    })
+  })
+
+  describe('resolveExternalUrl', () => {
+    beforeEach(() => {
+      vi.stubGlobal('fetch', mockFetch)
+      mockFetch.mockReset()
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('returns null for invalid AT-URI format', async () => {
+      const result = await resolveExternalUrl('invalid-uri', '/posts/test')
+      expect(result).toBeNull()
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('returns null for AT-URI missing parts', async () => {
+      const result = await resolveExternalUrl('at://did:plc:abc', '/posts/test')
+      expect(result).toBeNull()
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('returns null when DID resolution fails', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({}, { ok: false }))
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/test'
+      )
+      expect(result).toBeNull()
+      expect(mockFetch).toHaveBeenCalledWith('https://plc.directory/did:plc:abc123')
+    })
+
+    it('returns null when DID document has no PDS service', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#other', type: 'OtherService', serviceEndpoint: 'https://other.com' },
+          ],
+        })
+      )
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/test'
+      )
+      expect(result).toBeNull()
+    })
+
+    it('returns null when publication record fetch fails', async () => {
+      // DID resolution succeeds
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      // Publication fetch fails
+      mockFetch.mockResolvedValueOnce(mockResponse({}, { ok: false }))
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/test'
+      )
+      expect(result).toBeNull()
+    })
+
+    it('returns null when publication has no URL', async () => {
+      // DID resolution succeeds
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      // Publication has no URL
+      mockFetch.mockResolvedValueOnce(mockResponse({ value: {} }))
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/test'
+      )
+      expect(result).toBeNull()
+    })
+
+    it('constructs full URL from publication URL and path', async () => {
+      // DID resolution
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      // Publication record
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          value: { url: 'https://blog.example.com' },
+        })
+      )
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/my-post'
+      )
+      expect(result).toBe('https://blog.example.com/posts/my-post')
+    })
+
+    it('handles path without leading slash', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          value: { url: 'https://blog.example.com' },
+        })
+      )
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        'posts/my-post'
+      )
+      expect(result).toBe('https://blog.example.com/posts/my-post')
+    })
+
+    it('removes trailing slash from publication URL', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          value: { url: 'https://blog.example.com/' },
+        })
+      )
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/my-post'
+      )
+      expect(result).toBe('https://blog.example.com/posts/my-post')
+    })
+
+    it('handles did:web identifiers', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          value: { url: 'https://myblog.com' },
+        })
+      )
+
+      const result = await resolveExternalUrl(
+        'at://did:web:example.com/site.standard.publication/main',
+        '/article/hello'
+      )
+      expect(result).toBe('https://myblog.com/article/hello')
+      expect(mockFetch).toHaveBeenCalledWith('https://plc.directory/did:web:example.com')
+    })
+
+    it('finds PDS service by type when id differs', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          value: { url: 'https://blog.example.com' },
+        })
+      )
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/test'
+      )
+      expect(result).toBe('https://blog.example.com/posts/test')
+    })
+
+    it('returns null when fetch throws an error', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'))
+
+      const result = await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/self',
+        '/posts/test'
+      )
+      expect(result).toBeNull()
+    })
+
+    it('constructs correct record URL for publication fetch', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' },
+          ],
+        })
+      )
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({
+          value: { url: 'https://blog.example.com' },
+        })
+      )
+
+      await resolveExternalUrl(
+        'at://did:plc:abc123/site.standard.publication/my-pub',
+        '/posts/test'
+      )
+
+      // Verify the record fetch URL
+      expect(mockFetch).toHaveBeenNthCalledWith(
+        2,
+        'https://pds.example.com/xrpc/com.atproto.repo.getRecord?repo=did%3Aplc%3Aabc123&collection=site.standard.publication&rkey=my-pub'
+      )
+    })
+  })
+
+  describe('deduplicateBlogEntries', () => {
+    // Helper to create a minimal BlogEntry for testing
+    function createEntry(overrides: Partial<BlogEntry>): BlogEntry {
+      return {
+        uri: 'at://did:plc:test/collection/rkey',
+        cid: 'cid123',
+        authorDid: 'did:plc:test',
+        rkey: 'test-rkey',
+        source: 'greengale',
+        content: 'Test content',
+        ...overrides,
+      }
+    }
+
+    it('returns empty array for empty input', () => {
+      expect(deduplicateBlogEntries([])).toEqual([])
+    })
+
+    it('returns single entry unchanged', () => {
+      const entry = createEntry({ rkey: 'post-1' })
+      const result = deduplicateBlogEntries([entry])
+      expect(result).toEqual([entry])
+    })
+
+    it('keeps all entries with different rkeys', () => {
+      const entries = [
+        createEntry({ rkey: 'post-1', source: 'greengale' }),
+        createEntry({ rkey: 'post-2', source: 'whitewind' }),
+        createEntry({ rkey: 'post-3', source: 'network' }),
+      ]
+      const result = deduplicateBlogEntries(entries)
+      expect(result).toHaveLength(3)
+    })
+
+    it('keeps GreenGale version when duplicate with network post', () => {
+      const greengaleEntry = createEntry({
+        rkey: 'dual-post',
+        source: 'greengale',
+        uri: 'at://did:plc:test/app.greengale.document/dual-post',
+        title: 'GreenGale Title',
+      })
+      const networkEntry = createEntry({
+        rkey: 'dual-post',
+        source: 'network',
+        uri: 'at://did:plc:test/site.standard.document/dual-post',
+        title: 'Network Title',
+      })
+
+      // GreenGale first
+      let result = deduplicateBlogEntries([greengaleEntry, networkEntry])
+      expect(result).toHaveLength(1)
+      expect(result[0].source).toBe('greengale')
+      expect(result[0].title).toBe('GreenGale Title')
+
+      // Network first (GreenGale should still win)
+      result = deduplicateBlogEntries([networkEntry, greengaleEntry])
+      expect(result).toHaveLength(1)
+      expect(result[0].source).toBe('greengale')
+      expect(result[0].title).toBe('GreenGale Title')
+    })
+
+    it('keeps WhiteWind version when duplicate with network post', () => {
+      const whitewindEntry = createEntry({
+        rkey: 'dual-post',
+        source: 'whitewind',
+        title: 'WhiteWind Title',
+      })
+      const networkEntry = createEntry({
+        rkey: 'dual-post',
+        source: 'network',
+        title: 'Network Title',
+      })
+
+      const result = deduplicateBlogEntries([networkEntry, whitewindEntry])
+      expect(result).toHaveLength(1)
+      expect(result[0].source).toBe('whitewind')
+      expect(result[0].title).toBe('WhiteWind Title')
+    })
+
+    it('keeps first entry when both are GreenGale', () => {
+      const entry1 = createEntry({
+        rkey: 'same-rkey',
+        source: 'greengale',
+        uri: 'at://did:plc:test/app.greengale.document/same-rkey',
+        title: 'First',
+      })
+      const entry2 = createEntry({
+        rkey: 'same-rkey',
+        source: 'greengale',
+        uri: 'at://did:plc:test/app.greengale.blog.entry/same-rkey',
+        title: 'Second',
+      })
+
+      const result = deduplicateBlogEntries([entry1, entry2])
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('First')
+    })
+
+    it('keeps first entry when both are network posts', () => {
+      const entry1 = createEntry({
+        rkey: 'network-post',
+        source: 'network',
+        title: 'First Network',
+      })
+      const entry2 = createEntry({
+        rkey: 'network-post',
+        source: 'network',
+        title: 'Second Network',
+      })
+
+      const result = deduplicateBlogEntries([entry1, entry2])
+      expect(result).toHaveLength(1)
+      expect(result[0].title).toBe('First Network')
+    })
+
+    it('handles mixed scenario with multiple duplicates', () => {
+      const entries = [
+        createEntry({ rkey: 'unique-1', source: 'greengale', title: 'Unique 1' }),
+        createEntry({ rkey: 'dual-1', source: 'network', title: 'Dual 1 Network' }),
+        createEntry({ rkey: 'unique-2', source: 'whitewind', title: 'Unique 2' }),
+        createEntry({ rkey: 'dual-1', source: 'greengale', title: 'Dual 1 GreenGale' }),
+        createEntry({ rkey: 'dual-2', source: 'network', title: 'Dual 2 Network' }),
+        createEntry({ rkey: 'dual-2', source: 'whitewind', title: 'Dual 2 WhiteWind' }),
+      ]
+
+      const result = deduplicateBlogEntries(entries)
+      expect(result).toHaveLength(4)
+
+      // Find entries by rkey
+      const unique1 = result.find((e) => e.rkey === 'unique-1')
+      const unique2 = result.find((e) => e.rkey === 'unique-2')
+      const dual1 = result.find((e) => e.rkey === 'dual-1')
+      const dual2 = result.find((e) => e.rkey === 'dual-2')
+
+      expect(unique1?.title).toBe('Unique 1')
+      expect(unique2?.title).toBe('Unique 2')
+      expect(dual1?.title).toBe('Dual 1 GreenGale') // GreenGale preferred over network
+      expect(dual2?.title).toBe('Dual 2 WhiteWind') // WhiteWind preferred over network
+    })
+
+    it('preserves all properties of kept entries', () => {
+      const fullEntry = createEntry({
+        rkey: 'full-post',
+        source: 'greengale',
+        title: 'Full Title',
+        subtitle: 'Full Subtitle',
+        content: 'Full content here',
+        createdAt: '2024-01-15T10:00:00Z',
+        visibility: 'public',
+        externalUrl: undefined,
+      })
+      const networkEntry = createEntry({
+        rkey: 'full-post',
+        source: 'network',
+        title: 'Network Title',
+        externalUrl: 'https://example.com/post',
+      })
+
+      const result = deduplicateBlogEntries([networkEntry, fullEntry])
+      expect(result).toHaveLength(1)
+      expect(result[0]).toEqual(fullEntry)
     })
   })
 })
