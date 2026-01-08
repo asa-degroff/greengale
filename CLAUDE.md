@@ -9,6 +9,11 @@ A markdown blog platform built on AT Protocol, compatible with WhiteWind and sta
 npm run dev              # Frontend (port 5173)
 npm run worker:dev       # API worker (port 8787)
 
+# Testing
+npm run test             # Watch mode (re-runs on file changes)
+npm run test:run         # Single run
+npm run test:ui          # Browser UI for test exploration
+
 # Deployment
 npm run deploy           # Full deploy (build + worker + pages)
 
@@ -59,6 +64,7 @@ src/
 │   ├── Editor.tsx           # /new, /edit/:rkey - post creation
 │   └── AuthCallback.tsx     # OAuth callback handler
 ├── lib/
+│   ├── __tests__/           # Unit tests (see Testing section)
 │   ├── atproto.ts           # AT Protocol client, PDS fetching
 │   ├── appview.ts           # Indexed data API client
 │   ├── auth.tsx             # OAuth context (useAuth hook)
@@ -77,6 +83,7 @@ src/
 └── index.css                # Global styles + theme CSS vars
 
 workers/
+├── __tests__/               # Worker unit tests
 ├── api/index.ts             # Hono API server
 ├── firehose/index.ts        # Durable Object for firehose
 ├── schema.sql               # D1 database schema
@@ -327,6 +334,115 @@ import { getRecentPosts, getAuthorPosts } from '@/lib/appview'
 // Full content (from user's PDS)
 import { getBlogEntry, getAuthorProfile } from '@/lib/atproto'
 ```
+
+## Testing
+
+Unit tests use [Vitest](https://vitest.dev/) with 421 tests covering critical pure functions.
+
+### Running Tests
+
+```bash
+npm run test             # Watch mode - re-runs on file changes
+npm run test:run         # Single run - for CI or quick verification
+npm run test:ui          # Browser UI - visual test exploration
+```
+
+Run specific test file:
+```bash
+npm run test:run -- src/lib/__tests__/themes.test.ts
+```
+
+### Test Structure
+
+```
+src/lib/__tests__/
+├── svg-sanitizer.test.ts      # XSS prevention, allowed elements, size limits
+├── themes.test.ts             # Color contrast, WCAG validation, presets
+├── markdown.test.ts           # Text extraction, title/image parsing
+├── image-labels.test.ts       # CID extraction, content labels, alt text
+├── extractHeadings.test.ts    # TOC generation, slug creation
+├── atproto.test.ts            # slugify, theme conversion, plaintext extraction
+├── bluesky.test.ts            # AT URI conversion, facet rendering, UTF-8
+├── remark-bluesky-embed.test.ts # Embed detection, URL parsing
+├── image-upload.test.ts       # File validation, blob URL generation
+└── appview.test.ts            # API client with fetch mocking
+
+workers/__tests__/
+└── theme-colors.test.ts       # OG image theming, luminance calculation
+```
+
+### Test Coverage by Category
+
+| Category | Tests | Key Areas |
+|----------|-------|-----------|
+| Security | 31 | SVG sanitization, XSS prevention |
+| Theming | 94 | Color contrast, WCAG AA, presets |
+| Text Processing | 95 | Markdown, headings, plaintext |
+| Image Handling | 94 | Validation, labels, CID extraction |
+| AT Protocol | 107 | URLs, facets, embeds, API client |
+
+### Writing New Tests
+
+Tests focus on **pure functions** that don't require complex mocking:
+
+```typescript
+// src/lib/__tests__/example.test.ts
+import { describe, it, expect } from 'vitest'
+import { myFunction } from '../example'
+
+describe('myFunction', () => {
+  it('handles normal input', () => {
+    expect(myFunction('input')).toBe('expected')
+  })
+
+  it('handles edge cases', () => {
+    expect(myFunction('')).toBe('')
+    expect(myFunction(null)).toBeNull()
+  })
+})
+```
+
+For functions requiring fetch, use `vi.stubGlobal`:
+
+```typescript
+import { vi, beforeEach, afterEach } from 'vitest'
+
+const mockFetch = vi.fn()
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', mockFetch)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+it('handles API response', async () => {
+  mockFetch.mockResolvedValueOnce({
+    ok: true,
+    json: () => Promise.resolve({ data: 'value' }),
+  })
+
+  const result = await myApiFunction()
+  expect(result.data).toBe('value')
+})
+```
+
+For DOM-dependent tests, add the jsdom environment directive:
+
+```typescript
+/**
+ * @vitest-environment jsdom
+ */
+import { describe, it, expect } from 'vitest'
+```
+
+### Test Configuration
+
+Configuration in `vitest.config.ts`:
+- Default environment: `node` (fast, no DOM overhead)
+- Path alias: `@` → `src/`
+- Test pattern: `src/**/*.test.ts`, `workers/**/*.test.ts`
 
 ## API Endpoints
 
