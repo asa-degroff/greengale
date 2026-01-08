@@ -337,7 +337,7 @@ import { getBlogEntry, getAuthorProfile } from '@/lib/atproto'
 
 ## Testing
 
-Unit tests use [Vitest](https://vitest.dev/) with 421 tests covering critical pure functions.
+Unit tests use [Vitest](https://vitest.dev/) with 823 tests covering API endpoints, workers, auth flows, and core library functions.
 
 ### Running Tests
 
@@ -356,30 +356,38 @@ npm run test:run -- src/lib/__tests__/themes.test.ts
 
 ```
 src/lib/__tests__/
-├── svg-sanitizer.test.ts      # XSS prevention, allowed elements, size limits
-├── themes.test.ts             # Color contrast, WCAG validation, presets
-├── markdown.test.ts           # Text extraction, title/image parsing
-├── image-labels.test.ts       # CID extraction, content labels, alt text
-├── extractHeadings.test.ts    # TOC generation, slug creation
-├── atproto.test.ts            # slugify, theme conversion, plaintext extraction
-├── bluesky.test.ts            # AT URI conversion, facet rendering, UTF-8
-├── remark-bluesky-embed.test.ts # Embed detection, URL parsing
-├── image-upload.test.ts       # File validation, blob URL generation
-└── appview.test.ts            # API client with fetch mocking
+├── appview.test.ts            # API client with fetch mocking (31)
+├── atproto.test.ts            # slugify, theme conversion, plaintext (46)
+├── auth.test.tsx              # OAuth login/logout/refresh, whitelist (30)
+├── bluesky.test.ts            # AT URI conversion, facet rendering (32)
+├── extractHeadings.test.ts    # TOC generation, slug creation (33)
+├── image-labels.test.ts       # CID extraction, content labels (60)
+├── image-upload.test.ts       # File validation, blob URL generation (34)
+├── markdown.test.ts           # Text extraction, title/image parsing (31)
+├── rehype-heading-ids.test.ts # Heading ID generation, duplicates (55)
+├── remark-bluesky-embed.test.ts # Embed detection, URL parsing (29)
+├── remark-svg.test.ts         # SVG code block processing (31)
+├── svg-sanitizer.test.ts      # XSS prevention, allowed elements (31)
+├── themes.test.ts             # Color contrast, WCAG validation (34)
+└── tts.test.ts                # Text extraction, WAV encoding, capabilities (88)
 
 workers/__tests__/
-└── theme-colors.test.ts       # OG image theming, luminance calculation
+├── api.test.ts                # All XRPC endpoints, admin auth (46)
+├── firehose.test.ts           # Post indexing, cache invalidation (76)
+├── og-image.test.ts           # OG generation, emoji, fonts (76)
+└── theme-colors.test.ts       # OG theming, luminance calculation (60)
 ```
 
 ### Test Coverage by Category
 
 | Category | Tests | Key Areas |
 |----------|-------|-----------|
-| Security | 31 | SVG sanitization, XSS prevention |
-| Theming | 94 | Color contrast, WCAG AA, presets |
-| Text Processing | 95 | Markdown, headings, plaintext |
-| Image Handling | 94 | Validation, labels, CID extraction |
-| AT Protocol | 107 | URLs, facets, embeds, API client |
+| API & Workers | 198 | XRPC endpoints, firehose indexing, OG images |
+| Auth & Security | 61 | OAuth flow, SVG sanitization, XSS prevention |
+| Theming | 94 | Color contrast, WCAG AA, presets, OG colors |
+| Text Processing | 238 | Markdown, headings, TTS, rehype plugins |
+| Image Handling | 94 | Validation, labels, CID extraction, uploads |
+| AT Protocol | 138 | URLs, facets, embeds, API client, Bluesky |
 
 ### Writing New Tests
 
@@ -442,7 +450,21 @@ import { describe, it, expect } from 'vitest'
 Configuration in `vitest.config.ts`:
 - Default environment: `node` (fast, no DOM overhead)
 - Path alias: `@` → `src/`
-- Test pattern: `src/**/*.test.ts`, `workers/**/*.test.ts`
+- Test pattern: `src/**/*.test.{ts,tsx}`, `workers/**/*.test.ts`
+
+For React component/hook tests, use `@testing-library/react`:
+
+```typescript
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+
+it('renders component', async () => {
+  render(<MyComponent />)
+  await waitFor(() => {
+    expect(screen.getByText('Expected')).toBeInTheDocument()
+  })
+})
+```
 
 ## API Endpoints
 
