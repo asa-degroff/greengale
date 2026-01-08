@@ -16,6 +16,7 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Minimum query length before searching (must match API requirement)
@@ -71,6 +72,16 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (selectedIndex >= 0 && listRef.current) {
+      const selectedElement = listRef.current.children[selectedIndex] as HTMLElement
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ block: 'nearest' })
+      }
+    }
+  }, [selectedIndex])
 
   // Handle result selection
   function selectResult(result: SearchResult) {
@@ -171,7 +182,7 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
 
       {/* Dropdown */}
       {isOpen && results.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-lg max-h-80 overflow-y-auto">
+        <div ref={listRef} className="absolute z-50 w-full mt-1 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-lg max-h-80 overflow-y-auto">
           {results.map((result, index) => (
             <button
               key={result.did}
