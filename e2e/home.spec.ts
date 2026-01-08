@@ -3,12 +3,11 @@ import { test, expect } from '@playwright/test'
 test.describe('Homepage', () => {
   test('displays the GreenGale title', async ({ page }) => {
     await page.goto('/')
+    await page.waitForLoadState('domcontentloaded')
 
-    // Check that the page has the GreenGale branding (SVG logo or visible text)
-    const hasGreenGale = await page.getByText('GreenGale').first().isVisible().catch(() => false)
-    const hasSvgLogo = await page.locator('svg').filter({ hasText: /greengale/i }).first().isVisible().catch(() => false)
-
-    expect(hasGreenGale || hasSvgLogo).toBe(true)
+    // Check that the page has the GreenGale branding (text visible anywhere on page)
+    const greenGaleText = page.getByText('GreenGale').first()
+    await expect(greenGaleText).toBeVisible({ timeout: 5000 })
   })
 
   test('displays recent posts', async ({ page }) => {
