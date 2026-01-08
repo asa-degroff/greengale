@@ -99,7 +99,7 @@ describe('PublicationSearch', () => {
     it('does not search for single character queries', async () => {
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'a')
 
       expect(mockSearchPublications).not.toHaveBeenCalled()
@@ -108,7 +108,7 @@ describe('PublicationSearch', () => {
     it('does not search for empty queries', async () => {
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, '  ')
 
       expect(mockSearchPublications).not.toHaveBeenCalled()
@@ -118,7 +118,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'al')
 
       expect(mockSearchPublications).toHaveBeenCalledWith('al', 10)
@@ -130,7 +130,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       fireEvent.change(input, { target: { value: 'test' } })
 
       // Should not have called yet
@@ -148,7 +148,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
 
       // Type 'te', wait 200ms, then type 'st'
       fireEvent.change(input, { target: { value: 'te' } })
@@ -171,7 +171,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -183,7 +183,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: [mockResults[0]] })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'alice')
 
       // Find the avatar image by its src attribute
@@ -195,7 +195,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: [mockResults[2]] })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'carol')
 
       // Should show handle as display name when displayName is null
@@ -206,7 +206,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getAllByText('Handle').length).toBeGreaterThan(0)
@@ -217,7 +217,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: [] })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'nonexistent')
 
       expect(mockSearchPublications).toHaveBeenCalled()
@@ -237,7 +237,7 @@ describe('PublicationSearch', () => {
 
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       fireEvent.change(input, { target: { value: 'test' } })
 
       // Advance past debounce - this triggers the search call
@@ -267,7 +267,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'alice')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -282,7 +282,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox') as HTMLInputElement
+      const input = screen.getByRole('combobox') as HTMLInputElement
       await typeAndWait(input, 'alice')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -299,7 +299,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -316,7 +316,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -335,7 +335,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -351,7 +351,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -365,7 +365,7 @@ describe('PublicationSearch', () => {
     it('navigates directly to handle on Enter when dropdown closed', async () => {
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       // Type without triggering search (under min length initially, then immediate enter)
       fireEvent.change(input, { target: { value: 'someuser.bsky.social' } })
       fireEvent.keyDown(input, { key: 'Enter' })
@@ -376,7 +376,7 @@ describe('PublicationSearch', () => {
     it('strips @ from handle on direct navigation', async () => {
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       fireEvent.change(input, { target: { value: '@user.bsky.social' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -394,7 +394,7 @@ describe('PublicationSearch', () => {
         </div>
       )
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -409,7 +409,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -427,7 +427,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Alice')).toBeDefined()
@@ -450,7 +450,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(screen.getByText('Bob Smith')).toBeDefined()
@@ -469,7 +469,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockRejectedValue(new Error('Network error'))
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       expect(mockSearchPublications).toHaveBeenCalled()
@@ -490,7 +490,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: [pubNameResult] })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'tech')
 
       expect(screen.getByText('Tech Weekly')).toBeDefined()
@@ -509,7 +509,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: [pubUrlResult] })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'example')
 
       expect(screen.getByText('https://myblog.example.com')).toBeDefined()
@@ -522,7 +522,7 @@ describe('PublicationSearch', () => {
       mockSearchPublications.mockResolvedValue({ results: mockResults })
       render(<PublicationSearch />)
 
-      const input = screen.getByRole('textbox')
+      const input = screen.getByRole('combobox')
       await typeAndWait(input, 'test')
 
       // Navigate down
