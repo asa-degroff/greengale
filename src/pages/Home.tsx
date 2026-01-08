@@ -122,8 +122,7 @@ export function HomePage() {
           <TextLogo className="h-8 md:h-10 mx-auto mb-4 text-[var(--site-text)]" />
           <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
-            Markdown blog platform built on AT Protocol. Compatible with WhiteWind
-            and powered by your <a href="https://internethandle.org/">internet handle.</a>
+            Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle. WhiteWind support and Standard Site indexing.</a>
           </p>
         </div>
 
@@ -297,9 +296,9 @@ export function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="font-bold mb-2 text-[var(--site-text)]">WhiteWind Compatible</h3>
+            <h3 className="font-bold mb-2 text-[var(--site-text)]">Cross-Platform</h3>
             <p className="text-sm text-[var(--site-text-secondary)]">
-              View and create WhiteWind blog posts without any migration needed.
+              View and create WhiteWind and GreenGale posts. Search all standard.site documents.
             </p>
           </div>
 
@@ -311,7 +310,7 @@ export function HomePage() {
             </div>
             <h3 className="font-bold mb-2 text-[var(--site-text)]">Theme Selection</h3>
             <p className="text-sm text-[var(--site-text-secondary)]">
-              Choose from preset themes to match your style. Themes are applied per post.
+              Customize themes for each post or across the site.
             </p>
           </div>
 
