@@ -1000,7 +1000,7 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
 // Cache TTL for search results (60 seconds)
 const SEARCH_CACHE_TTL = 60
 
-// Search publications by handle, display name, publication name, or URL
+// Search publications by handle, display name, publication name, URL, or post title
 app.get('/xrpc/app.greengale.search.publications', async (c) => {
   const query = c.req.query('q')
   if (!query || query.trim().length === 0) {
@@ -1027,56 +1027,91 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
     const prefixPattern = `${searchTerm}%`
     const containsPattern = `%${searchTerm}%`
 
-    // Search with priority ranking:
+    // Search with priority ranking using UNION:
     // 1. Exact handle match
     // 2. Handle prefix match
     // 3. Display name contains
     // 4. Publication name contains
     // 5. Publication URL contains
+    // 6. Post title contains
     const result = await c.env.DB.prepare(`
-      SELECT DISTINCT
-        a.did,
-        a.handle,
-        a.display_name,
-        a.avatar_url,
-        p.name as pub_name,
-        p.url as pub_url,
-        CASE
-          WHEN LOWER(a.handle) = ? THEN 1
-          WHEN LOWER(a.handle) LIKE ? THEN 2
-          WHEN LOWER(a.display_name) LIKE ? THEN 3
-          WHEN LOWER(p.name) LIKE ? THEN 4
-          WHEN LOWER(p.url) LIKE ? THEN 5
-        END as match_priority,
-        CASE
-          WHEN LOWER(a.handle) = ? THEN 'handle'
-          WHEN LOWER(a.handle) LIKE ? THEN 'handle'
-          WHEN LOWER(a.display_name) LIKE ? THEN 'displayName'
-          WHEN LOWER(p.name) LIKE ? THEN 'publicationName'
-          WHEN LOWER(p.url) LIKE ? THEN 'publicationUrl'
-        END as match_type
-      FROM authors a
-      LEFT JOIN publications p ON a.did = p.author_did
-      WHERE
-        LOWER(a.handle) = ?
-        OR LOWER(a.handle) LIKE ?
-        OR LOWER(a.display_name) LIKE ?
-        OR LOWER(p.name) LIKE ?
-        OR LOWER(p.url) LIKE ?
-      ORDER BY match_priority ASC, a.posts_count DESC
-      LIMIT ?
+      SELECT * FROM (
+        -- Part 1: Author/publication matches
+        SELECT DISTINCT
+          a.did,
+          a.handle,
+          a.display_name,
+          a.avatar_url,
+          p.name as pub_name,
+          p.url as pub_url,
+          NULL as post_rkey,
+          NULL as post_title,
+          CASE
+            WHEN LOWER(a.handle) = ?1 THEN 1
+            WHEN LOWER(a.handle) LIKE ?2 THEN 2
+            WHEN LOWER(a.display_name) LIKE ?3 THEN 3
+            WHEN LOWER(p.name) LIKE ?3 THEN 4
+            WHEN LOWER(p.url) LIKE ?3 THEN 5
+          END as match_priority,
+          CASE
+            WHEN LOWER(a.handle) = ?1 THEN 'handle'
+            WHEN LOWER(a.handle) LIKE ?2 THEN 'handle'
+            WHEN LOWER(a.display_name) LIKE ?3 THEN 'displayName'
+            WHEN LOWER(p.name) LIKE ?3 THEN 'publicationName'
+            WHEN LOWER(p.url) LIKE ?3 THEN 'publicationUrl'
+          END as match_type,
+          a.posts_count
+        FROM authors a
+        LEFT JOIN publications p ON a.did = p.author_did
+        WHERE
+          LOWER(a.handle) = ?1
+          OR LOWER(a.handle) LIKE ?2
+          OR LOWER(a.display_name) LIKE ?3
+          OR LOWER(p.name) LIKE ?3
+          OR LOWER(p.url) LIKE ?3
+
+        UNION ALL
+
+        -- Part 2: Post title matches
+        SELECT
+          a.did,
+          a.handle,
+          a.display_name,
+          a.avatar_url,
+          NULL as pub_name,
+          NULL as pub_url,
+          posts.rkey as post_rkey,
+          posts.title as post_title,
+          6 as match_priority,
+          'postTitle' as match_type,
+          a.posts_count
+        FROM posts
+        JOIN authors a ON posts.author_did = a.did
+        WHERE posts.visibility = 'public'
+          AND LOWER(posts.title) LIKE ?3
+      )
+      ORDER BY match_priority ASC, posts_count DESC
+      LIMIT ?4
     `).bind(
-      // For CASE priority
-      searchTerm, prefixPattern, containsPattern, containsPattern, containsPattern,
-      // For CASE match_type
-      searchTerm, prefixPattern, containsPattern, containsPattern, containsPattern,
-      // For WHERE clause
-      searchTerm, prefixPattern, containsPattern, containsPattern, containsPattern,
-      // Limit
-      limit
+      searchTerm,      // ?1 - exact match
+      prefixPattern,   // ?2 - prefix pattern
+      containsPattern, // ?3 - contains pattern
+      limit            // ?4 - limit
     ).all()
 
-    const results = (result.results || []).map((row) => ({
+    type SearchResultRow = {
+      did: string
+      handle: string
+      display_name: string | null
+      avatar_url: string | null
+      pub_name: string | null
+      pub_url: string | null
+      post_rkey: string | null
+      post_title: string | null
+      match_type: string
+    }
+
+    const results = (result.results as SearchResultRow[] || []).map((row) => ({
       did: row.did,
       handle: row.handle,
       displayName: row.display_name || null,
@@ -1085,7 +1120,11 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
         name: row.pub_name,
         url: row.pub_url || null,
       } : null,
-      matchType: row.match_type as 'handle' | 'displayName' | 'publicationName' | 'publicationUrl',
+      matchType: row.match_type as 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle',
+      post: row.post_rkey ? {
+        rkey: row.post_rkey,
+        title: row.post_title || '',
+      } : undefined,
     }))
 
     const response = { results }

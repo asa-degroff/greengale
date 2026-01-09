@@ -7,7 +7,7 @@ interface PublicationSearchProps {
   className?: string
 }
 
-export function PublicationSearch({ placeholder = 'Search by handle, name, or URL...', className = '' }: PublicationSearchProps) {
+export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '' }: PublicationSearchProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -87,7 +87,12 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
   function selectResult(result: SearchResult) {
     setIsOpen(false)
     setQuery('')
-    navigate(`/${result.handle}`)
+    // Navigate to post page for post results, author page otherwise
+    if (result.matchType === 'postTitle' && result.post) {
+      navigate(`/${result.handle}/${result.post.rkey}`)
+    } else {
+      navigate(`/${result.handle}`)
+    }
   }
 
   // Keyboard navigation
@@ -140,6 +145,8 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
         return 'Publication'
       case 'publicationUrl':
         return 'URL'
+      case 'postTitle':
+        return 'Post'
     }
   }
 
@@ -154,6 +161,8 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
         return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
       case 'publicationUrl':
         return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+      case 'postTitle':
+        return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
     }
   }
 
@@ -196,7 +205,7 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
         <div ref={listRef} className="absolute z-50 w-full mt-1 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-lg max-h-80 overflow-y-auto">
           {results.map((result, index) => (
             <button
-              key={result.did}
+              key={result.post ? `${result.did}:${result.post.rkey}` : result.did}
               onClick={() => selectResult(result)}
               onMouseEnter={() => setSelectedIndex(index)}
               className={`w-full px-4 py-3 flex items-center gap-3 text-left transition-colors ${
@@ -205,8 +214,14 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
                   : 'hover:bg-[var(--site-bg-secondary)]'
               }`}
             >
-              {/* Avatar */}
-              {result.avatarUrl ? (
+              {/* Avatar or Post icon */}
+              {result.matchType === 'postTitle' ? (
+                <div className="w-10 h-10 rounded-lg bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-[var(--site-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+              ) : result.avatarUrl ? (
                 <img
                   src={result.avatarUrl}
                   alt=""
@@ -224,7 +239,9 @@ export function PublicationSearch({ placeholder = 'Search by handle, name, or UR
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-[var(--site-text)] truncate">
-                    {result.displayName || result.handle}
+                    {result.matchType === 'postTitle' && result.post
+                      ? result.post.title
+                      : result.displayName || result.handle}
                   </span>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${getMatchTypeColor(result.matchType)}`}>
                     {getMatchTypeLabel(result.matchType)}

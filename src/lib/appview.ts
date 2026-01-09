@@ -199,7 +199,12 @@ export interface SearchResult {
     name: string
     url: string | null
   } | null
-  matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl'
+  matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle'
+  // Optional post info for postTitle matches
+  post?: {
+    rkey: string
+    title: string
+  }
 }
 
 export interface SearchPublicationsResponse {

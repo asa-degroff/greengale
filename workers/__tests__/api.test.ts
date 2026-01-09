@@ -649,12 +649,11 @@ describe('API Endpoints', () => {
       await makeRequest(env, '/xrpc/app.greengale.search.publications?q=foo')
 
       const bindArgs = env.DB._statement.bind.mock.calls[0]
-      // The first 5 bindings should be: exact, prefix, contains, contains, contains
-      expect(bindArgs[0]).toBe('foo')       // exact match
-      expect(bindArgs[1]).toBe('foo%')      // prefix match
-      expect(bindArgs[2]).toBe('%foo%')     // contains
-      expect(bindArgs[3]).toBe('%foo%')     // contains
-      expect(bindArgs[4]).toBe('%foo%')     // contains
+      // The query uses numbered parameters: ?1=exact, ?2=prefix, ?3=contains, ?4=limit
+      expect(bindArgs[0]).toBe('foo')       // ?1 - exact match
+      expect(bindArgs[1]).toBe('foo%')      // ?2 - prefix match
+      expect(bindArgs[2]).toBe('%foo%')     // ?3 - contains
+      expect(bindArgs[3]).toBe(10)          // ?4 - default limit
     })
 
     it('returns multiple results ordered by priority', async () => {
@@ -738,6 +737,84 @@ describe('API Endpoints', () => {
         expect.any(String),
         expect.objectContaining({ expirationTtl: 60 })
       )
+    })
+
+    it('returns post title search results with correct format', async () => {
+      const mockResults = [
+        {
+          did: 'did:plc:abc',
+          handle: 'test.bsky.social',
+          display_name: 'Test User',
+          avatar_url: 'https://example.com/avatar.jpg',
+          pub_name: null,
+          pub_url: null,
+          post_rkey: '3abc123',
+          post_title: 'My Test Post Title',
+          match_priority: 6,
+          match_type: 'postTitle',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.results).toHaveLength(1)
+      expect(data.results[0]).toEqual({
+        did: 'did:plc:abc',
+        handle: 'test.bsky.social',
+        displayName: 'Test User',
+        avatarUrl: 'https://example.com/avatar.jpg',
+        publication: null,
+        matchType: 'postTitle',
+        post: {
+          rkey: '3abc123',
+          title: 'My Test Post Title',
+        },
+      })
+    })
+
+    it('handles mixed author and post results', async () => {
+      const mockResults = [
+        { did: 'did:1', handle: 'user1', match_type: 'handle', post_rkey: null, post_title: null },
+        { did: 'did:2', handle: 'user2', match_type: 'displayName', post_rkey: null, post_title: null },
+        { did: 'did:3', handle: 'user3', match_type: 'postTitle', post_rkey: 'post123', post_title: 'A Great Post' },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      const data = await res.json()
+
+      expect(data.results).toHaveLength(3)
+      expect(data.results[0].matchType).toBe('handle')
+      expect(data.results[0].post).toBeUndefined()
+      expect(data.results[1].matchType).toBe('displayName')
+      expect(data.results[1].post).toBeUndefined()
+      expect(data.results[2].matchType).toBe('postTitle')
+      expect(data.results[2].post).toEqual({ rkey: 'post123', title: 'A Great Post' })
+    })
+
+    it('includes postTitle in match types', async () => {
+      const mockResults = [
+        { did: 'did:1', handle: 'user1', match_type: 'handle' },
+        { did: 'did:2', handle: 'user2', display_name: 'Display', match_type: 'displayName' },
+        { did: 'did:3', handle: 'user3', pub_name: 'Blog Name', match_type: 'publicationName' },
+        { did: 'did:4', handle: 'user4', pub_url: 'https://example.com', match_type: 'publicationUrl' },
+        { did: 'did:5', handle: 'user5', post_rkey: 'post1', post_title: 'Post Title', match_type: 'postTitle' },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      const data = await res.json()
+
+      expect(data.results.map((r: { matchType: string }) => r.matchType)).toEqual([
+        'handle',
+        'displayName',
+        'publicationName',
+        'publicationUrl',
+        'postTitle',
+      ])
     })
   })
 

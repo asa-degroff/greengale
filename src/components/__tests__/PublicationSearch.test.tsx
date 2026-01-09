@@ -77,7 +77,7 @@ describe('PublicationSearch', () => {
     it('renders input with default placeholder', () => {
       render(<PublicationSearch />)
 
-      const input = screen.getByPlaceholderText('Search by handle, name, or URL...')
+      const input = screen.getByPlaceholderText('Search posts, authors, or publications...')
       expect(input).toBeDefined()
     })
 
@@ -530,6 +530,130 @@ describe('PublicationSearch', () => {
 
       // scrollIntoView should have been called
       expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+    })
+  })
+
+  describe('Post Title Search', () => {
+    const postResult = {
+      did: 'did:plc:post',
+      handle: 'author.bsky.social',
+      displayName: 'Post Author',
+      avatarUrl: null,
+      publication: null,
+      matchType: 'postTitle' as const,
+      post: {
+        rkey: '3abc123',
+        title: 'My Awesome Blog Post',
+      },
+    }
+
+    it('displays post title for postTitle match type', async () => {
+      mockSearchPublications.mockResolvedValue({ results: [postResult] })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'awesome')
+
+      expect(screen.getByText('My Awesome Blog Post')).toBeDefined()
+      expect(screen.getByText('Post')).toBeDefined()
+    })
+
+    it('shows Post badge with correct color', async () => {
+      mockSearchPublications.mockResolvedValue({ results: [postResult] })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'awesome')
+
+      const badge = screen.getByText('Post')
+      expect(badge.className).toContain('bg-cyan')
+    })
+
+    it('navigates to post page on click', async () => {
+      mockSearchPublications.mockResolvedValue({ results: [postResult] })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'awesome')
+
+      const resultButton = screen.getByText('My Awesome Blog Post').closest('button')!
+      fireEvent.click(resultButton)
+
+      expect(mockNavigate).toHaveBeenCalledWith('/author.bsky.social/3abc123')
+    })
+
+    it('navigates to post page on Enter key', async () => {
+      mockSearchPublications.mockResolvedValue({ results: [postResult] })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'awesome')
+
+      fireEvent.keyDown(input, { key: 'ArrowDown' })
+      fireEvent.keyDown(input, { key: 'Enter' })
+
+      expect(mockNavigate).toHaveBeenCalledWith('/author.bsky.social/3abc123')
+    })
+
+    it('shows document icon for post results', async () => {
+      mockSearchPublications.mockResolvedValue({ results: [postResult] })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'awesome')
+
+      // Post results should show a document icon (rounded-lg box instead of rounded-full)
+      const iconContainer = document.querySelector('.rounded-lg.bg-\\[var\\(--site-border\\)\\]')
+      expect(iconContainer).not.toBeNull()
+    })
+
+    it('displays author handle below post title', async () => {
+      mockSearchPublications.mockResolvedValue({ results: [postResult] })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'awesome')
+
+      expect(screen.getByText('@author.bsky.social')).toBeDefined()
+    })
+
+    it('handles mixed author and post results', async () => {
+      const mixedResults = [
+        mockResults[0], // alice - handle match
+        postResult,     // post match
+      ]
+      mockSearchPublications.mockResolvedValue({ results: mixedResults })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'test')
+
+      // Both should be visible
+      expect(screen.getByText('Alice')).toBeDefined()
+      expect(screen.getByText('My Awesome Blog Post')).toBeDefined()
+
+      // Click on post result
+      const postButton = screen.getByText('My Awesome Blog Post').closest('button')!
+      fireEvent.click(postButton)
+
+      // Should navigate to post, not author
+      expect(mockNavigate).toHaveBeenCalledWith('/author.bsky.social/3abc123')
+    })
+
+    it('uses unique keys for multiple posts from same author', async () => {
+      const multiplePostResults = [
+        { ...postResult, post: { rkey: 'post1', title: 'First Post' } },
+        { ...postResult, post: { rkey: 'post2', title: 'Second Post' } },
+      ]
+      mockSearchPublications.mockResolvedValue({ results: multiplePostResults })
+      render(<PublicationSearch />)
+
+      const input = screen.getByRole('combobox')
+      await typeAndWait(input, 'post')
+
+      // Both posts should be displayed
+      expect(screen.getByText('First Post')).toBeDefined()
+      expect(screen.getByText('Second Post')).toBeDefined()
     })
   })
 })
