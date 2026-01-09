@@ -134,7 +134,9 @@ CSS variables: `--site-*` for site UI, `--theme-*` for post content.
 
 ### Markdown Processing
 
-Pipeline: Remark (GFM) → Rehype → Highlight.js → KaTeX (optional) → Sanitize → React
+Pipeline: Remark (GFM) → Rehype → Highlight.js → KaTeX → Sanitize → React
+
+KaTeX math rendering is always enabled for GreenGale posts. Use `$...$` for inline math and `$$...$$` for display math.
 
 ```typescript
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'

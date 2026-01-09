@@ -63,7 +63,7 @@
           "latex": {
             "type": "boolean",
             "default": false,
-            "description": "Enable LaTeX math rendering"
+            "description": "Legacy field for LaTeX math rendering. LaTeX is now always enabled for GreenGale posts; this field is kept for backward compatibility."
           }
         }
       }
