@@ -816,6 +816,32 @@ describe('API Endpoints', () => {
         'postTitle',
       ])
     })
+
+    it('deduplicates posts that exist on both greengale and site.standard', async () => {
+      // When a post exists on both app.greengale.document and site.standard.document,
+      // the query uses GROUP BY author_did, rkey to return only one result.
+      // MIN(uri) prefers 'app.greengale' over 'site.standard' alphabetically.
+      const mockResults = [
+        // This simulates the deduplicated result - only one post per author_did + rkey
+        {
+          did: 'did:plc:author',
+          handle: 'author.bsky.social',
+          display_name: 'Author',
+          avatar_url: null,
+          post_rkey: 'post123',
+          post_title: 'My Dual-Published Post',
+          match_type: 'postTitle',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=dual')
+      const data = await res.json()
+
+      // Should only return one result, not two
+      expect(data.results).toHaveLength(1)
+      expect(data.results[0].post.title).toBe('My Dual-Published Post')
+    })
   })
 
   describe('checkWhitelist', () => {

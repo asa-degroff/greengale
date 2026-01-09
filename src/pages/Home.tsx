@@ -132,7 +132,7 @@ export function HomePage() {
             Find a Blog
           </h2>
           <p className="text-[var(--site-text-secondary)] mb-4">
-            Search by handle, display name, publication name, or URL:
+            Search by handle, display name, publication name, title, or URL:
           </p>
           <PublicationSearch className="w-full" />
         </div>

@@ -1072,7 +1072,9 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
 
         UNION ALL
 
-        -- Part 2: Post title matches
+        -- Part 2: Post title matches (deduplicated by author_did + rkey)
+        -- When both app.greengale.document and site.standard.document exist for the same post,
+        -- we pick just one using GROUP BY. MIN(uri) prefers 'app.greengale' over 'site.standard' alphabetically.
         SELECT
           a.did,
           a.handle,
@@ -1085,10 +1087,14 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           6 as match_priority,
           'postTitle' as match_type,
           a.posts_count
-        FROM posts
+        FROM (
+          SELECT author_did, rkey, MIN(uri) as uri, title
+          FROM posts
+          WHERE visibility = 'public'
+            AND LOWER(title) LIKE ?3
+          GROUP BY author_did, rkey
+        ) posts
         JOIN authors a ON posts.author_did = a.did
-        WHERE posts.visibility = 'public'
-          AND LOWER(posts.title) LIKE ?3
       )
       ORDER BY match_priority ASC, posts_count DESC
       LIMIT ?4
