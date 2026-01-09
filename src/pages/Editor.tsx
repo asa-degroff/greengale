@@ -84,7 +84,7 @@ const GREENGALE_V2_COLLECTION = 'app.greengale.document'
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 
 const LEXICON_OPTIONS = [
-  { value: 'greengale', label: 'GreenGale', description: 'Extended features: themes, LaTeX' },
+  { value: 'greengale', label: 'GreenGale', description: 'Extended features: themes, images' },
   { value: 'whitewind', label: 'WhiteWind', description: 'Compatible with whtwnd.com' },
 ] as const
 
@@ -105,7 +105,6 @@ export function EditorPage() {
     codeBackground: '',
   })
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
-  const [enableLatex, setEnableLatex] = useState(false)
   const [publishToSiteStandard, setPublishToSiteStandard] = useState(true) // Default enabled, can be overridden per-post
   type ViewMode = 'edit' | 'preview' | 'split'
   const [viewMode, setViewMode] = useState<ViewMode>('edit')
@@ -172,7 +171,6 @@ export function EditorPage() {
     theme: ThemePreset
     customColors: CustomColors
     visibility: 'public' | 'url' | 'author'
-    enableLatex: boolean
   } | null>(null)
 
   const isWhiteWind = lexicon === 'whitewind'
@@ -234,7 +232,6 @@ export function EditorPage() {
   useEffect(() => {
     if (isWhiteWind) {
       setTheme('default')
-      setEnableLatex(false)
       // Clear uploaded images since WhiteWind doesn't support blobs
       if (uploadedBlobs.length > 0) {
         setUploadedBlobs([])
@@ -296,7 +293,6 @@ export function EditorPage() {
         theme: theme,
         customColors: customColors,
         visibility: 'public',
-        enableLatex: false,
       }
     }
   }, [isEditing, loadingPost, publicationThemeLoaded, theme, customColors])
@@ -319,11 +315,10 @@ export function EditorPage() {
       lexicon !== initialValues.current.lexicon ||
       theme !== initialValues.current.theme ||
       customColorsChanged ||
-      visibility !== initialValues.current.visibility ||
-      enableLatex !== initialValues.current.enableLatex
+      visibility !== initialValues.current.visibility
 
     setHasUnsavedChanges(hasChanges)
-  }, [title, subtitle, content, lexicon, theme, customColors, visibility, enableLatex])
+  }, [title, subtitle, content, lexicon, theme, customColors, visibility])
 
   // Block navigation when there are unsaved changes
   const blocker = useBlocker(
@@ -406,7 +401,6 @@ export function EditorPage() {
         } else {
           setTheme(entry.theme?.preset || 'default')
         }
-        setEnableLatex(entry.latex || false)
 
         // Restore uploaded blobs if present
         if (entry.blobs && entry.blobs.length > 0) {
@@ -463,7 +457,6 @@ export function EditorPage() {
           : 'default',
         customColors: loadedCustomColors,
         visibility: entry.visibility || 'public',
-        enableLatex: entry.source === 'greengale' ? (entry.latex || false) : false,
       }
     } catch (err) {
       console.error('Failed to load post:', err)
@@ -542,7 +535,6 @@ export function EditorPage() {
             path: `/${handle}/${rkey || 'new'}`, // Will be updated with actual rkey after creation
             theme: themeObj,
             visibility: visibilityToUse,
-            latex: enableLatex || undefined,
             // Include uploaded blobs for reference
             // IMPORTANT: Always construct blobref from primitive values to ensure
             // proper JSON serialization (SDK class instances may not serialize correctly)
@@ -728,7 +720,7 @@ export function EditorPage() {
       setError(err instanceof Error ? err.message : 'Failed to save post')
       return null
     }
-  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, enableLatex, publishToSiteStandard, uploadedBlobs, rkey])
+  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, publishToSiteStandard, uploadedBlobs, rkey])
 
   async function handlePublish() {
     setPublishAttempted(true)
@@ -1655,28 +1647,6 @@ export function EditorPage() {
                       Options
                     </label>
                     <div className="space-y-2">
-                      <label className="flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors">
-                        <span className="relative flex items-center justify-center w-5 h-5">
-                          <input
-                            type="checkbox"
-                            checked={enableLatex}
-                            onChange={(e) => setEnableLatex(e.target.checked)}
-                            className="peer appearance-none w-5 h-5 rounded border-2 border-[var(--site-border)] bg-[var(--site-bg)] checked:bg-[var(--site-accent)] checked:border-[var(--site-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] focus:ring-offset-0 transition-colors cursor-pointer"
-                          />
-                          <svg
-                            className="absolute w-3 h-3 text-white pointer-events-none opacity-0 peer-checked:opacity-100 transition-opacity"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        </span>
-                        <span className="text-[var(--site-text)]">Enable KaTeX</span>
-                      </label>
                       <label className={`flex items-center gap-3 h-[50px] px-4 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] cursor-pointer hover:bg-[var(--site-bg-secondary)] transition-colors ${visibility !== 'public' ? 'opacity-50' : ''}`}>
                         <span className="relative flex items-center justify-center w-5 h-5">
                           <input
@@ -1928,7 +1898,7 @@ export function EditorPage() {
                     <p className="text-xl text-[var(--theme-text-secondary)] mb-6">{subtitle}</p>
                   )}
                   <div className={`prose max-w-none ${viewMode === 'split' ? 'max-h-[calc(100vh-12rem)] overflow-y-auto' : ''}`}>
-                    <MarkdownRenderer content={previewContent} enableLatex={enableLatex} />
+                    <MarkdownRenderer content={previewContent} enableLatex={!isWhiteWind} />
                   </div>
                 </div>
               </div>
