@@ -1240,6 +1240,87 @@ https://bsky.app/profile/user2.bsky.social/post/def`
         expect(result.length).toBe(samples.length)
       }
     })
+
+    it('preserves content at end of audio for pitch down (compression)', () => {
+      // This test verifies the fix for pitch-down cutting off sentence endings
+      // Create audio with a distinct pattern at the end
+      const sampleRate = 24000
+      const duration = 0.5 // 500ms - long enough to exercise SOLA
+      const length = Math.floor(sampleRate * duration)
+      const samples = new Float32Array(length)
+
+      // Fill with a sine wave, but make the last 50ms louder
+      const loudStart = length - Math.floor(sampleRate * 0.05)
+      for (let i = 0; i < length; i++) {
+        const amplitude = i >= loudStart ? 0.8 : 0.3
+        samples[i] = amplitude * Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const result = shiftPitch(samples, 0.75, sampleRate)
+
+      // Check that the last 10% of output has significant energy (not silence)
+      const lastTenPercent = result.slice(Math.floor(result.length * 0.9))
+      const lastEnergy = lastTenPercent.reduce((sum, v) => sum + v * v, 0) / lastTenPercent.length
+      expect(lastEnergy).toBeGreaterThan(0.01) // Should have meaningful audio, not silence
+    })
+
+    it('preserves content at end of audio for pitch up (stretching)', () => {
+      // This test verifies the fix for pitch-up having trailing silence
+      const sampleRate = 24000
+      const duration = 0.5 // 500ms
+      const length = Math.floor(sampleRate * duration)
+      const samples = new Float32Array(length)
+
+      // Fill with a sine wave, making the last 50ms louder
+      const loudStart = length - Math.floor(sampleRate * 0.05)
+      for (let i = 0; i < length; i++) {
+        const amplitude = i >= loudStart ? 0.8 : 0.3
+        samples[i] = amplitude * Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const result = shiftPitch(samples, 1.5, sampleRate)
+
+      // Check that the last 10% of output has significant energy
+      const lastTenPercent = result.slice(Math.floor(result.length * 0.9))
+      const lastEnergy = lastTenPercent.reduce((sum, v) => sum + v * v, 0) / lastTenPercent.length
+      expect(lastEnergy).toBeGreaterThan(0.01)
+    })
+
+    it('preserves overall energy within reasonable bounds', () => {
+      const sampleRate = 24000
+      const samples = new Float32Array(sampleRate * 0.3) // 300ms
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const inputEnergy = samples.reduce((sum, v) => sum + v * v, 0)
+
+      for (const rate of [0.75, 1.25, 1.5]) {
+        const result = shiftPitch(samples, rate, sampleRate)
+        const outputEnergy = result.reduce((sum, v) => sum + v * v, 0)
+
+        // Energy should be within 50% of original (time-stretching can affect this)
+        const ratio = outputEnergy / inputEnergy
+        expect(ratio).toBeGreaterThan(0.5)
+        expect(ratio).toBeLessThan(1.5)
+      }
+    })
+
+    it('handles very short audio with linear interpolation fallback', () => {
+      const sampleRate = 24000
+      // Very short audio (10ms) that triggers linear interpolation path
+      const samples = new Float32Array(Math.floor(sampleRate * 0.01))
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = Math.sin((2 * Math.PI * 880 * i) / sampleRate)
+      }
+
+      const result = shiftPitch(samples, 1.5, sampleRate)
+
+      expect(result.length).toBe(samples.length)
+      // Should still produce non-zero output
+      const hasNonZero = result.some((v) => Math.abs(v) > 0.001)
+      expect(hasNonZero).toBe(true)
+    })
   })
 
   describe('TTSStatus type', () => {
