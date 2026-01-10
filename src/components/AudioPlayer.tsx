@@ -6,6 +6,7 @@
  * Shows dual progress bars: buffer progress (lighter) and playback progress (accent).
  */
 
+import { useState } from 'react'
 import type { TTSState, PlaybackRate, PitchRate } from '@/lib/tts'
 import { PLAYBACK_RATES, PITCH_RATES, groupVoices } from '@/lib/tts'
 
@@ -42,6 +43,7 @@ export function AudioPlayer({
   onPitchChange,
   onVoiceChange,
 }: AudioPlayerProps) {
+  const [settingsExpanded, setSettingsExpanded] = useState(false)
   const voiceCategories = groupVoices(availableVoices)
   const isLoading = state.status === 'loading-model'
   const isGenerating = state.status === 'generating'
@@ -122,58 +124,75 @@ export function AudioPlayer({
           )}
         </div>
 
-        {/* Voice Selector */}
-        {voiceCategories.length > 0 && (
-          <div className="audio-player-voice">
+        {/* Settings Toggle (mobile only) */}
+        <button
+          onClick={() => setSettingsExpanded(!settingsExpanded)}
+          className="audio-player-button audio-player-settings-toggle"
+          title="Settings"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+          </svg>
+        </button>
+
+        {/* Settings Controls Container */}
+        <div className={`audio-player-settings ${settingsExpanded ? 'audio-player-settings--expanded' : ''}`}>
+          {/* Voice Selector */}
+          {voiceCategories.length > 0 && (
+            <div className="audio-player-control">
+              <span className="audio-player-label">Voice</span>
+              <select
+                value={currentVoice}
+                onChange={(e) => onVoiceChange(e.target.value)}
+                className="audio-player-voice-select"
+                title="Voice"
+              >
+                {voiceCategories.map((category) => (
+                  <optgroup key={category.label} label={category.label}>
+                    {category.voices.map((voice) => (
+                      <option key={voice.id} value={voice.id}>
+                        {voice.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Pitch Control */}
+          <div className="audio-player-control">
+            <span className="audio-player-label">Pitch</span>
             <select
-              value={currentVoice}
-              onChange={(e) => onVoiceChange(e.target.value)}
-              className="audio-player-voice-select"
-              title="Voice"
+              value={playbackState.pitch}
+              onChange={(e) => onPitchChange(parseFloat(e.target.value) as PitchRate)}
+              className="audio-player-pitch-select"
+              title="Pitch"
             >
-              {voiceCategories.map((category) => (
-                <optgroup key={category.label} label={category.label}>
-                  {category.voices.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voice.name}
-                    </option>
-                  ))}
-                </optgroup>
+              {PITCH_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate}x
+                </option>
               ))}
             </select>
           </div>
-        )}
 
-        {/* Pitch Control */}
-        <div className="audio-player-pitch">
-          <select
-            value={playbackState.pitch}
-            onChange={(e) => onPitchChange(parseFloat(e.target.value) as PitchRate)}
-            className="audio-player-pitch-select"
-            title="Pitch"
-          >
-            {PITCH_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate === 1.0 ? '1.0' : rate < 1 ? rate.toFixed(2) : `+${(rate - 1).toFixed(1)}`}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Speed Control */}
-        <div className="audio-player-speed">
-          <select
-            value={playbackState.playbackRate}
-            onChange={(e) => onPlaybackRateChange(parseFloat(e.target.value) as PlaybackRate)}
-            className="audio-player-speed-select"
-            title="Speed"
-          >
-            {PLAYBACK_RATES.map((rate) => (
-              <option key={rate} value={rate}>
-                {rate}x
-              </option>
-            ))}
-          </select>
+          {/* Speed Control */}
+          <div className="audio-player-control">
+            <span className="audio-player-label">Speed</span>
+            <select
+              value={playbackState.playbackRate}
+              onChange={(e) => onPlaybackRateChange(parseFloat(e.target.value) as PlaybackRate)}
+              className="audio-player-speed-select"
+              title="Speed"
+            >
+              {PLAYBACK_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate}x
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Close Button */}

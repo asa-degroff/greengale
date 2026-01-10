@@ -1204,10 +1204,20 @@ html {
   font-style: italic;
 }
 
-.audio-player-voice,
-.audio-player-pitch,
-.audio-player-speed {
+.audio-player-control {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.audio-player-label {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  color: var(--theme-text-secondary);
+  opacity: 0.75;
 }
 
 .audio-player-voice-select,
@@ -1245,20 +1255,63 @@ html {
   border-color: var(--theme-accent);
 }
 
+/* Settings toggle button - hidden on desktop */
+.audio-player-settings-toggle {
+  display: none;
+}
+
+/* Settings container - always visible on desktop */
+.audio-player-settings {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 /* Mobile layout */
 @media (max-width: 640px) {
   .audio-player-sentence-text {
     -webkit-line-clamp: 1;
     font-size: 0.8125rem;
   }
+
+  /* Show settings toggle on mobile */
+  .audio-player-settings-toggle {
+    display: flex;
+    flex-shrink: 0;
+  }
+
+  /* Hide settings by default on mobile */
+  .audio-player-settings {
+    display: none;
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    background: var(--theme-bg);
+    border: 1px solid var(--theme-border);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+    gap: 0.75rem;
+  }
+
+  /* Expanded state */
+  .audio-player-settings--expanded {
+    display: flex;
+  }
+
   .audio-player-voice-select {
-    max-width: 5rem;
+    max-width: 7rem;
   }
   .audio-player-voice-select,
   .audio-player-pitch-select,
   .audio-player-speed-select {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .audio-player-label {
     font-size: 0.6875rem;
-    padding: 0.2rem 0.35rem;
   }
 }
 
