@@ -416,6 +416,338 @@ export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 export const PLAYBACK_RATES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const
 export type PlaybackRate = (typeof PLAYBACK_RATES)[number]
 
+export const PITCH_RATES = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5] as const
+export type PitchRate = (typeof PITCH_RATES)[number]
+
+// ==================== VOICE UTILITIES ====================
+
+export interface VoiceInfo {
+  id: string
+  name: string
+  gender: 'female' | 'male'
+  accent: 'american' | 'british' | 'other'
+}
+
+export interface VoiceCategory {
+  label: string
+  voices: VoiceInfo[]
+}
+
+/**
+ * Parse a Kokoro voice ID into display info.
+ * Format: {accent}{gender}_{name} e.g., "af_heart" = American Female Heart
+ */
+export function parseVoiceId(id: string): VoiceInfo {
+  const parts = id.split('_')
+  if (parts.length < 2) {
+    return { id, name: id, gender: 'female', accent: 'other' }
+  }
+
+  const [prefix, ...nameParts] = parts
+  const name = nameParts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ')
+
+  // Parse prefix: first char = accent (a=american, b=british), second char = gender (f=female, m=male)
+  const accentChar = prefix.charAt(0).toLowerCase()
+  const genderChar = prefix.charAt(1).toLowerCase()
+
+  const accent: VoiceInfo['accent'] =
+    accentChar === 'a' ? 'american' : accentChar === 'b' ? 'british' : 'other'
+  const gender: VoiceInfo['gender'] = genderChar === 'm' ? 'male' : 'female'
+
+  return { id, name, gender, accent }
+}
+
+/**
+ * Group voices by category for UI display.
+ */
+export function groupVoices(voiceIds: string[]): VoiceCategory[] {
+  const categories: VoiceCategory[] = [
+    { label: 'American Female', voices: [] },
+    { label: 'American Male', voices: [] },
+    { label: 'British Female', voices: [] },
+    { label: 'British Male', voices: [] },
+    { label: 'Other', voices: [] },
+  ]
+
+  for (const id of voiceIds) {
+    const info = parseVoiceId(id)
+    let categoryIndex: number
+    if (info.accent === 'american') {
+      categoryIndex = info.gender === 'female' ? 0 : 1
+    } else if (info.accent === 'british') {
+      categoryIndex = info.gender === 'female' ? 2 : 3
+    } else {
+      categoryIndex = 4
+    }
+    categories[categoryIndex].voices.push(info)
+  }
+
+  // Sort voices within each category by name
+  for (const category of categories) {
+    category.voices.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  return categories.filter((c) => c.voices.length > 0)
+}
+
+/**
+ * Convert a pitch ratio to cents for Web Audio API detune.
+ * Formula: cents = 1200 * log2(ratio)
+ */
+export function pitchToCents(ratio: number): number {
+  if (ratio <= 0) return 0
+  return Math.round(1200 * Math.log2(ratio))
+}
+
+// ==================== PITCH SHIFTING ====================
+
+/**
+ * Resample audio using linear interpolation.
+ * This changes both pitch AND duration.
+ *
+ * @param samples Input audio samples
+ * @param factor Resampling factor (>1 = read faster = higher pitch + shorter, <1 = lower pitch + longer)
+ * @returns Resampled audio
+ */
+function resampleAudio(samples: Float32Array, factor: number): Float32Array {
+  const newLength = Math.round(samples.length / factor)
+  const output = new Float32Array(newLength)
+
+  for (let i = 0; i < newLength; i++) {
+    const srcPos = i * factor
+    const srcIdx = Math.floor(srcPos)
+    const frac = srcPos - srcIdx
+
+    if (srcIdx + 1 < samples.length) {
+      // Linear interpolation between adjacent samples
+      output[i] = samples[srcIdx] * (1 - frac) + samples[srcIdx + 1] * frac
+    } else if (srcIdx < samples.length) {
+      output[i] = samples[srcIdx]
+    }
+  }
+
+  return output
+}
+
+/**
+ * Time-stretch audio using SOLA (Synchronized Overlap-Add).
+ * Uses cross-correlation to find optimal overlap positions, eliminating
+ * the "robotic" phase artifacts of simple OLA.
+ *
+ * Key insight: We must ensure ALL input content maps to the output.
+ * The first input window maps to first output window.
+ * The last input window maps to last output window.
+ * Intermediate windows are evenly distributed with correlation-based alignment.
+ *
+ * @param samples Input audio samples
+ * @param stretchFactor Factor to stretch by (>1 = longer, <1 = shorter)
+ * @param sampleRate Sample rate
+ * @returns Time-stretched audio
+ */
+function timeStretchSOLA(
+  samples: Float32Array,
+  stretchFactor: number,
+  sampleRate: number
+): Float32Array {
+  const outputLength = Math.round(samples.length * stretchFactor)
+
+  // Handle edge cases
+  if (samples.length === 0) return new Float32Array(0)
+  if (outputLength === 0) return new Float32Array(0)
+  if (Math.abs(stretchFactor - 1.0) < 0.001) {
+    // No stretching needed, just copy
+    const output = new Float32Array(outputLength)
+    const copyLen = Math.min(samples.length, outputLength)
+    output.set(samples.subarray(0, copyLen))
+    return output
+  }
+
+  // Use longer windows for smoother results with speech
+  const windowSize = Math.floor(sampleRate * 0.025) // 25ms window
+  const overlapSize = Math.floor(windowSize * 0.5) // 50% overlap
+  const maxSearchRange = Math.floor(sampleRate * 0.01) // ±10ms search range
+
+  const output = new Float32Array(outputLength)
+
+  // If input is too short for windowed processing, use linear interpolation
+  if (samples.length < windowSize * 2 || outputLength < windowSize * 2) {
+    for (let i = 0; i < outputLength; i++) {
+      const srcPos = (i / outputLength) * samples.length
+      const srcIdx = Math.floor(srcPos)
+      const frac = srcPos - srcIdx
+      if (srcIdx + 1 < samples.length) {
+        output[i] = samples[srcIdx] * (1 - frac) + samples[srcIdx + 1] * frac
+      } else if (srcIdx < samples.length) {
+        output[i] = samples[srcIdx]
+      }
+    }
+    return output
+  }
+
+  // Calculate number of windows we need to place
+  // First window at position 0, last window ends at outputLength
+  // Windows are placed with hopOut spacing in output
+  const hopOut = windowSize - overlapSize
+  const numWindows = Math.max(2, Math.floor((outputLength - windowSize) / hopOut) + 1)
+
+  // Calculate input positions for each window
+  // First window: input position 0
+  // Last window: input position (samples.length - windowSize)
+  // Intermediate windows: evenly distributed
+  const inputPositions: number[] = []
+  const lastInputPos = samples.length - windowSize
+
+  for (let w = 0; w < numWindows; w++) {
+    // Linear mapping from output window index to input position
+    const t = w / (numWindows - 1)
+    inputPositions.push(Math.round(t * lastInputPos))
+  }
+
+  // Copy first window directly (no crossfade needed)
+  const firstWindowEnd = Math.min(windowSize, samples.length, outputLength)
+  for (let i = 0; i < firstWindowEnd; i++) {
+    output[i] = samples[i]
+  }
+
+  // Process subsequent windows with correlation-based alignment
+  for (let w = 1; w < numWindows; w++) {
+    const outPos = w * hopOut
+    const nominalInPos = inputPositions[w]
+
+    // Skip if output position is past end
+    if (outPos >= outputLength) break
+
+    // Determine search range
+    const searchStart = Math.max(-maxSearchRange, -nominalInPos)
+    const searchEnd = Math.min(maxSearchRange, lastInputPos - nominalInPos)
+
+    // Find best correlation offset to minimize phase discontinuity
+    let bestOffset = 0
+    let bestCorr = -Infinity
+
+    if (searchEnd >= searchStart && outPos > 0) {
+      for (let offset = searchStart; offset <= searchEnd; offset++) {
+        const testPos = nominalInPos + offset
+
+        // Calculate cross-correlation with existing output in overlap region
+        let corr = 0
+        let energy = 0
+        for (let i = 0; i < overlapSize; i++) {
+          const outIdx = outPos + i
+          const inIdx = testPos + i
+          if (outIdx < outputLength && inIdx < samples.length) {
+            corr += output[outIdx] * samples[inIdx]
+            energy += samples[inIdx] * samples[inIdx]
+          }
+        }
+
+        // Normalize correlation by energy to avoid bias toward loud sections
+        if (energy > 0.0001) {
+          corr /= Math.sqrt(energy)
+        }
+
+        if (corr > bestCorr) {
+          bestCorr = corr
+          bestOffset = offset
+        }
+      }
+    }
+
+    const actualInPos = Math.max(0, Math.min(nominalInPos + bestOffset, lastInputPos))
+
+    // Crossfade in overlap region using linear fade
+    for (let i = 0; i < overlapSize; i++) {
+      const outIdx = outPos + i
+      const inIdx = actualInPos + i
+      if (outIdx < outputLength && inIdx < samples.length) {
+        const fadeOut = 1 - i / overlapSize
+        const fadeIn = i / overlapSize
+        output[outIdx] = output[outIdx] * fadeOut + samples[inIdx] * fadeIn
+      }
+    }
+
+    // Copy the rest of the window (non-overlapping part)
+    for (let i = overlapSize; i < windowSize; i++) {
+      const outIdx = outPos + i
+      const inIdx = actualInPos + i
+      if (outIdx < outputLength && inIdx < samples.length) {
+        output[outIdx] = samples[inIdx]
+      }
+    }
+  }
+
+  // Handle any remaining samples at the end with a final crossfade
+  // to ensure we end with the actual last samples of input
+  const lastOutPos = (numWindows - 1) * hopOut + windowSize
+  if (lastOutPos < outputLength) {
+    // Crossfade from current output to end of input
+    const remainingOut = outputLength - lastOutPos
+    const fadeLen = Math.min(overlapSize, remainingOut)
+
+    for (let i = 0; i < remainingOut; i++) {
+      const outIdx = lastOutPos + i
+      // Map to the very end of input
+      const srcPos = samples.length - remainingOut + i
+      if (outIdx < outputLength && srcPos >= 0 && srcPos < samples.length) {
+        if (i < fadeLen) {
+          // Crossfade region
+          const fadeIn = i / fadeLen
+          const fadeOut = 1 - fadeIn
+          output[outIdx] = output[outIdx] * fadeOut + samples[srcPos] * fadeIn
+        } else {
+          output[outIdx] = samples[srcPos]
+        }
+      }
+    }
+  }
+
+  return output
+}
+
+/**
+ * Apply pitch shifting to audio samples.
+ * This changes pitch without changing duration using resample + time-stretch.
+ *
+ * @param samples Input audio samples
+ * @param pitchFactor Pitch multiplier (>1 = higher pitch, <1 = lower pitch)
+ * @param sampleRate Sample rate of the audio
+ * @returns Pitch-shifted audio samples with same duration as input
+ */
+export function shiftPitch(
+  samples: Float32Array,
+  pitchFactor: number,
+  sampleRate: number = SAMPLE_RATE
+): Float32Array {
+  if (pitchFactor === 1.0 || samples.length === 0) {
+    return samples
+  }
+
+  // Clamp pitch factor to reasonable range to prevent artifacts
+  const clampedFactor = Math.max(0.5, Math.min(2.0, pitchFactor))
+
+  // Step 1: Resample to change pitch (this also changes duration)
+  // pitchFactor > 1: higher pitch, shorter output
+  // pitchFactor < 1: lower pitch, longer output
+  const resampled = resampleAudio(samples, clampedFactor)
+
+  // Step 2: Time-stretch back to original duration using SOLA
+  // We need to stretch by the pitch factor to restore the original length
+  // (resampled is shorter for high pitch, longer for low pitch)
+  const stretched = timeStretchSOLA(resampled, clampedFactor, sampleRate)
+
+  // Ensure output is exactly the same length as input
+  // (there might be small differences due to rounding)
+  if (stretched.length === samples.length) {
+    return stretched
+  }
+
+  const output = new Float32Array(samples.length)
+  const copyLength = Math.min(stretched.length, samples.length)
+  output.set(stretched.subarray(0, copyLength))
+
+  return output
+}
+
 // ==================== WAV ENCODING ====================
 
 /**

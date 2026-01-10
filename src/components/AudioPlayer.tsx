@@ -1,13 +1,13 @@
 /**
  * Audio Player Component
  *
- * Fixed bottom bar for TTS playback with play/pause, current sentence, and speed control.
+ * Fixed bottom bar for TTS playback with play/pause, current sentence, voice, pitch, and speed controls.
  * Also handles model loading state with inline progress display.
  * Shows dual progress bars: buffer progress (lighter) and playback progress (accent).
  */
 
-import type { TTSState, PlaybackRate } from '@/lib/tts'
-import { PLAYBACK_RATES } from '@/lib/tts'
+import type { TTSState, PlaybackRate, PitchRate } from '@/lib/tts'
+import { PLAYBACK_RATES, PITCH_RATES, groupVoices } from '@/lib/tts'
 
 interface AudioPlayerProps {
   state: TTSState
@@ -16,23 +16,33 @@ interface AudioPlayerProps {
     currentTime: number
     duration: number
     playbackRate: PlaybackRate
+    pitch: PitchRate
     playbackProgress: number
     bufferProgress: number
   }
+  availableVoices: string[]
+  currentVoice: string
   onPause: () => void
   onResume: () => void
   onStop: () => void
   onPlaybackRateChange: (rate: PlaybackRate) => void
+  onPitchChange: (rate: PitchRate) => void
+  onVoiceChange: (voice: string) => void
 }
 
 export function AudioPlayer({
   state,
   playbackState,
+  availableVoices,
+  currentVoice,
   onPause,
   onResume,
   onStop,
   onPlaybackRateChange,
+  onPitchChange,
+  onVoiceChange,
 }: AudioPlayerProps) {
+  const voiceCategories = groupVoices(availableVoices)
   const isLoading = state.status === 'loading-model'
   const isGenerating = state.status === 'generating'
   const isPlaying = state.status === 'playing'
@@ -112,12 +122,51 @@ export function AudioPlayer({
           )}
         </div>
 
+        {/* Voice Selector */}
+        {voiceCategories.length > 0 && (
+          <div className="audio-player-voice">
+            <select
+              value={currentVoice}
+              onChange={(e) => onVoiceChange(e.target.value)}
+              className="audio-player-voice-select"
+              title="Voice"
+            >
+              {voiceCategories.map((category) => (
+                <optgroup key={category.label} label={category.label}>
+                  {category.voices.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Pitch Control */}
+        <div className="audio-player-pitch">
+          <select
+            value={playbackState.pitch}
+            onChange={(e) => onPitchChange(parseFloat(e.target.value) as PitchRate)}
+            className="audio-player-pitch-select"
+            title="Pitch"
+          >
+            {PITCH_RATES.map((rate) => (
+              <option key={rate} value={rate}>
+                {rate === 1.0 ? '1.0' : rate < 1 ? rate.toFixed(2) : `+${(rate - 1).toFixed(1)}`}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Speed Control */}
         <div className="audio-player-speed">
           <select
             value={playbackState.playbackRate}
             onChange={(e) => onPlaybackRateChange(parseFloat(e.target.value) as PlaybackRate)}
             className="audio-player-speed-select"
+            title="Speed"
           >
             {PLAYBACK_RATES.map((rate) => (
               <option key={rate} value={rate}>

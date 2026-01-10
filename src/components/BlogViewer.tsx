@@ -10,6 +10,7 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { extractHeadings } from '@/lib/extractHeadings'
 import { useScrollSpy } from '@/lib/useScrollSpy'
 import { useTTS } from '@/lib/useTTS'
+import { useTTSSettings } from '@/lib/useTTSSettings'
 import { extractTextForTTSAsync } from '@/lib/tts'
 import type { AuthorProfile, BlogEntry } from '@/lib/atproto'
 
@@ -58,8 +59,9 @@ export function BlogViewer({
   const { forceDefaultTheme } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
 
-  // TTS hook
+  // TTS hooks
   const tts = useTTS()
+  const ttsSettings = useTTSSettings()
   const isTTSActive = tts.state.status !== 'idle'
   const isTTSLoading = tts.state.status === 'loading-model'
 
@@ -69,10 +71,31 @@ export function BlogViewer({
     } else {
       const text = await extractTextForTTSAsync(content, blobs, postUrl)
       if (text.trim()) {
-        tts.start(text)
+        // Start TTS with saved settings
+        tts.start(text, {
+          voice: ttsSettings.settings.voice,
+          pitch: ttsSettings.settings.pitch,
+          speed: ttsSettings.settings.speed,
+        })
       }
     }
-  }, [content, blobs, postUrl, isTTSActive, tts])
+  }, [content, blobs, postUrl, isTTSActive, tts, ttsSettings.settings])
+
+  // Callbacks that update both TTS and persist settings
+  const handleVoiceChange = useCallback((voice: string) => {
+    tts.setVoice(voice)
+    ttsSettings.setVoice(voice)
+  }, [tts, ttsSettings])
+
+  const handlePitchChange = useCallback((pitch: Parameters<typeof tts.setPitch>[0]) => {
+    tts.setPitch(pitch)
+    ttsSettings.setPitch(pitch)
+  }, [tts, ttsSettings])
+
+  const handleSpeedChange = useCallback((speed: Parameters<typeof tts.setPlaybackRate>[0]) => {
+    tts.setPlaybackRate(speed)
+    ttsSettings.setSpeed(speed)
+  }, [tts, ttsSettings])
 
   // Determine if this post has special content that benefits from a raw view
   // Show toggle for LaTeX, SVG code blocks, or any code blocks
@@ -244,10 +267,14 @@ export function BlogViewer({
         <AudioPlayer
           state={tts.state}
           playbackState={tts.playbackState}
+          availableVoices={tts.availableVoices}
+          currentVoice={tts.currentVoice}
           onPause={tts.pause}
           onResume={tts.resume}
           onStop={tts.stop}
-          onPlaybackRateChange={tts.setPlaybackRate}
+          onPlaybackRateChange={handleSpeedChange}
+          onPitchChange={handlePitchChange}
+          onVoiceChange={handleVoiceChange}
         />
       )}
     </article>

@@ -6,10 +6,15 @@ import {
   splitIntoSentences,
   float32ToWavBlob,
   detectCapabilities,
+  shiftPitch,
   DEFAULT_VOICE,
   SAMPLE_RATE,
   MODEL_ID,
   PLAYBACK_RATES,
+  PITCH_RATES,
+  parseVoiceId,
+  groupVoices,
+  pitchToCents,
   type TTSState,
   type TTSStatus,
 } from '../tts'
@@ -46,6 +51,180 @@ describe('TTS Module', () => {
 
     it('has correct playback rates', () => {
       expect(PLAYBACK_RATES).toEqual([0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+    })
+
+    it('has correct pitch rates', () => {
+      expect(PITCH_RATES).toEqual([0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5])
+    })
+  })
+
+  describe('parseVoiceId', () => {
+    it('parses American female voice correctly', () => {
+      const result = parseVoiceId('af_heart')
+      expect(result).toEqual({
+        id: 'af_heart',
+        name: 'Heart',
+        gender: 'female',
+        accent: 'american',
+      })
+    })
+
+    it('parses American male voice correctly', () => {
+      const result = parseVoiceId('am_adam')
+      expect(result).toEqual({
+        id: 'am_adam',
+        name: 'Adam',
+        gender: 'male',
+        accent: 'american',
+      })
+    })
+
+    it('parses British female voice correctly', () => {
+      const result = parseVoiceId('bf_emma')
+      expect(result).toEqual({
+        id: 'bf_emma',
+        name: 'Emma',
+        gender: 'female',
+        accent: 'british',
+      })
+    })
+
+    it('parses British male voice correctly', () => {
+      const result = parseVoiceId('bm_george')
+      expect(result).toEqual({
+        id: 'bm_george',
+        name: 'George',
+        gender: 'male',
+        accent: 'british',
+      })
+    })
+
+    it('handles multi-word voice names', () => {
+      const result = parseVoiceId('af_sky_blue')
+      expect(result).toEqual({
+        id: 'af_sky_blue',
+        name: 'Sky Blue',
+        gender: 'female',
+        accent: 'american',
+      })
+    })
+
+    it('handles unknown accent as other', () => {
+      const result = parseVoiceId('xf_unknown')
+      expect(result).toEqual({
+        id: 'xf_unknown',
+        name: 'Unknown',
+        gender: 'female',
+        accent: 'other',
+      })
+    })
+
+    it('handles single-part voice ID gracefully', () => {
+      const result = parseVoiceId('invalid')
+      expect(result).toEqual({
+        id: 'invalid',
+        name: 'invalid',
+        gender: 'female',
+        accent: 'other',
+      })
+    })
+  })
+
+  describe('groupVoices', () => {
+    it('groups voices by accent and gender', () => {
+      const voices = ['af_heart', 'am_adam', 'bf_emma', 'bm_george']
+      const result = groupVoices(voices)
+
+      expect(result).toHaveLength(4)
+      expect(result[0].label).toBe('American Female')
+      expect(result[0].voices).toHaveLength(1)
+      expect(result[0].voices[0].id).toBe('af_heart')
+
+      expect(result[1].label).toBe('American Male')
+      expect(result[1].voices).toHaveLength(1)
+
+      expect(result[2].label).toBe('British Female')
+      expect(result[2].voices).toHaveLength(1)
+
+      expect(result[3].label).toBe('British Male')
+      expect(result[3].voices).toHaveLength(1)
+    })
+
+    it('filters out empty categories', () => {
+      const voices = ['af_heart', 'af_bella']
+      const result = groupVoices(voices)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].label).toBe('American Female')
+      expect(result[0].voices).toHaveLength(2)
+    })
+
+    it('sorts voices alphabetically within categories', () => {
+      const voices = ['af_sky', 'af_bella', 'af_heart']
+      const result = groupVoices(voices)
+
+      expect(result[0].voices[0].name).toBe('Bella')
+      expect(result[0].voices[1].name).toBe('Heart')
+      expect(result[0].voices[2].name).toBe('Sky')
+    })
+
+    it('handles empty array', () => {
+      const result = groupVoices([])
+      expect(result).toHaveLength(0)
+    })
+
+    it('includes Other category for non-standard voices', () => {
+      const voices = ['xf_test', 'af_heart']
+      const result = groupVoices(voices)
+
+      expect(result).toHaveLength(2)
+      const otherCategory = result.find((c) => c.label === 'Other')
+      expect(otherCategory).toBeDefined()
+      expect(otherCategory!.voices[0].id).toBe('xf_test')
+    })
+  })
+
+  describe('pitchToCents', () => {
+    it('returns 0 for pitch ratio of 1.0', () => {
+      expect(pitchToCents(1.0)).toBe(0)
+    })
+
+    it('returns -1200 for pitch ratio of 0.5 (one octave down)', () => {
+      expect(pitchToCents(0.5)).toBe(-1200)
+    })
+
+    it('returns 1200 for pitch ratio of 2.0 (one octave up)', () => {
+      expect(pitchToCents(2.0)).toBe(1200)
+    })
+
+    it('calculates correct cents for 1.5 (perfect fifth up)', () => {
+      // 1200 * log2(1.5) ≈ 702
+      expect(pitchToCents(1.5)).toBe(702)
+    })
+
+    it('calculates correct cents for 0.75', () => {
+      // 1200 * log2(0.75) ≈ -498
+      expect(pitchToCents(0.75)).toBe(-498)
+    })
+
+    it('calculates correct cents for 0.9', () => {
+      // 1200 * log2(0.9) ≈ -182
+      expect(pitchToCents(0.9)).toBe(-182)
+    })
+
+    it('calculates correct cents for 1.1', () => {
+      // 1200 * log2(1.1) ≈ 165
+      expect(pitchToCents(1.1)).toBe(165)
+    })
+
+    it('calculates correct cents for 1.25', () => {
+      // 1200 * log2(1.25) ≈ 386
+      expect(pitchToCents(1.25)).toBe(386)
+    })
+
+    it('returns 0 for zero or negative ratios', () => {
+      expect(pitchToCents(0)).toBe(0)
+      expect(pitchToCents(-1)).toBe(0)
     })
   })
 
@@ -971,6 +1150,95 @@ https://bsky.app/profile/user2.bsky.social/post/def`
 
       const caps = await detectCapabilities()
       expect(caps.webgpu).toBe(false)
+    })
+  })
+
+  describe('shiftPitch', () => {
+    it('returns original samples when pitch factor is 1.0', () => {
+      const samples = new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5])
+      const result = shiftPitch(samples, 1.0)
+      expect(result).toBe(samples) // Same reference
+    })
+
+    it('returns original samples when input is empty', () => {
+      const samples = new Float32Array(0)
+      const result = shiftPitch(samples, 1.5)
+      expect(result).toBe(samples)
+    })
+
+    it('preserves duration for higher pitch (factor > 1)', () => {
+      // Create a simple sine wave for testing
+      const sampleRate = 24000
+      const duration = 0.1 // 100ms
+      const length = Math.floor(sampleRate * duration)
+      const samples = new Float32Array(length)
+      for (let i = 0; i < length; i++) {
+        samples[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const result = shiftPitch(samples, 1.5, sampleRate)
+
+      // Output should be same length as input (duration preserved)
+      expect(result.length).toBe(samples.length)
+    })
+
+    it('preserves duration for lower pitch (factor < 1)', () => {
+      const sampleRate = 24000
+      const duration = 0.1
+      const length = Math.floor(sampleRate * duration)
+      const samples = new Float32Array(length)
+      for (let i = 0; i < length; i++) {
+        samples[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const result = shiftPitch(samples, 0.75, sampleRate)
+
+      // Output should be same length as input
+      expect(result.length).toBe(samples.length)
+    })
+
+    it('clamps extreme pitch factors to prevent artifacts', () => {
+      const sampleRate = 24000
+      const samples = new Float32Array(sampleRate * 0.1) // 100ms
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      // Very high pitch factor
+      const resultHigh = shiftPitch(samples, 3.0, sampleRate)
+      expect(resultHigh.length).toBe(samples.length)
+
+      // Very low pitch factor
+      const resultLow = shiftPitch(samples, 0.1, sampleRate)
+      expect(resultLow.length).toBe(samples.length)
+    })
+
+    it('produces non-zero output for valid input', () => {
+      const sampleRate = 24000
+      const samples = new Float32Array(sampleRate * 0.1)
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const result = shiftPitch(samples, 1.25, sampleRate)
+
+      // Should have non-zero values
+      const hasNonZero = result.some((v) => Math.abs(v) > 0.001)
+      expect(hasNonZero).toBe(true)
+    })
+
+    it('handles all supported pitch rates', () => {
+      const sampleRate = 24000
+      const samples = new Float32Array(sampleRate * 0.05) // 50ms
+      for (let i = 0; i < samples.length; i++) {
+        samples[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate)
+      }
+
+      const pitchRates = [0.5, 0.75, 0.9, 1.1, 1.25, 1.5]
+      for (const rate of pitchRates) {
+        const result = shiftPitch(samples, rate, sampleRate)
+        expect(result.length).toBe(samples.length)
+      }
     })
   })
 

@@ -1,25 +1,28 @@
 /**
  * React hook for Text-to-Speech using Kokoro TTS
  *
- * Manages Web Worker lifecycle and audio playback via HTMLAudioElement
- * with preservesPitch for pitch-compensated speed changes.
+ * Manages Web Worker lifecycle and audio playback via HTMLAudioElement.
+ * Speed control uses HTMLAudioElement.playbackRate with preservesPitch=true.
+ * Pitch control uses WSOLA-based pitch shifting applied before playback.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { WorkerRequest, WorkerMessage, TTSState, PlaybackRate } from './tts'
+import type { WorkerRequest, WorkerMessage, TTSState, PlaybackRate, PitchRate } from './tts'
 import {
   initialTTSState,
   detectCapabilities,
   SAMPLE_RATE,
   DEFAULT_VOICE,
   splitIntoSentences,
+  shiftPitch,
   float32ToWavBlob,
 } from './tts'
 import TTSWorker from './tts.worker?worker'
 
 interface AudioChunk {
-  audio: Float32Array
-  blobUrl: string
+  audio: Float32Array // Raw audio samples (before pitch shifting)
+  blobUrl: string | null // Cached blob URL for current pitch setting
+  cachedPitch: PitchRate // The pitch value this blobUrl was created for
   text: string
   sentenceIndex: number
   duration: number // in seconds
@@ -42,14 +45,19 @@ interface UseTTSReturn {
     currentTime: number
     duration: number
     playbackRate: PlaybackRate
+    pitch: PitchRate
     playbackProgress: number
     bufferProgress: number
   }
-  start: (text: string) => Promise<void>
+  availableVoices: string[]
+  currentVoice: string
+  start: (text: string, options?: { voice?: string; pitch?: PitchRate; speed?: PlaybackRate }) => Promise<void>
   pause: () => void
   resume: () => void
   stop: () => void
   setPlaybackRate: (rate: PlaybackRate) => void
+  setPitch: (rate: PitchRate) => void
+  setVoice: (voice: string) => void
   seek: (sentenceText: string) => void
 }
 
@@ -64,17 +72,23 @@ export function useTTS(): UseTTSReturn {
     currentTime: 0,
     duration: 0,
     playbackRate: 1.0 as PlaybackRate,
+    pitch: 1.0 as PitchRate,
     playbackProgress: 0, // 0-100, based on sentence position
     bufferProgress: 0, // 0-100, based on chunks generated
   })
+  const [availableVoices, setAvailableVoices] = useState<string[]>([])
+  const [currentVoice, setCurrentVoiceState] = useState<string>(DEFAULT_VOICE)
 
   const workerRef = useRef<Worker | null>(null)
+  // HTMLAudioElement for playback (supports preservesPitch for speed control)
   const audioElementRef = useRef<HTMLAudioElement | null>(null)
   const audioQueueRef = useRef<AudioChunk[]>([])
   const allChunksRef = useRef<Map<number, AudioChunk>>(new Map()) // Map of sentenceIndex -> chunk (persists across seeks)
   const currentChunkIndexRef = useRef<number>(0) // Current sentence index being played
   const isPlayingRef = useRef(false)
   const playbackRateRef = useRef<PlaybackRate>(1.0)
+  const pitchRef = useRef<PitchRate>(1.0)
+  const currentVoiceRef = useRef<string>(DEFAULT_VOICE)
   const isPausedRef = useRef(false)
   const isStartingChunkRef = useRef(false) // Guard against concurrent playNextChunk calls
   const pendingGenerationRef = useRef<PendingGeneration | null>(null)
@@ -85,29 +99,51 @@ export function useTTS(): UseTTSReturn {
   const totalDurationRef = useRef<number>(0)
   const playedDurationRef = useRef<number>(0)
   const playbackIntervalRef = useRef<number | null>(null)
+  // Track position within current chunk for accurate timing
+  const chunkStartTimeRef = useRef<number>(0)
 
-  // Get or create audio element
+  // Get or create HTMLAudioElement for playback
   const getOrCreateAudioElement = useCallback(() => {
     if (!audioElementRef.current) {
       const audio = new Audio()
+      // Enable pitch preservation when changing playback rate
+      // This ensures speed changes don't affect pitch
       audio.preservesPitch = true
-      // Also set vendor-prefixed versions for broader compatibility
-      ;(audio as HTMLAudioElement & { mozPreservesPitch?: boolean }).mozPreservesPitch = true
+      // Also set the webkit version for Safari
       ;(audio as HTMLAudioElement & { webkitPreservesPitch?: boolean }).webkitPreservesPitch = true
       audioElementRef.current = audio
     }
     return audioElementRef.current
   }, [])
 
-  // Cleanup blob URLs
-  const cleanupBlobUrl = useCallback((url: string) => {
-    if (url.startsWith('blob:')) {
-      URL.revokeObjectURL(url)
+  // Create blob URL for a chunk, applying pitch shift if needed
+  const getChunkBlobUrl = useCallback((chunk: AudioChunk): string => {
+    // If we have a cached blob URL for the current pitch, use it
+    if (chunk.blobUrl && chunk.cachedPitch === pitchRef.current) {
+      return chunk.blobUrl
     }
+
+    // Revoke old blob URL if it exists
+    if (chunk.blobUrl) {
+      URL.revokeObjectURL(chunk.blobUrl)
+    }
+
+    // Apply pitch shifting if pitch != 1.0
+    let samples = chunk.audio
+    if (pitchRef.current !== 1.0) {
+      samples = shiftPitch(samples, pitchRef.current, SAMPLE_RATE)
+    }
+
+    // Convert to WAV blob and create URL
+    const blob = float32ToWavBlob(samples, SAMPLE_RATE)
+    chunk.blobUrl = URL.createObjectURL(blob)
+    chunk.cachedPitch = pitchRef.current
+
+    return chunk.blobUrl
   }, [])
 
-  // Play the next chunk in sequence
-  const playNextChunk = useCallback(() => {
+  // Play the next chunk in sequence using HTMLAudioElement
+  const playNextChunk = useCallback(async () => {
     if (!isPlayingRef.current || isPausedRef.current) return
 
     // Guard against concurrent calls - if we're already starting a chunk, skip
@@ -141,13 +177,7 @@ export function useTTS(): UseTTSReturn {
       chunk = queue.splice(queueIndex, 1)[0]
     } else {
       // Check the Map for newly generated chunks
-      const mapChunk = allChunksRef.current.get(expectedIndex)
-      if (mapChunk) {
-        // Create fresh blob URL for playback
-        const wavBlob = float32ToWavBlob(mapChunk.audio, SAMPLE_RATE)
-        const blobUrl = URL.createObjectURL(wavBlob)
-        chunk = { ...mapChunk, blobUrl }
-      }
+      chunk = allChunksRef.current.get(expectedIndex)
     }
 
     if (!chunk) {
@@ -165,14 +195,32 @@ export function useTTS(): UseTTSReturn {
 
     const audio = getOrCreateAudioElement()
 
-    // Clean up previous blob URL
-    if (audio.src && audio.src.startsWith('blob:')) {
-      cleanupBlobUrl(audio.src)
-    }
+    // Get or create blob URL for this chunk (applies pitch shifting if needed)
+    const blobUrl = getChunkBlobUrl(chunk)
 
-    // Set up the new audio
-    audio.src = chunk.blobUrl
+    // Set up audio element
+    audio.src = blobUrl
     audio.playbackRate = playbackRateRef.current
+    // preservesPitch is set during audio element creation
+
+    // Wait for metadata to load and get actual duration
+    // This is critical for pitch-shifted audio where the SOLA algorithm
+    // may produce audio with a different actual duration than calculated
+    const actualDuration = await new Promise<number>((resolve) => {
+      // If metadata already loaded (readyState >= 1), use current duration
+      if (audio.readyState >= 1 && audio.duration && !isNaN(audio.duration)) {
+        resolve(audio.duration)
+        return
+      }
+
+      const handleMetadata = () => {
+        audio.removeEventListener('loadedmetadata', handleMetadata)
+        resolve(audio.duration)
+      }
+      audio.addEventListener('loadedmetadata', handleMetadata)
+    })
+
+    chunkStartTimeRef.current = Date.now() / 1000
 
     // Update current sentence and playback progress
     const playbackProgress = totalSentences > 0 ? (chunk.sentenceIndex / totalSentences) * 100 : 0
@@ -186,41 +234,24 @@ export function useTTS(): UseTTSReturn {
 
     setPlaybackState((prev) => ({ ...prev, playbackProgress }))
 
-    // Handle chunk end
-    audio.onended = () => {
-      playedDurationRef.current += chunk.duration
-      cleanupBlobUrl(chunk.blobUrl)
+    // Handle chunk end - move to next chunk
+    // Use actualDuration (from audio element) instead of chunk.duration (calculated from original samples)
+    const handleEnded = () => {
+      audio.removeEventListener('ended', handleEnded)
+      playedDurationRef.current += actualDuration
       currentChunkIndexRef.current = expectedIndex + 1
       isStartingChunkRef.current = false
       playNextChunk()
     }
+    audio.addEventListener('ended', handleEnded)
 
-    audio.onerror = () => {
-      console.error('[TTS] Audio playback error')
-      cleanupBlobUrl(chunk.blobUrl)
-      currentChunkIndexRef.current = expectedIndex + 1
+    // Start playback
+    audio.play().catch((e) => {
+      console.error('[TTS] Playback failed:', e)
       isStartingChunkRef.current = false
-      playNextChunk() // Try next chunk
-    }
-
-    audio.play()
-      .then(() => {
-        // Audio started successfully, clear the guard
-        isStartingChunkRef.current = false
-      })
-      .catch((err) => {
-        isStartingChunkRef.current = false
-        // AbortError means the audio source was changed (e.g., by a seek or new playNextChunk call)
-        // This is not a real error - just ignore it as something else is handling playback
-        if (err.name === 'AbortError') {
-          console.log('[TTS] Play aborted (audio source changed)')
-          return
-        }
-        console.error('[TTS] Failed to play audio:', err)
-        currentChunkIndexRef.current = expectedIndex + 1
-        playNextChunk()
-      })
-  }, [getOrCreateAudioElement, cleanupBlobUrl])
+    })
+    isStartingChunkRef.current = false
+  }, [getOrCreateAudioElement, getChunkBlobUrl])
 
   // Try to start playback when we have enough buffered audio
   const tryStartPlayback = useCallback(() => {
@@ -242,13 +273,14 @@ export function useTTS(): UseTTSReturn {
       setState((prev) => ({ ...prev, status: 'playing' }))
       setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
 
-      // Start playback time tracking
+      // Start playback time tracking using Date.now()
       if (!playbackIntervalRef.current) {
         playbackIntervalRef.current = window.setInterval(() => {
-          const audio = audioElementRef.current
-          if (audio && isPlayingRef.current && !isPausedRef.current) {
-            const currentChunkTime = audio.currentTime / playbackRateRef.current
-            const totalTime = playedDurationRef.current + currentChunkTime
+          if (isPlayingRef.current && !isPausedRef.current) {
+            // Calculate time within current chunk using wall clock
+            const now = Date.now() / 1000
+            const chunkElapsed = (now - chunkStartTimeRef.current) * playbackRateRef.current
+            const totalTime = playedDurationRef.current + Math.max(0, chunkElapsed)
             setPlaybackState((prev) => ({
               ...prev,
               currentTime: totalTime,
@@ -282,6 +314,10 @@ export function useTTS(): UseTTSReturn {
 
         case 'model-ready':
           modelLoadedOnceRef.current = true
+          // Store available voices from the worker
+          if (message.voices && message.voices.length > 0) {
+            setAvailableVoices(message.voices)
+          }
           setState((prev) => ({
             ...prev,
             status: prev.status === 'playing' ? 'playing' : 'generating',
@@ -311,25 +347,19 @@ export function useTTS(): UseTTSReturn {
           break
 
         case 'audio-chunk': {
-          // Convert Float32Array to WAV blob
-          const wavBlob = float32ToWavBlob(message.audio, SAMPLE_RATE)
-          const blobUrl = URL.createObjectURL(wavBlob)
           const duration = message.audio.length / SAMPLE_RATE_FOR_CALC
 
           const chunk: AudioChunk = {
             audio: message.audio,
-            blobUrl,
+            blobUrl: null, // Will be created when needed (with pitch shifting if required)
+            cachedPitch: 1.0,
             text: message.text,
             sentenceIndex: message.sentenceIndex,
             duration,
           }
 
           // Store in Map by sentenceIndex for persistent buffer across seeks
-          // (don't store blob URL in Map since we create fresh ones on demand)
-          allChunksRef.current.set(message.sentenceIndex, {
-            ...chunk,
-            blobUrl: '', // Will be created fresh when needed
-          })
+          allChunksRef.current.set(message.sentenceIndex, chunk)
 
           // Add to queue for immediate playback if this is the next expected chunk
           // or if we're doing initial generation (no seeking)
@@ -404,70 +434,59 @@ export function useTTS(): UseTTSReturn {
         workerRef.current.terminate()
         workerRef.current = null
       }
+      // Clean up HTMLAudioElement
       if (audioElementRef.current) {
         audioElementRef.current.pause()
-        if (audioElementRef.current.src) {
-          cleanupBlobUrl(audioElementRef.current.src)
-        }
+        audioElementRef.current.src = ''
         audioElementRef.current = null
       }
-      // Clean up any remaining blob URLs
-      for (const chunk of audioQueueRef.current) {
-        cleanupBlobUrl(chunk.blobUrl)
-      }
+      // Clean up blob URLs
       for (const chunk of allChunksRef.current.values()) {
-        cleanupBlobUrl(chunk.blobUrl)
+        if (chunk.blobUrl) {
+          URL.revokeObjectURL(chunk.blobUrl)
+        }
       }
+      audioQueueRef.current = []
+      allChunksRef.current.clear()
     }
-  }, [cleanupBlobUrl])
+  }, [])
 
   const start = useCallback(
-    async (text: string) => {
+    async (text: string, options?: { voice?: string; pitch?: PitchRate; speed?: PlaybackRate }) => {
       // Reset state
       setState({ ...initialTTSState, status: 'loading-model' })
 
-      // IMPORTANT: Unlock audio playback for Safari during user gesture
-      // Safari requires audio.play() to be called during a user interaction.
-      // We create the audio element and trigger a play attempt to "unlock" it
-      // before any async work, so later play() calls will succeed.
+      // Apply provided options or use current values
+      const voice = options?.voice ?? currentVoiceRef.current
+      const pitch = options?.pitch ?? pitchRef.current
+      const speed = options?.speed ?? playbackRateRef.current
+
+      // Update refs and state with new values
+      currentVoiceRef.current = voice
+      pitchRef.current = pitch
+      playbackRateRef.current = speed
+      setCurrentVoiceState(voice)
+
+      // IMPORTANT: Create audio element during user gesture to enable autoplay
+      // Safari and other browsers may block audio playback if not initiated during user interaction
       const audio = getOrCreateAudioElement()
-      // Use an AudioContext unlock as well - more reliable across browsers
-      try {
-        const AudioContextClass = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-        if (AudioContextClass) {
-          const ctx = new AudioContextClass()
-          // Create a silent buffer and play it to unlock
-          const buffer = ctx.createBuffer(1, 1, 22050)
-          const source = ctx.createBufferSource()
-          source.buffer = buffer
-          source.connect(ctx.destination)
-          source.start(0)
-          // Resume context if suspended (Safari suspends by default)
-          if (ctx.state === 'suspended') {
-            ctx.resume()
-          }
-          // Clean up after a short delay
-          setTimeout(() => ctx.close(), 100)
-        }
-      } catch (e) {
-        console.log('[TTS] AudioContext unlock failed:', e)
-      }
-      // Also do a non-blocking audio element unlock attempt
-      audio.muted = true
-      audio.play().then(() => {
-        audio.pause()
-        audio.muted = false
-      }).catch(() => {
-        audio.muted = false
-        console.log('[TTS] Audio element unlock attempt (may fail on some browsers)')
+      // Play a silent audio to unlock autoplay (helps with Safari)
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA=='
+      audio.play().catch(() => {
+        // Ignore errors - this is just to unlock
       })
 
-      // Clean up existing blob URLs
-      for (const chunk of audioQueueRef.current) {
-        cleanupBlobUrl(chunk.blobUrl)
+      // Stop any currently playing audio
+      if (audioElementRef.current) {
+        audioElementRef.current.pause()
+        audioElementRef.current.src = ''
       }
+
+      // Clean up old blob URLs
       for (const chunk of allChunksRef.current.values()) {
-        cleanupBlobUrl(chunk.blobUrl)
+        if (chunk.blobUrl) {
+          URL.revokeObjectURL(chunk.blobUrl)
+        }
       }
 
       audioQueueRef.current = []
@@ -491,7 +510,8 @@ export function useTTS(): UseTTSReturn {
         isPlaying: false,
         currentTime: 0,
         duration: 0,
-        playbackRate: playbackRateRef.current,
+        playbackRate: speed,
+        pitch: pitch,
         playbackProgress: 0,
         bufferProgress: 0,
       })
@@ -521,30 +541,31 @@ export function useTTS(): UseTTSReturn {
         text,
       }))
 
-      // Store pending generation with indexed sentences
-      pendingGenerationRef.current = { sentences: indexedSentences }
+      // Store pending generation with indexed sentences and voice
+      pendingGenerationRef.current = { sentences: indexedSentences, voice }
 
-      // Initialize model
+      // Initialize model with selected voice
       const initRequest: WorkerRequest = {
         type: 'initialize',
         options: {
           device: capabilities.recommended.device,
           dtype: capabilities.recommended.dtype,
-          voice: DEFAULT_VOICE,
+          voice,
         },
       }
       workerRef.current.postMessage(initRequest)
     },
-    [handleWorkerMessage, cleanupBlobUrl, getOrCreateAudioElement]
+    [handleWorkerMessage, getOrCreateAudioElement]
   )
 
   const pause = useCallback(() => {
     if (!isPlayingRef.current || isPausedRef.current) return
 
     isPausedRef.current = true
-    const audio = audioElementRef.current
-    if (audio) {
-      audio.pause()
+
+    // Pause the HTMLAudioElement
+    if (audioElementRef.current) {
+      audioElementRef.current.pause()
     }
 
     setState((prev) => ({ ...prev, status: 'paused' }))
@@ -555,15 +576,21 @@ export function useTTS(): UseTTSReturn {
     if (!isPausedRef.current) return
 
     isPausedRef.current = false
-    const audio = audioElementRef.current
 
-    if (audio && audio.src) {
-      audio.play().then(() => {
+    // Resume the HTMLAudioElement
+    if (audioElementRef.current && audioElementRef.current.paused && audioElementRef.current.src) {
+      audioElementRef.current.play().then(() => {
         setState((prev) => ({ ...prev, status: 'playing' }))
         setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
+      }).catch((e) => {
+        console.error('[TTS] Resume failed:', e)
+        // Try playing next chunk instead
+        setState((prev) => ({ ...prev, status: 'playing' }))
+        setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
+        playNextChunk()
       })
     } else {
-      // No current audio, try to play next chunk
+      // No active audio, try to play next chunk
       setState((prev) => ({ ...prev, status: 'playing' }))
       setPlaybackState((prev) => ({ ...prev, isPlaying: true }))
       playNextChunk()
@@ -585,21 +612,17 @@ export function useTTS(): UseTTSReturn {
       workerRef.current = null
     }
 
-    // Stop audio
+    // Stop HTMLAudioElement playback
     if (audioElementRef.current) {
       audioElementRef.current.pause()
-      if (audioElementRef.current.src) {
-        cleanupBlobUrl(audioElementRef.current.src)
-      }
       audioElementRef.current.src = ''
     }
 
     // Clean up blob URLs
-    for (const chunk of audioQueueRef.current) {
-      cleanupBlobUrl(chunk.blobUrl)
-    }
     for (const chunk of allChunksRef.current.values()) {
-      cleanupBlobUrl(chunk.blobUrl)
+      if (chunk.blobUrl) {
+        URL.revokeObjectURL(chunk.blobUrl)
+      }
     }
 
     // Reset state
@@ -619,20 +642,106 @@ export function useTTS(): UseTTSReturn {
       currentTime: 0,
       duration: 0,
       playbackRate: playbackRateRef.current,
+      pitch: pitchRef.current,
       playbackProgress: 0,
       bufferProgress: 0,
     })
-  }, [cleanupBlobUrl])
+  }, [])
 
   const setPlaybackRate = useCallback((rate: PlaybackRate) => {
     playbackRateRef.current = rate
     setPlaybackState((prev) => ({ ...prev, playbackRate: rate }))
 
-    // Update current audio element's playback rate
+    // Update currently playing audio element's playback rate
+    // HTMLAudioElement with preservesPitch=true keeps pitch constant
     if (audioElementRef.current) {
       audioElementRef.current.playbackRate = rate
     }
   }, [])
+
+  const setPitch = useCallback((rate: PitchRate) => {
+    pitchRef.current = rate
+    setPlaybackState((prev) => ({ ...prev, pitch: rate }))
+
+    // Pitch changes will take effect on the next chunk
+    // (current chunk was already pitch-shifted when its blob URL was created)
+    // Invalidate cached blob URLs so they'll be regenerated with new pitch
+    for (const chunk of allChunksRef.current.values()) {
+      if (chunk.blobUrl && chunk.cachedPitch !== rate) {
+        URL.revokeObjectURL(chunk.blobUrl)
+        chunk.blobUrl = null
+      }
+    }
+  }, [])
+
+  // Change voice - requires regenerating audio from current position
+  const setVoice = useCallback(
+    async (voice: string) => {
+      currentVoiceRef.current = voice
+      setCurrentVoiceState(voice)
+
+      // If we're currently playing or paused with content, regenerate from current position
+      if ((isPlayingRef.current || isPausedRef.current) && allSentencesRef.current.length > 0) {
+        const currentIndex = currentChunkIndexRef.current
+        const currentText = allSentencesRef.current[currentIndex]
+
+        // Stop current playback
+        if (audioElementRef.current) {
+          audioElementRef.current.pause()
+          audioElementRef.current.src = ''
+        }
+
+        // Stop current worker
+        if (workerRef.current) {
+          const stopRequest: WorkerRequest = { type: 'stop' }
+          workerRef.current.postMessage(stopRequest)
+          workerRef.current.terminate()
+          workerRef.current = null
+        }
+
+        // Clean up blob URLs and clear all buffered chunks (they're for the old voice)
+        for (const chunk of allChunksRef.current.values()) {
+          if (chunk.blobUrl) {
+            URL.revokeObjectURL(chunk.blobUrl)
+          }
+        }
+        audioQueueRef.current = []
+        allChunksRef.current.clear()
+
+        // Build sentences to regenerate from current position
+        const remainingSentences: IndexedSentence[] = allSentencesRef.current
+          .slice(currentIndex)
+          .map((text, i) => ({ index: currentIndex + i, text }))
+
+        if (remainingSentences.length === 0) return
+
+        // Update state
+        generationCompleteRef.current = false
+        setState((prev) => ({ ...prev, status: 'generating', currentSentence: currentText }))
+
+        // Detect capabilities and create new worker
+        const capabilities = await detectCapabilities()
+
+        workerRef.current = new TTSWorker()
+        workerRef.current.onmessage = handleWorkerMessage
+
+        // Store pending generation with new voice
+        pendingGenerationRef.current = { sentences: remainingSentences, voice }
+
+        // Initialize model with new voice
+        const initRequest: WorkerRequest = {
+          type: 'initialize',
+          options: {
+            device: capabilities.recommended.device,
+            dtype: capabilities.recommended.dtype,
+            voice,
+          },
+        }
+        workerRef.current.postMessage(initRequest)
+      }
+    },
+    [handleWorkerMessage]
+  )
 
   // Seek to a specific sentence by its text content
   const seek = useCallback(
@@ -759,10 +868,10 @@ export function useTTS(): UseTTSReturn {
       const targetIndex = bestSentenceIndex
       console.log('[TTS] Seeking to sentence', targetIndex)
 
-      // Stop current playback
+      // Stop current HTMLAudioElement playback
       if (audioElementRef.current) {
         audioElementRef.current.pause()
-        audioElementRef.current.onended = null
+        audioElementRef.current.src = ''
       }
 
       // Stop current worker generation
@@ -773,10 +882,7 @@ export function useTTS(): UseTTSReturn {
         workerRef.current = null
       }
 
-      // Clean up current audio queue blob URLs (but NOT allChunksRef - keep the buffer!)
-      for (const chunk of audioQueueRef.current) {
-        cleanupBlobUrl(chunk.blobUrl)
-      }
+      // Clear current queue (but keep allChunksRef - the buffer!)
       audioQueueRef.current = []
 
       // Build the playback queue from targetIndex onwards
@@ -787,13 +893,8 @@ export function useTTS(): UseTTSReturn {
       for (let i = targetIndex; i < allSentencesRef.current.length; i++) {
         const existingChunk = allChunksRef.current.get(i)
         if (existingChunk) {
-          // Use the existing buffered chunk - create a fresh blob URL
-          const wavBlob = float32ToWavBlob(existingChunk.audio, SAMPLE_RATE)
-          const blobUrl = URL.createObjectURL(wavBlob)
-          newQueue.push({
-            ...existingChunk,
-            blobUrl,
-          })
+          // Use the existing buffered chunk
+          newQueue.push(existingChunk)
         } else {
           // Need to generate this sentence
           missingSentences.push({
@@ -854,16 +955,16 @@ export function useTTS(): UseTTSReturn {
         workerRef.current = new TTSWorker()
         workerRef.current.onmessage = handleWorkerMessage
 
-        // Store the pending generation with only missing sentences
-        pendingGenerationRef.current = { sentences: missingSentences }
+        // Store the pending generation with only missing sentences and current voice
+        pendingGenerationRef.current = { sentences: missingSentences, voice: currentVoiceRef.current }
 
-        // Initialize model
+        // Initialize model with current voice
         const initRequest: WorkerRequest = {
           type: 'initialize',
           options: {
             device: capabilities.recommended.device,
             dtype: capabilities.recommended.dtype,
-            voice: DEFAULT_VOICE,
+            voice: currentVoiceRef.current,
           },
         }
         workerRef.current.postMessage(initRequest)
@@ -873,17 +974,21 @@ export function useTTS(): UseTTSReturn {
         console.log('[TTS] All sentences already buffered, no generation needed')
       }
     },
-    [playNextChunk, handleWorkerMessage, cleanupBlobUrl]
+    [playNextChunk, handleWorkerMessage]
   )
 
   return {
     state,
     playbackState,
+    availableVoices,
+    currentVoice,
     start,
     pause,
     resume,
     stop,
     setPlaybackRate,
+    setPitch,
+    setVoice,
     seek,
   }
 }
