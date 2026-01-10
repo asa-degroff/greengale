@@ -113,28 +113,97 @@ describe('API Endpoints', () => {
   })
 
   describe('Well-known Endpoints', () => {
+    const mockFetch = vi.fn()
+
+    beforeEach(() => {
+      vi.stubGlobal('fetch', mockFetch)
+      mockFetch.mockReset()
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
     it('returns platform publication without handle', async () => {
+      // Mock DID document response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // Mock listRecords response with a valid TID rkey (13 chars, only 234567a-z)
+      // Include preferences.greengale to identify as a GreenGale record
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:plc:purpkfw7haimc4zu5a57slza/site.standard.publication/3abcdefghijkl',
+            value: { preferences: { greengale: {} } },
+          }],
+        }),
+      })
+
       const res = await makeRequest(env, '/.well-known/site.standard.publication')
       expect(res.status).toBe(200)
 
       const text = await res.text()
-      expect(text).toBe('at://did:plc:purpkfw7haimc4zu5a57slza/site.standard.publication/self')
+      expect(text).toBe('at://did:plc:purpkfw7haimc4zu5a57slza/site.standard.publication/3abcdefghijkl')
     })
 
     it('returns user publication with handle', async () => {
       env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:user123' })
 
+      // Mock DID document response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // Mock listRecords response with a valid TID rkey
+      // Include preferences.greengale to identify as a GreenGale record
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:plc:user123/site.standard.publication/3xyzabcdefghi',
+            value: { preferences: { greengale: {} } },
+          }],
+        }),
+      })
+
       const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=test.bsky.social')
       expect(res.status).toBe(200)
 
       const text = await res.text()
-      expect(text).toBe('at://did:plc:user123/site.standard.publication/self')
+      expect(text).toBe('at://did:plc:user123/site.standard.publication/3xyzabcdefghi')
     })
 
     it('returns 404 for unknown handle', async () => {
       env.DB._statement.first.mockResolvedValueOnce(null)
 
       const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=unknown.bsky.social')
+      expect(res.status).toBe(404)
+    })
+
+    it('returns 404 when user has no publication', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:nopub' })
+
+      // Mock DID document response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // Mock listRecords response with no records
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=nopub.bsky.social')
       expect(res.status).toBe(404)
     })
   })

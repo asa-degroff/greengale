@@ -27,6 +27,61 @@ app.get('/xrpc/_health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0' })
 })
 
+/**
+ * Check if an rkey is a valid TID format (13 base32-sortable characters)
+ */
+function isValidTid(rkey: string): boolean {
+  if (rkey.length !== 13) return false
+  return /^[234567a-z]{13}$/.test(rkey)
+}
+
+/**
+ * Get the rkey of a user's GreenGale site.standard.publication from their PDS
+ * Returns null if no GreenGale publication with valid TID exists
+ * Only considers records that have preferences.greengale (belong to GreenGale)
+ */
+async function getSiteStandardPublicationRkey(did: string): Promise<string | null> {
+  try {
+    // Resolve DID to find PDS endpoint
+    const didDocRes = await fetch(`https://plc.directory/${did}`)
+    if (!didDocRes.ok) return null
+    const didDoc = await didDocRes.json() as {
+      service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+    }
+
+    const pdsService = didDoc.service?.find(
+      (s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+    )
+    if (!pdsService?.serviceEndpoint) return null
+
+    // List site.standard.publication records
+    const listUrl = `${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=50`
+    const listRes = await fetch(listUrl)
+    if (!listRes.ok) return null
+
+    const listData = await listRes.json() as { records?: Array<{ uri: string; value: Record<string, unknown> }> }
+    if (!listData.records || listData.records.length === 0) return null
+
+    // Find a GreenGale record with a valid TID rkey
+    for (const record of listData.records) {
+      // Only consider records that belong to GreenGale (have preferences.greengale)
+      const preferences = record.value?.preferences as Record<string, unknown> | undefined
+      if (!preferences?.greengale) {
+        continue
+      }
+
+      const rkey = record.uri.split('/').pop() || ''
+      if (isValidTid(rkey)) {
+        return rkey
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 // site.standard publication verification
 // Returns the AT-URI of a publication record
 // Without ?handle param: returns GreenGale's platform publication
@@ -35,24 +90,35 @@ app.get('/xrpc/_health', (c) => {
 app.get('/.well-known/site.standard.publication', async (c) => {
   const handle = c.req.query('handle')
 
+  // GreenGale platform account DID
+  const GREENGALE_PLATFORM_DID = 'did:plc:purpkfw7haimc4zu5a57slza'
+
   if (!handle) {
-    // Return platform publication (existing behavior)
-    // GreenGale platform account DID: did:plc:purpkfw7haimc4zu5a57slza
-    return c.text('at://did:plc:purpkfw7haimc4zu5a57slza/site.standard.publication/self')
+    // Return platform publication
+    const rkey = await getSiteStandardPublicationRkey(GREENGALE_PLATFORM_DID)
+    if (!rkey) {
+      return c.text('', 404)
+    }
+    return c.text(`at://${GREENGALE_PLATFORM_DID}/site.standard.publication/${rkey}`)
   }
 
   // Look up user's DID from handle
   try {
     const author = await c.env.DB.prepare(
       'SELECT did FROM authors WHERE handle = ?'
-    ).bind(handle).first()
+    ).bind(handle).first<{ did: string }>()
 
     if (!author) {
       return c.text('', 404)
     }
 
-    // Return user's site.standard.publication AT-URI
-    return c.text(`at://${author.did}/site.standard.publication/self`)
+    // Get user's site.standard.publication rkey
+    const rkey = await getSiteStandardPublicationRkey(author.did)
+    if (!rkey) {
+      return c.text('', 404)
+    }
+
+    return c.text(`at://${author.did}/site.standard.publication/${rkey}`)
   } catch {
     return c.text('', 500)
   }

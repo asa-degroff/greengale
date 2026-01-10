@@ -566,10 +566,18 @@ describe('Firehose Indexer', () => {
       if (themeSource) {
         const themeData = themeSource as Record<string, unknown>
         if (isSiteStandard) {
+          // site.standard.theme.basic uses RGB objects: foreground, background, accent, accentForeground
+          // Each color is { r: number, g: number, b: number }
+          const rgbToHex = (rgb: unknown): string | undefined => {
+            if (!rgb || typeof rgb !== 'object') return undefined
+            const { r, g, b } = rgb as { r?: number; g?: number; b?: number }
+            if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') return undefined
+            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+          }
           themePreset = JSON.stringify({
-            background: themeData.backgroundColor,
-            text: themeData.primaryColor,
-            accent: themeData.accentColor,
+            background: rgbToHex(themeData.background),
+            text: rgbToHex(themeData.foreground),
+            accent: rgbToHex(themeData.accent),
           })
         } else if (themeData.custom) {
           themePreset = JSON.stringify(themeData.custom)
@@ -616,14 +624,14 @@ describe('Firehose Indexer', () => {
     })
 
     describe('site.standard.publication', () => {
-      it('converts basicTheme to theme format', () => {
+      it('converts basicTheme RGB objects to hex theme format', () => {
         const record = {
           name: 'Standard Blog',
           url: 'https://standard.site',
           basicTheme: {
-            primaryColor: '#24292f',
-            backgroundColor: '#ffffff',
-            accentColor: '#0969da',
+            foreground: { r: 36, g: 41, b: 47 },
+            background: { r: 255, g: 255, b: 255 },
+            accent: { r: 9, g: 105, b: 218 },
           },
         }
 
@@ -641,16 +649,44 @@ describe('Firehose Indexer', () => {
           url: 'https://example.com',
           theme: { preset: 'ignored' }, // Should be ignored for site.standard
           basicTheme: {
-            primaryColor: '#000',
-            backgroundColor: '#fff',
-            accentColor: '#00f',
+            foreground: { r: 0, g: 0, b: 0 },
+            background: { r: 255, g: 255, b: 255 },
+            accent: { r: 0, g: 0, b: 255 },
           },
         }
 
         const result = extractPublicationData(record, 'site.standard.publication')
 
         const parsed = JSON.parse(result.themePreset!)
-        expect(parsed.text).toBe('#000')
+        expect(parsed.text).toBe('#000000')
+      })
+
+      it('handles missing basicTheme', () => {
+        const record = {
+          name: 'Blog',
+          url: 'https://example.com',
+        }
+
+        const result = extractPublicationData(record, 'site.standard.publication')
+        expect(result.themePreset).toBeNull()
+      })
+
+      it('handles partial RGB values', () => {
+        const record = {
+          name: 'Blog',
+          url: 'https://example.com',
+          basicTheme: {
+            foreground: { r: 255, g: 255, b: 255 },
+            // background and accent missing
+          },
+        }
+
+        const result = extractPublicationData(record, 'site.standard.publication')
+
+        const parsed = JSON.parse(result.themePreset!)
+        expect(parsed.text).toBe('#ffffff')
+        expect(parsed.background).toBeUndefined()
+        expect(parsed.accent).toBeUndefined()
       })
     })
   })

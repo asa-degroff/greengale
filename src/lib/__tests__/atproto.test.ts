@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { slugify, toBasicTheme, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries } from '../atproto'
-import type { BlogEntry } from '../atproto'
+import { slugify, toBasicTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries } from '../atproto'
+import type { BlogEntry, SiteStandardColor } from '../atproto'
 import type { Theme } from '../themes'
 
 // Mock fetch globally for resolveExternalUrl tests
@@ -79,6 +79,106 @@ describe('AT Protocol Utilities', () => {
     })
   })
 
+  describe('hexToRgb', () => {
+    it('returns undefined for undefined input', () => {
+      expect(hexToRgb(undefined)).toBeUndefined()
+    })
+
+    it('returns undefined for empty string', () => {
+      expect(hexToRgb('')).toBeUndefined()
+    })
+
+    it('parses 6-character hex with hash', () => {
+      expect(hexToRgb('#ff0000')).toEqual({ r: 255, g: 0, b: 0 })
+      expect(hexToRgb('#00ff00')).toEqual({ r: 0, g: 255, b: 0 })
+      expect(hexToRgb('#0000ff')).toEqual({ r: 0, g: 0, b: 255 })
+    })
+
+    it('parses 6-character hex without hash', () => {
+      expect(hexToRgb('ff0000')).toEqual({ r: 255, g: 0, b: 0 })
+    })
+
+    it('parses 3-character hex with hash', () => {
+      expect(hexToRgb('#f00')).toEqual({ r: 255, g: 0, b: 0 })
+      expect(hexToRgb('#0f0')).toEqual({ r: 0, g: 255, b: 0 })
+      expect(hexToRgb('#00f')).toEqual({ r: 0, g: 0, b: 255 })
+    })
+
+    it('parses 3-character hex without hash', () => {
+      expect(hexToRgb('f00')).toEqual({ r: 255, g: 0, b: 0 })
+    })
+
+    it('parses mixed case hex', () => {
+      expect(hexToRgb('#AbCdEf')).toEqual({ r: 171, g: 205, b: 239 })
+    })
+
+    it('returns undefined for invalid hex length', () => {
+      expect(hexToRgb('#12345')).toBeUndefined()
+      expect(hexToRgb('#1234567')).toBeUndefined()
+    })
+
+    it('returns undefined for invalid hex characters', () => {
+      expect(hexToRgb('#gggggg')).toBeUndefined()
+      expect(hexToRgb('#xyz')).toBeUndefined()
+    })
+  })
+
+  describe('computeAccentForeground', () => {
+    it('returns white for dark colors (fallback without theme colors)', () => {
+      // Dark blue
+      expect(computeAccentForeground({ r: 0, g: 0, b: 128 })).toEqual({ r: 255, g: 255, b: 255 })
+      // Black
+      expect(computeAccentForeground({ r: 0, g: 0, b: 0 })).toEqual({ r: 255, g: 255, b: 255 })
+      // Dark purple
+      expect(computeAccentForeground({ r: 50, g: 0, b: 100 })).toEqual({ r: 255, g: 255, b: 255 })
+    })
+
+    it('returns black for light colors (fallback without theme colors)', () => {
+      // White
+      expect(computeAccentForeground({ r: 255, g: 255, b: 255 })).toEqual({ r: 0, g: 0, b: 0 })
+      // Yellow
+      expect(computeAccentForeground({ r: 255, g: 255, b: 0 })).toEqual({ r: 0, g: 0, b: 0 })
+      // Light blue
+      expect(computeAccentForeground({ r: 100, g: 200, b: 255 })).toEqual({ r: 0, g: 0, b: 0 })
+    })
+
+    it('handles mid-range colors based on luminance (fallback)', () => {
+      // Pure green has high luminance -> black text
+      expect(computeAccentForeground({ r: 0, g: 255, b: 0 })).toEqual({ r: 0, g: 0, b: 0 })
+      // Pure red has luminance ~0.21 which is above 0.179 threshold -> black text
+      expect(computeAccentForeground({ r: 255, g: 0, b: 0 })).toEqual({ r: 0, g: 0, b: 0 })
+      // Dark red has lower luminance -> white text
+      expect(computeAccentForeground({ r: 128, g: 0, b: 0 })).toEqual({ r: 255, g: 255, b: 255 })
+    })
+
+    it('uses foreground color when it has better contrast', () => {
+      // Dark accent with dark foreground and light background
+      // Dark foreground provides worse contrast, light background wins
+      const darkAccent = { r: 0, g: 0, b: 128 }
+      const darkFg = { r: 30, g: 30, b: 30 }
+      const lightBg = { r: 255, g: 255, b: 255 }
+      expect(computeAccentForeground(darkAccent, darkFg, lightBg)).toEqual(lightBg)
+    })
+
+    it('uses background color when it has better contrast', () => {
+      // Light accent (yellow) with light foreground and dark background
+      // Dark background provides better contrast
+      const lightAccent = { r: 255, g: 255, b: 0 }
+      const lightFg = { r: 230, g: 230, b: 230 }
+      const darkBg = { r: 20, g: 20, b: 20 }
+      expect(computeAccentForeground(lightAccent, lightFg, darkBg)).toEqual(darkBg)
+    })
+
+    it('falls back to black/white when theme colors lack contrast', () => {
+      // Mid-range accent with similar mid-range foreground and background
+      const midAccent = { r: 128, g: 128, b: 128 }
+      const midFg = { r: 120, g: 120, b: 120 }
+      const midBg = { r: 140, g: 140, b: 140 }
+      // Neither provides 3:1 contrast, falls back to black (accent is light enough)
+      expect(computeAccentForeground(midAccent, midFg, midBg)).toEqual({ r: 0, g: 0, b: 0 })
+    })
+  })
+
   describe('toBasicTheme', () => {
     it('returns undefined for undefined theme', () => {
       expect(toBasicTheme(undefined)).toBeUndefined()
@@ -86,14 +186,16 @@ describe('AT Protocol Utilities', () => {
 
     it('returns default colors for empty theme object', () => {
       // Empty theme falls through to default preset
-      expect(toBasicTheme({})).toEqual({
-        primaryColor: '#1a1a1a',
-        backgroundColor: '#ffffff',
-        accentColor: '#2563eb',
+      const result = toBasicTheme({})
+      expect(result).toEqual({
+        foreground: { r: 26, g: 26, b: 26 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 37, g: 99, b: 235 },
+        accentForeground: { r: 255, g: 255, b: 255 },
       })
     })
 
-    it('converts custom theme colors', () => {
+    it('converts custom theme colors to RGB', () => {
       const theme: Theme = {
         custom: {
           background: '#ffffff',
@@ -103,9 +205,10 @@ describe('AT Protocol Utilities', () => {
       }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#000000',
-        backgroundColor: '#ffffff',
-        accentColor: '#0066cc',
+        foreground: { r: 0, g: 0, b: 0 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 0, g: 102, b: 204 },
+        accentForeground: { r: 255, g: 255, b: 255 },
       })
     })
 
@@ -117,9 +220,10 @@ describe('AT Protocol Utilities', () => {
       }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: undefined,
-        backgroundColor: '#ffffff',
-        accentColor: undefined,
+        foreground: undefined,
+        background: { r: 255, g: 255, b: 255 },
+        accent: undefined,
+        accentForeground: undefined,
       })
     })
 
@@ -127,9 +231,10 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'default' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#1a1a1a',
-        backgroundColor: '#ffffff',
-        accentColor: '#2563eb',
+        foreground: { r: 26, g: 26, b: 26 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 37, g: 99, b: 235 },
+        accentForeground: { r: 255, g: 255, b: 255 },
       })
     })
 
@@ -137,9 +242,10 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'github-light' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#24292f',
-        backgroundColor: '#ffffff',
-        accentColor: '#0969da',
+        foreground: { r: 36, g: 41, b: 47 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 9, g: 105, b: 218 },
+        accentForeground: { r: 255, g: 255, b: 255 },
       })
     })
 
@@ -147,9 +253,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'github-dark' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#e6edf3',
-        backgroundColor: '#0d1117',
-        accentColor: '#58a6ff',
+        foreground: { r: 230, g: 237, b: 243 },
+        background: { r: 13, g: 17, b: 23 },
+        accent: { r: 88, g: 166, b: 255 },
+        // Uses dark background for contrast with light accent
+        accentForeground: { r: 13, g: 17, b: 23 },
       })
     })
 
@@ -157,9 +265,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'dracula' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#f8f8f2',
-        backgroundColor: '#282a36',
-        accentColor: '#bd93f9',
+        foreground: { r: 248, g: 248, b: 242 },
+        background: { r: 40, g: 42, b: 54 },
+        accent: { r: 189, g: 147, b: 249 },
+        // Uses dark background for contrast with light purple accent
+        accentForeground: { r: 40, g: 42, b: 54 },
       })
     })
 
@@ -167,9 +277,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'nord' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#eceff4',
-        backgroundColor: '#2e3440',
-        accentColor: '#88c0d0',
+        foreground: { r: 236, g: 239, b: 244 },
+        background: { r: 46, g: 52, b: 64 },
+        accent: { r: 136, g: 192, b: 208 },
+        // Uses dark background for contrast with light accent
+        accentForeground: { r: 46, g: 52, b: 64 },
       })
     })
 
@@ -177,9 +289,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'solarized-light' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#657b83',
-        backgroundColor: '#fdf6e3',
-        accentColor: '#268bd2',
+        foreground: { r: 101, g: 123, b: 131 },
+        background: { r: 253, g: 246, b: 227 },
+        accent: { r: 38, g: 139, b: 210 },
+        // Uses light background for contrast with blue accent
+        accentForeground: { r: 253, g: 246, b: 227 },
       })
     })
 
@@ -187,9 +301,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'solarized-dark' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#839496',
-        backgroundColor: '#002b36',
-        accentColor: '#268bd2',
+        foreground: { r: 131, g: 148, b: 150 },
+        background: { r: 0, g: 43, b: 54 },
+        accent: { r: 38, g: 139, b: 210 },
+        // Uses dark background for contrast with blue accent
+        accentForeground: { r: 0, g: 43, b: 54 },
       })
     })
 
@@ -197,9 +313,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'monokai' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#f8f8f2',
-        backgroundColor: '#272822',
-        accentColor: '#a6e22e',
+        foreground: { r: 248, g: 248, b: 242 },
+        background: { r: 39, g: 40, b: 34 },
+        accent: { r: 166, g: 226, b: 46 },
+        // Uses dark background for contrast with bright green accent
+        accentForeground: { r: 39, g: 40, b: 34 },
       })
     })
 
@@ -207,9 +325,10 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'unknown' as 'default' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#1a1a1a',
-        backgroundColor: '#ffffff',
-        accentColor: '#2563eb',
+        foreground: { r: 26, g: 26, b: 26 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 37, g: 99, b: 235 },
+        accentForeground: { r: 255, g: 255, b: 255 },
       })
     })
 
@@ -224,9 +343,11 @@ describe('AT Protocol Utilities', () => {
       }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#ffffff',
-        backgroundColor: '#000000',
-        accentColor: '#ff0000',
+        foreground: { r: 255, g: 255, b: 255 },
+        background: { r: 0, g: 0, b: 0 },
+        accent: { r: 255, g: 0, b: 0 },
+        // Pure red #ff0000 has luminance ~0.21 > 0.179 threshold
+        accentForeground: { r: 0, g: 0, b: 0 },
       })
     })
 
@@ -234,10 +355,25 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'custom' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        primaryColor: '#1a1a1a',
-        backgroundColor: '#ffffff',
-        accentColor: '#2563eb',
+        foreground: { r: 26, g: 26, b: 26 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 37, g: 99, b: 235 },
+        accentForeground: { r: 255, g: 255, b: 255 },
       })
+    })
+
+    it('computes accentForeground based on accent luminance', () => {
+      // Light accent (yellow) -> black foreground
+      const lightAccent: Theme = {
+        custom: { accent: '#ffff00' },
+      }
+      expect(toBasicTheme(lightAccent)?.accentForeground).toEqual({ r: 0, g: 0, b: 0 })
+
+      // Dark accent (dark blue) -> white foreground
+      const darkAccent: Theme = {
+        custom: { accent: '#000080' },
+      }
+      expect(toBasicTheme(darkAccent)?.accentForeground).toEqual({ r: 255, g: 255, b: 255 })
     })
   })
 

@@ -13,7 +13,7 @@ import {
 import { ImageMetadataEditor } from '@/components/ImageMetadataEditor'
 import { MarkdownToolbar, useToolbarCollapsed } from '@/components/MarkdownToolbar'
 import { extractCidFromBlobref } from '@/lib/image-labels'
-import { getPdsEndpoint, getPublication, savePublication, saveSiteStandardDocument, extractPlaintext } from '@/lib/atproto'
+import { getPdsEndpoint, getPublication, savePublication, saveSiteStandardDocument, getSiteStandardPublication, saveSiteStandardPublication, toBasicTheme, extractPlaintext } from '@/lib/atproto'
 import {
   THEME_PRESETS,
   THEME_LABELS,
@@ -689,8 +689,28 @@ export function EditorPage() {
       // Dual-publish to site.standard.document if enabled for this post (public posts only)
       if (!isWhiteWind && publishToSiteStandard && resultRkey && visibilityToUse === 'public') {
         try {
+          // Get or create site.standard.publication to get the TID-based rkey
+          let pubRkey: string | undefined
+          const existingStdPub = await getSiteStandardPublication(session.did)
+
+          if (existingStdPub?.rkey) {
+            pubRkey = existingStdPub.rkey
+          } else {
+            // Create site.standard.publication and get its rkey
+            const existingPub = await getPublication(session.did)
+            pubRkey = await saveSiteStandardPublication(session, {
+              url: existingPub?.url || 'https://greengale.app',
+              name: existingPub?.name || handle || 'My Blog',
+              description: existingPub?.description,
+              basicTheme: existingPub?.theme ? toBasicTheme(existingPub.theme) : undefined,
+              preferences: {
+                greengale: { theme: existingPub?.theme },
+              },
+            })
+          }
+
           const greengaleUri = `at://${session.did}/app.greengale.document/${resultRkey}`
-          const siteStandardPublicationUri = `at://${session.did}/site.standard.publication/self`
+          const siteStandardPublicationUri = `at://${session.did}/site.standard.publication/${pubRkey}`
 
           await saveSiteStandardDocument(
             session,

@@ -749,11 +749,18 @@ export class FirehoseConsumer extends DurableObject<Env> {
       if (themeSource) {
         const themeData = themeSource as Record<string, unknown>
         if (isSiteStandard) {
-          // site.standard basicTheme has primaryColor, backgroundColor, accentColor
+          // site.standard.theme.basic uses RGB objects: foreground, background, accent, accentForeground
+          // Each color is { r: number, g: number, b: number }
+          const rgbToHex = (rgb: unknown): string | undefined => {
+            if (!rgb || typeof rgb !== 'object') return undefined
+            const { r, g, b } = rgb as { r?: number; g?: number; b?: number }
+            if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') return undefined
+            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+          }
           themePreset = JSON.stringify({
-            background: themeData.backgroundColor,
-            text: themeData.primaryColor,
-            accent: themeData.accentColor,
+            background: rgbToHex(themeData.background),
+            text: rgbToHex(themeData.foreground),
+            accent: rgbToHex(themeData.accent),
           })
         } else if (themeData.custom) {
           themePreset = JSON.stringify(themeData.custom)

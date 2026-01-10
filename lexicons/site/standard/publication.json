@@ -5,7 +5,7 @@
     "main": {
       "type": "record",
       "description": "A publication record for cross-platform blog discovery and verification.",
-      "key": "self",
+      "key": "tid",
       "record": {
         "type": "object",
         "required": ["url", "name"],
@@ -13,7 +13,7 @@
           "url": {
             "type": "string",
             "format": "uri",
-            "description": "Required base publication URL (e.g., https://standard.site)"
+            "description": "Required base publication URL (e.g., https://standard.site). The canonical document URL is formed by combining this value with the document path."
           },
           "name": {
             "type": "string",
@@ -35,31 +35,25 @@
           },
           "basicTheme": {
             "type": "ref",
-            "ref": "#basicTheme",
-            "description": "Optional simplified publication theme for tools and apps"
+            "ref": "site.standard.theme.basic",
+            "description": "Optional simplified publication theme for tools and apps to utilize when displaying content"
           },
           "preferences": {
-            "type": "unknown",
+            "type": "ref",
+            "ref": "#preferences",
             "description": "Optional object containing platform-specific preferences"
           }
         }
       }
     },
-    "basicTheme": {
+    "preferences": {
       "type": "object",
-      "description": "Simplified theme for display in tools and apps",
+      "description": "Platform-specific preferences for the publication, including discovery and visibility settings.",
       "properties": {
-        "primaryColor": {
-          "type": "string",
-          "description": "Primary/text color"
-        },
-        "backgroundColor": {
-          "type": "string",
-          "description": "Background color"
-        },
-        "accentColor": {
-          "type": "string",
-          "description": "Accent/link color"
+        "showInDiscover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Boolean which decides whether the publication should appear in discovery feeds"
         }
       }
     }

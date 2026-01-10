@@ -126,33 +126,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // Handle .well-known/site.standard.publication endpoint
   // This returns the AT-URI of a publication record
-  // Without ?handle param: returns GreenGale's platform publication
-  // With ?handle=user.bsky.social: proxies to worker for per-user lookup
+  // Proxies to worker which looks up the actual TID-based rkey from PDS
   // See: https://standard.site
   if (url.pathname === '/.well-known/site.standard.publication') {
+    // Proxy all requests to worker (handles both platform and per-user lookups)
+    // Worker fetches the actual publication rkey from PDS since site.standard uses TIDs, not 'self'
     const handle = url.searchParams.get('handle')
-    if (handle) {
-      // Proxy to worker for per-user lookup (worker has D1 access)
-      const workerUrl = `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
-      const workerResponse = await fetch(workerUrl)
-      return new Response(await workerResponse.text(), {
-        status: workerResponse.status,
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
-        },
-      })
-    }
-    // No handle - return platform publication
-    return new Response(
-      `at://${GREENGALE_PLATFORM_DID}/site.standard.publication/self`,
-      {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'public, max-age=86400',
-        },
-      }
-    )
+    const workerUrl = handle
+      ? `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
+      : 'https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication'
+    const workerResponse = await fetch(workerUrl)
+    return new Response(await workerResponse.text(), {
+      status: workerResponse.status,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
   }
 
   // Legacy endpoint for app.greengale.publication

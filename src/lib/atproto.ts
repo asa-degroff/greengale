@@ -8,6 +8,35 @@ function isValidDid(did: string): boolean {
   return did.startsWith('did:plc:') || did.startsWith('did:web:')
 }
 
+// TID (Timestamp Identifier) generation for AT Protocol records
+// TID format: 13 base32-sortable characters encoding microsecond timestamp + clock ID
+const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz'
+
+/**
+ * Generate a TID (Timestamp Identifier) for AT Protocol records
+ * Format: 13 characters of base32-sortable encoding
+ * - First 11 chars: microsecond timestamp
+ * - Last 2 chars: clock ID (random)
+ */
+export function generateTid(): string {
+  // Get current time in microseconds (use performance.now for sub-millisecond precision)
+  const now = Date.now() * 1000
+  let tid = ''
+
+  // Encode timestamp (53 bits) into 11 base32 characters
+  let timestamp = now
+  for (let i = 0; i < 11; i++) {
+    tid = S32_CHAR[timestamp & 0x1f] + tid
+    timestamp = Math.floor(timestamp / 32)
+  }
+
+  // Add 2 random characters for clock ID
+  tid += S32_CHAR[Math.floor(Math.random() * 32)]
+  tid += S32_CHAR[Math.floor(Math.random() * 32)]
+
+  return tid
+}
+
 // WhiteWind lexicon namespace
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 // GreenGale V1 lexicon namespace
@@ -109,23 +138,36 @@ export interface Publication {
   enableSiteStandard?: boolean
 }
 
+// site.standard.theme.basic color format (RGB integers 0-255)
+export interface SiteStandardColor {
+  r: number
+  g: number
+  b: number
+}
+
+// site.standard.theme.basic schema
+export interface SiteStandardBasicTheme {
+  foreground?: SiteStandardColor
+  background?: SiteStandardColor
+  accent?: SiteStandardColor
+  accentForeground?: SiteStandardColor
+}
+
 // site.standard.publication record structure
 export interface SiteStandardPublication {
   url: string
   name: string
   description?: string
   icon?: unknown // BlobRef
-  basicTheme?: {
-    primaryColor?: string
-    backgroundColor?: string
-    accentColor?: string
-  }
+  basicTheme?: SiteStandardBasicTheme
   preferences?: unknown
+  // Internal: the rkey used for this publication (TID format)
+  rkey?: string
 }
 
 // site.standard.document record structure
 export interface SiteStandardDocument {
-  site: string // AT-URI of publication: at://did/site.standard.publication/self
+  site: string // AT-URI of publication: at://did/site.standard.publication/{tid}
   path?: string
   title: string
   description?: string
@@ -605,36 +647,137 @@ export async function savePublication(
 }
 
 /**
- * Convert GreenGale theme to site.standard basicTheme format
+ * Convert hex color string to RGB object
+ * Returns undefined if the hex string is invalid
  */
-export function toBasicTheme(theme?: Theme): SiteStandardPublication['basicTheme'] | undefined {
+export function hexToRgb(hex: string | undefined): SiteStandardColor | undefined {
+  if (!hex) return undefined
+
+  // Remove # prefix if present
+  const cleanHex = hex.replace(/^#/, '')
+
+  // Support both 3-char and 6-char hex
+  let r: number, g: number, b: number
+  if (cleanHex.length === 3) {
+    r = parseInt(cleanHex[0] + cleanHex[0], 16)
+    g = parseInt(cleanHex[1] + cleanHex[1], 16)
+    b = parseInt(cleanHex[2] + cleanHex[2], 16)
+  } else if (cleanHex.length === 6) {
+    r = parseInt(cleanHex.slice(0, 2), 16)
+    g = parseInt(cleanHex.slice(2, 4), 16)
+    b = parseInt(cleanHex.slice(4, 6), 16)
+  } else {
+    return undefined
+  }
+
+  // Validate parsed values
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return undefined
+
+  return { r, g, b }
+}
+
+/**
+ * Compute luminance of a color (0-1 range)
+ * Used to determine if text should be light or dark on a given background
+ */
+function getLuminance(color: SiteStandardColor): number {
+  const { r, g, b } = color
+  // Convert to 0-1 range and apply sRGB transfer function
+  const toLinear = (c: number) => {
+    const s = c / 255
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  }
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
+}
+
+/**
+ * Compute a contrasting foreground color for text on an accent background
+ * Uses the theme's foreground or background color for cohesion,
+ * choosing whichever provides better contrast with the accent
+ */
+export function computeAccentForeground(
+  accent: SiteStandardColor,
+  foreground?: SiteStandardColor,
+  background?: SiteStandardColor
+): SiteStandardColor {
+  const accentLuminance = getLuminance(accent)
+
+  // Calculate contrast ratios with foreground and background
+  // Using simplified contrast check based on luminance difference
+  const fgLuminance = foreground ? getLuminance(foreground) : 0
+  const bgLuminance = background ? getLuminance(background) : 1
+
+  // Calculate contrast ratios (WCAG formula simplified)
+  const fgContrast = foreground
+    ? (Math.max(accentLuminance, fgLuminance) + 0.05) /
+      (Math.min(accentLuminance, fgLuminance) + 0.05)
+    : 0
+  const bgContrast = background
+    ? (Math.max(accentLuminance, bgLuminance) + 0.05) /
+      (Math.min(accentLuminance, bgLuminance) + 0.05)
+    : 0
+
+  // Use whichever color provides better contrast
+  // Require at least 3:1 contrast ratio for large text (WCAG AA)
+  if (fgContrast >= bgContrast && fgContrast >= 3 && foreground) {
+    return foreground
+  }
+  if (bgContrast >= 3 && background) {
+    return background
+  }
+
+  // Fallback to pure black/white if theme colors don't provide sufficient contrast
+  return accentLuminance > 0.179
+    ? { r: 0, g: 0, b: 0 }
+    : { r: 255, g: 255, b: 255 }
+}
+
+/**
+ * Convert GreenGale theme to site.standard basicTheme format
+ * Uses RGB objects as per site.standard.theme.basic schema
+ */
+export function toBasicTheme(theme?: Theme): SiteStandardBasicTheme | undefined {
   if (!theme) return undefined
 
+  // Map presets to hex colors (approximate values)
+  const presetColors: Record<string, { foreground: string; background: string; accent: string }> = {
+    default: { foreground: '#1a1a1a', background: '#ffffff', accent: '#2563eb' },
+    'github-light': { foreground: '#24292f', background: '#ffffff', accent: '#0969da' },
+    'github-dark': { foreground: '#e6edf3', background: '#0d1117', accent: '#58a6ff' },
+    dracula: { foreground: '#f8f8f2', background: '#282a36', accent: '#bd93f9' },
+    nord: { foreground: '#eceff4', background: '#2e3440', accent: '#88c0d0' },
+    'solarized-light': { foreground: '#657b83', background: '#fdf6e3', accent: '#268bd2' },
+    'solarized-dark': { foreground: '#839496', background: '#002b36', accent: '#268bd2' },
+    monokai: { foreground: '#f8f8f2', background: '#272822', accent: '#a6e22e' },
+  }
+
+  let foregroundHex: string | undefined
+  let backgroundHex: string | undefined
+  let accentHex: string | undefined
+
   if (theme.custom) {
-    return {
-      primaryColor: theme.custom.text,
-      backgroundColor: theme.custom.background,
-      accentColor: theme.custom.accent,
-    }
+    foregroundHex = theme.custom.text
+    backgroundHex = theme.custom.background
+    accentHex = theme.custom.accent
+  } else {
+    const colors = presetColors[theme.preset || 'default'] || presetColors.default
+    foregroundHex = colors.foreground
+    backgroundHex = colors.background
+    accentHex = colors.accent
   }
 
-  // Map presets to basic colors (approximate values)
-  const presetColors: Record<string, { primary: string; background: string; accent: string }> = {
-    default: { primary: '#1a1a1a', background: '#ffffff', accent: '#2563eb' },
-    'github-light': { primary: '#24292f', background: '#ffffff', accent: '#0969da' },
-    'github-dark': { primary: '#e6edf3', background: '#0d1117', accent: '#58a6ff' },
-    dracula: { primary: '#f8f8f2', background: '#282a36', accent: '#bd93f9' },
-    nord: { primary: '#eceff4', background: '#2e3440', accent: '#88c0d0' },
-    'solarized-light': { primary: '#657b83', background: '#fdf6e3', accent: '#268bd2' },
-    'solarized-dark': { primary: '#839496', background: '#002b36', accent: '#268bd2' },
-    monokai: { primary: '#f8f8f2', background: '#272822', accent: '#a6e22e' },
-  }
+  const foreground = hexToRgb(foregroundHex)
+  const background = hexToRgb(backgroundHex)
+  const accent = hexToRgb(accentHex)
+  const accentForeground = accent
+    ? computeAccentForeground(accent, foreground, background)
+    : undefined
 
-  const colors = presetColors[theme.preset || 'default'] || presetColors.default
   return {
-    primaryColor: colors.primary,
-    backgroundColor: colors.background,
-    accentColor: colors.accent,
+    foreground,
+    background,
+    accent,
+    accentForeground,
   }
 }
 
@@ -657,28 +800,96 @@ export function extractPlaintext(markdown: string): string {
 }
 
 /**
+ * Check if an rkey is a valid TID format (13 base32-sortable characters)
+ */
+function isValidTid(rkey: string): boolean {
+  if (rkey.length !== 13) return false
+  // TID uses base32-sortable: 234567abcdefghijklmnopqrstuvwxyz
+  return /^[234567a-z]{13}$/.test(rkey)
+}
+
+/**
+ * Check if a site.standard.publication record belongs to GreenGale
+ * by looking for preferences.greengale in the record
+ */
+function isGreenGalePublication(record: Record<string, unknown>): boolean {
+  const preferences = record.preferences as Record<string, unknown> | undefined
+  return preferences?.greengale !== undefined
+}
+
+/**
  * Save site.standard.publication record (dual-publish)
+ * Uses TID-based keys as required by site.standard schema
+ * Only manages GreenGale's own records (identified by preferences.greengale)
+ * Returns the rkey used (for building AT-URIs)
  */
 export async function saveSiteStandardPublication(
   session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> },
   publication: SiteStandardPublication
-): Promise<void> {
+): Promise<string> {
+  // If rkey provided and valid TID, use it
+  let rkey = publication.rkey && isValidTid(publication.rkey) ? publication.rkey : undefined
+  let oldInvalidRkey: string | undefined
+
+  if (!rkey) {
+    // Try to find existing GreenGale publication to get its rkey
+    const listResponse = await session.fetchHandler(
+      `/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`,
+      { method: 'GET' }
+    )
+
+    if (listResponse.ok) {
+      const listData = await listResponse.json() as { records?: Array<{ uri: string; value: Record<string, unknown> }> }
+      if (listData.records && listData.records.length > 0) {
+        // Look for a GreenGale record (has preferences.greengale)
+        for (const item of listData.records) {
+          // Only consider records that belong to GreenGale
+          if (!isGreenGalePublication(item.value)) {
+            continue
+          }
+
+          const existingRkey = item.uri.split('/').pop() || ''
+          if (isValidTid(existingRkey)) {
+            // Found a GreenGale record with valid TID
+            rkey = existingRkey
+            break
+          } else {
+            // Found a GreenGale record with invalid rkey (like 'self'), mark for deletion
+            oldInvalidRkey = existingRkey
+          }
+        }
+      }
+    }
+
+    // If no valid GreenGale record found, generate new TID
+    if (!rkey) {
+      rkey = generateTid()
+    }
+  }
+
+  // Ensure preferences.greengale is set to identify this as a GreenGale record
+  const preferences = (publication.preferences || {}) as Record<string, unknown>
+  if (!preferences.greengale) {
+    preferences.greengale = {}
+  }
+
   const record = {
     $type: SITE_STANDARD_PUBLICATION,
     url: publication.url,
     name: publication.name,
     description: publication.description || undefined,
     basicTheme: publication.basicTheme || undefined,
-    preferences: publication.preferences || undefined,
+    preferences,
   }
 
+  // Save with valid TID rkey
   const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       repo: session.did,
       collection: SITE_STANDARD_PUBLICATION,
-      rkey: 'self',
+      rkey,
       record,
     }),
   })
@@ -687,6 +898,25 @@ export async function saveSiteStandardPublication(
     const errorData = await response.json()
     throw new Error(errorData.message || 'Failed to save site.standard.publication')
   }
+
+  // Clean up old invalid GreenGale record (like 'self') after successful save
+  if (oldInvalidRkey && oldInvalidRkey !== rkey) {
+    try {
+      await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: SITE_STANDARD_PUBLICATION,
+          rkey: oldInvalidRkey,
+        }),
+      })
+    } catch {
+      // Ignore deletion errors - the new record was saved successfully
+    }
+  }
+
+  return rkey
 }
 
 /**
@@ -729,7 +959,9 @@ export async function saveSiteStandardDocument(
 }
 
 /**
- * Get a user's site.standard.publication from their PDS
+ * Get a user's GreenGale site.standard.publication from their PDS
+ * Only returns records that belong to GreenGale (have preferences.greengale)
+ * and have a valid TID rkey
  */
 export async function getSiteStandardPublication(
   identifier: string
@@ -738,21 +970,49 @@ export async function getSiteStandardPublication(
   const pdsEndpoint = await getPdsEndpoint(did)
   const agent = new AtpAgent({ service: pdsEndpoint })
 
+  // Check if rkey is a valid TID (13 base32-sortable characters)
+  const isValidTidRkey = (rkey: string): boolean => {
+    if (rkey.length !== 13) return false
+    return /^[234567a-z]{13}$/.test(rkey)
+  }
+
   try {
-    const response = await agent.com.atproto.repo.getRecord({
+    // List records to find GreenGale's publication
+    const response = await agent.com.atproto.repo.listRecords({
       repo: did,
       collection: SITE_STANDARD_PUBLICATION,
-      rkey: 'self',
+      limit: 50,
     })
 
-    const record = response.data.value as Record<string, unknown>
-    return {
-      url: (record.url as string) || '',
-      name: (record.name as string) || '',
-      description: record.description as string | undefined,
-      basicTheme: record.basicTheme as SiteStandardPublication['basicTheme'],
-      preferences: record.preferences,
+    if (response.data.records.length === 0) {
+      return null
     }
+
+    // Find a GreenGale record with a valid TID rkey
+    for (const item of response.data.records) {
+      const record = item.value as Record<string, unknown>
+
+      // Only consider records that belong to GreenGale
+      const preferences = record.preferences as Record<string, unknown> | undefined
+      if (!preferences?.greengale) {
+        continue
+      }
+
+      const rkey = item.uri.split('/').pop() || ''
+      if (isValidTidRkey(rkey)) {
+        return {
+          url: (record.url as string) || '',
+          name: (record.name as string) || '',
+          description: record.description as string | undefined,
+          basicTheme: record.basicTheme as SiteStandardPublication['basicTheme'],
+          preferences: record.preferences,
+          rkey,
+        }
+      }
+    }
+
+    // No valid GreenGale publication found
+    return null
   } catch {
     return null
   }
