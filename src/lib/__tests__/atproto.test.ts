@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { slugify, toBasicTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries } from '../atproto'
+import { slugify, toBasicTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme } from '../atproto'
 import type { BlogEntry, SiteStandardColor } from '../atproto'
 import type { Theme } from '../themes'
 
@@ -933,6 +933,138 @@ Third.`
       const result = deduplicateBlogEntries([networkEntry, fullEntry])
       expect(result).toHaveLength(1)
       expect(result[0]).toEqual(fullEntry)
+    })
+  })
+
+  describe('hasOldBasicThemeFormat', () => {
+    it('returns false for null/undefined', () => {
+      expect(hasOldBasicThemeFormat(null)).toBe(false)
+      expect(hasOldBasicThemeFormat(undefined)).toBe(false)
+    })
+
+    it('returns false for non-objects', () => {
+      expect(hasOldBasicThemeFormat('string')).toBe(false)
+      expect(hasOldBasicThemeFormat(123)).toBe(false)
+      expect(hasOldBasicThemeFormat(true)).toBe(false)
+    })
+
+    it('returns true for old property names (hex strings)', () => {
+      expect(hasOldBasicThemeFormat({ primaryColor: '#ff0000' })).toBe(true)
+      expect(hasOldBasicThemeFormat({ backgroundColor: '#ffffff' })).toBe(true)
+      expect(hasOldBasicThemeFormat({ accentColor: '#0000ff' })).toBe(true)
+      expect(hasOldBasicThemeFormat({
+        primaryColor: '#000000',
+        backgroundColor: '#ffffff',
+        accentColor: '#0066cc',
+      })).toBe(true)
+    })
+
+    it('returns true for new property names as hex strings', () => {
+      expect(hasOldBasicThemeFormat({ foreground: '#000000' })).toBe(true)
+      expect(hasOldBasicThemeFormat({ background: '#ffffff' })).toBe(true)
+      expect(hasOldBasicThemeFormat({ accent: '#0066cc' })).toBe(true)
+    })
+
+    it('returns false for new format with RGB objects', () => {
+      expect(hasOldBasicThemeFormat({
+        foreground: { r: 0, g: 0, b: 0 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 0, g: 102, b: 204 },
+        accentForeground: { r: 255, g: 255, b: 255 },
+      })).toBe(false)
+    })
+
+    it('returns false for empty object', () => {
+      expect(hasOldBasicThemeFormat({})).toBe(false)
+    })
+
+    it('returns false for partial new format', () => {
+      expect(hasOldBasicThemeFormat({
+        foreground: { r: 0, g: 0, b: 0 },
+      })).toBe(false)
+    })
+  })
+
+  describe('convertOldBasicTheme', () => {
+    it('returns undefined for null/undefined', () => {
+      expect(convertOldBasicTheme(null)).toBeUndefined()
+      expect(convertOldBasicTheme(undefined)).toBeUndefined()
+    })
+
+    it('returns undefined for non-objects', () => {
+      expect(convertOldBasicTheme('string')).toBeUndefined()
+      expect(convertOldBasicTheme(123)).toBeUndefined()
+    })
+
+    it('converts old property names to new RGB format', () => {
+      const result = convertOldBasicTheme({
+        primaryColor: '#000000',
+        backgroundColor: '#ffffff',
+        accentColor: '#0066cc',
+      })
+
+      expect(result).toEqual({
+        foreground: { r: 0, g: 0, b: 0 },
+        background: { r: 255, g: 255, b: 255 },
+        accent: { r: 0, g: 102, b: 204 },
+        accentForeground: { r: 255, g: 255, b: 255 }, // White bg provides contrast with dark blue accent
+      })
+    })
+
+    it('converts new property names with hex strings to RGB', () => {
+      const result = convertOldBasicTheme({
+        foreground: '#1a1a1a',
+        background: '#f5f5f5',
+        accent: '#ff0000',
+      })
+
+      expect(result).toEqual({
+        foreground: { r: 26, g: 26, b: 26 },
+        background: { r: 245, g: 245, b: 245 },
+        accent: { r: 255, g: 0, b: 0 },
+        accentForeground: { r: 26, g: 26, b: 26 }, // Uses dark foreground for light red accent
+      })
+    })
+
+    it('handles partial old format', () => {
+      const result = convertOldBasicTheme({
+        primaryColor: '#333333',
+      })
+
+      expect(result?.foreground).toEqual({ r: 51, g: 51, b: 51 })
+      expect(result?.background).toBeUndefined()
+      expect(result?.accent).toBeUndefined()
+    })
+
+    it('preserves already valid RGB format', () => {
+      const validTheme = {
+        foreground: { r: 0, g: 0, b: 0 },
+        background: { r: 255, g: 255, b: 255 },
+      }
+      const result = convertOldBasicTheme(validTheme)
+      expect(result).toEqual(validTheme)
+    })
+
+    it('returns undefined for empty object', () => {
+      expect(convertOldBasicTheme({})).toBeUndefined()
+    })
+
+    it('computes accentForeground using theme colors for contrast', () => {
+      // Dark theme with light accent - should use dark background for accentForeground
+      const darkTheme = convertOldBasicTheme({
+        primaryColor: '#ffffff',
+        backgroundColor: '#1a1a1a',
+        accentColor: '#88c0d0', // Light blue
+      })
+      expect(darkTheme?.accentForeground).toEqual({ r: 26, g: 26, b: 26 }) // Dark background
+
+      // Light theme with dark accent - should use light background for accentForeground
+      const lightTheme = convertOldBasicTheme({
+        primaryColor: '#1a1a1a',
+        backgroundColor: '#ffffff',
+        accentColor: '#002b36', // Dark teal
+      })
+      expect(lightTheme?.accentForeground).toEqual({ r: 255, g: 255, b: 255 }) // Light background
     })
   })
 })

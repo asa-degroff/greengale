@@ -1017,3 +1017,239 @@ export async function getSiteStandardPublication(
     return null
   }
 }
+
+/**
+ * Check if a basicTheme uses the old format (hex strings or old property names)
+ * Old format: { primaryColor: '#hex', backgroundColor: '#hex', accentColor: '#hex' }
+ * New format: { foreground: {r,g,b}, background: {r,g,b}, accent: {r,g,b}, accentForeground: {r,g,b} }
+ */
+export function hasOldBasicThemeFormat(
+  theme: unknown
+): theme is { primaryColor?: string; backgroundColor?: string; accentColor?: string } {
+  if (!theme || typeof theme !== 'object') return false
+
+  const t = theme as Record<string, unknown>
+
+  // Check for old property names (hex strings)
+  if (
+    typeof t.primaryColor === 'string' ||
+    typeof t.backgroundColor === 'string' ||
+    typeof t.accentColor === 'string'
+  ) {
+    return true
+  }
+
+  // Check if new property names exist but are hex strings instead of RGB objects
+  if (
+    typeof t.foreground === 'string' ||
+    typeof t.background === 'string' ||
+    typeof t.accent === 'string'
+  ) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Convert old basicTheme format to new RGB format
+ */
+export function convertOldBasicTheme(
+  oldTheme: unknown
+): SiteStandardBasicTheme | undefined {
+  if (!oldTheme || typeof oldTheme !== 'object') return undefined
+
+  const t = oldTheme as Record<string, unknown>
+
+  // Handle old property names: primaryColor -> foreground, backgroundColor -> background, accentColor -> accent
+  let foregroundHex: string | undefined
+  let backgroundHex: string | undefined
+  let accentHex: string | undefined
+
+  if (typeof t.primaryColor === 'string') {
+    foregroundHex = t.primaryColor
+  } else if (typeof t.foreground === 'string') {
+    foregroundHex = t.foreground
+  }
+
+  if (typeof t.backgroundColor === 'string') {
+    backgroundHex = t.backgroundColor
+  } else if (typeof t.background === 'string') {
+    backgroundHex = t.background
+  }
+
+  if (typeof t.accentColor === 'string') {
+    accentHex = t.accentColor
+  } else if (typeof t.accent === 'string') {
+    accentHex = t.accent
+  }
+
+  // If already in RGB format, return as-is (shouldn't happen but be defensive)
+  if (!foregroundHex && !backgroundHex && !accentHex) {
+    // Check if it's already valid RGB format
+    if (
+      (t.foreground && typeof (t.foreground as Record<string, unknown>).r === 'number') ||
+      (t.background && typeof (t.background as Record<string, unknown>).r === 'number')
+    ) {
+      return oldTheme as SiteStandardBasicTheme
+    }
+    return undefined
+  }
+
+  // Convert hex strings to RGB objects
+  const foreground = hexToRgb(foregroundHex)
+  const background = hexToRgb(backgroundHex)
+  const accent = hexToRgb(accentHex)
+  const accentForeground = accent
+    ? computeAccentForeground(accent, foreground, background)
+    : undefined
+
+  return {
+    foreground,
+    background,
+    accent,
+    accentForeground,
+  }
+}
+
+/**
+ * Migrate old site.standard.publication records to new format
+ * Should be called after user login to ensure records are up-to-date
+ *
+ * Migration tasks:
+ * 1. Convert 'self' rkey to proper TID
+ * 2. Convert old basicTheme format (hex strings) to new RGB format
+ * 3. Add preferences.greengale identifier
+ */
+export async function migrateSiteStandardPublication(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> }
+): Promise<{ migrated: boolean; error?: string }> {
+  // Check if rkey is a valid TID (13 base32-sortable characters)
+  const isValidTidRkey = (rkey: string): boolean => {
+    if (rkey.length !== 13) return false
+    return /^[234567a-z]{13}$/.test(rkey)
+  }
+
+  try {
+    // List all site.standard.publication records
+    const listResponse = await session.fetchHandler(
+      `/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`,
+      { method: 'GET' }
+    )
+
+    if (!listResponse.ok) {
+      return { migrated: false }
+    }
+
+    const listData = (await listResponse.json()) as {
+      records?: Array<{ uri: string; value: Record<string, unknown> }>
+    }
+
+    if (!listData.records || listData.records.length === 0) {
+      return { migrated: false }
+    }
+
+    let migratedCount = 0
+
+    for (const item of listData.records) {
+      const record = item.value
+      const rkey = item.uri.split('/').pop() || ''
+
+      // Check if this is a GreenGale record
+      const preferences = record.preferences as Record<string, unknown> | undefined
+      const isGreenGaleRecord =
+        preferences?.greengale ||
+        (typeof record.url === 'string' && record.url.includes('greengale.app'))
+
+      if (!isGreenGaleRecord) continue
+
+      // Check if migration is needed
+      const needsMigration =
+        rkey === 'self' ||
+        !isValidTidRkey(rkey) ||
+        hasOldBasicThemeFormat(record.basicTheme) ||
+        !preferences?.greengale
+
+      if (!needsMigration) continue
+
+      console.log(`[Migration] Migrating site.standard.publication record: ${rkey}`)
+
+      // Build the new record
+      const newBasicTheme = hasOldBasicThemeFormat(record.basicTheme)
+        ? convertOldBasicTheme(record.basicTheme)
+        : record.basicTheme
+
+      const newRecord = {
+        $type: SITE_STANDARD_PUBLICATION,
+        url: record.url,
+        name: record.name,
+        description: record.description,
+        basicTheme: newBasicTheme,
+        preferences: {
+          ...(preferences || {}),
+          greengale: preferences?.greengale || { migrated: true, migratedAt: new Date().toISOString() },
+        },
+      }
+
+      // Generate new TID for the record
+      const newRkey = generateTid()
+
+      // Create new record with TID rkey
+      const putResponse = await session.fetchHandler(
+        `/xrpc/com.atproto.repo.putRecord`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo: session.did,
+            collection: SITE_STANDARD_PUBLICATION,
+            rkey: newRkey,
+            record: newRecord,
+          }),
+        }
+      )
+
+      if (!putResponse.ok) {
+        const errorText = await putResponse.text()
+        console.warn(`[Migration] Failed to create new record: ${errorText}`)
+        continue
+      }
+
+      // Delete the old record if it had a different rkey
+      if (rkey !== newRkey) {
+        try {
+          const deleteResponse = await session.fetchHandler(
+            `/xrpc/com.atproto.repo.deleteRecord`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                repo: session.did,
+                collection: SITE_STANDARD_PUBLICATION,
+                rkey: rkey,
+              }),
+            }
+          )
+
+          if (deleteResponse.ok) {
+            console.log(`[Migration] Deleted old record with rkey: ${rkey}`)
+          } else {
+            console.warn(`[Migration] Failed to delete old record: ${rkey}`)
+          }
+        } catch (deleteError) {
+          console.warn(`[Migration] Failed to delete old record: ${rkey}`, deleteError)
+          // Continue anyway - the new record was created successfully
+        }
+      }
+
+      migratedCount++
+      console.log(`[Migration] Successfully migrated to new rkey: ${newRkey}`)
+    }
+
+    return { migrated: migratedCount > 0 }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[Migration] Failed to migrate site.standard.publication:', message)
+    return { migrated: false, error: message }
+  }
+}

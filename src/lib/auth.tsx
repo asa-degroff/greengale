@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
+import { migrateSiteStandardPublication } from './atproto'
 
 // Minimal OAuth scopes: blog entry collections + V2 document collection + publication + site.standard + blob uploads
 const OAUTH_SCOPE =
@@ -114,6 +115,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log('[Auth] Resolving handle...')
           const resolvedHandle = await resolveHandleFromDid(did)
           console.log('[Auth] Handle resolved:', resolvedHandle)
+
+          // Run migration for site.standard.publication records
+          // Uses localStorage to track completion per user
+          const migrationKey = `site-standard-migrated-v1-${did}`
+          if (!localStorage.getItem(migrationKey)) {
+            console.log('[Auth] Running site.standard.publication migration...')
+            try {
+              const migrationResult = await migrateSiteStandardPublication(result.session)
+              if (migrationResult.migrated) {
+                console.log('[Auth] Migration completed successfully')
+              } else if (migrationResult.error) {
+                console.warn('[Auth] Migration failed:', migrationResult.error)
+              } else {
+                console.log('[Auth] No migration needed')
+              }
+              // Mark as complete even if no migration was needed
+              localStorage.setItem(migrationKey, new Date().toISOString())
+            } catch (migrationError) {
+              console.error('[Auth] Migration error:', migrationError)
+              // Don't block auth if migration fails - it will retry next login
+            }
+          }
 
           console.log('[Auth] Setting authenticated state')
           setState({
