@@ -641,7 +641,7 @@ export async function savePublication(
     throw new Error(errorData.message || 'Failed to save publication')
   }
 
-  // Dual-publish to site.standard.publication if enabled
+  // Dual-publish to site.standard.publication if enabled, otherwise delete
   if (publication.enableSiteStandard) {
     try {
       await saveSiteStandardPublication(session, {
@@ -657,6 +657,14 @@ export async function savePublication(
     } catch (err) {
       // Don't fail the main save if site.standard fails
       console.warn('Failed to dual-publish to site.standard.publication:', err)
+    }
+  } else {
+    // Delete GreenGale's site.standard.publication record if it exists
+    try {
+      await deleteSiteStandardPublication(session)
+    } catch (err) {
+      // Don't fail the main save if deletion fails
+      console.warn('Failed to delete site.standard.publication:', err)
     }
   }
 }
@@ -948,6 +956,55 @@ export async function saveSiteStandardPublication(
   }
 
   return rkey
+}
+
+/**
+ * Delete GreenGale's site.standard.publication record
+ * Only deletes records that belong to GreenGale (have preferences.greengale)
+ * Used when user disables site.standard publishing
+ */
+export async function deleteSiteStandardPublication(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> }
+): Promise<void> {
+  // List all site.standard.publication records
+  const listResponse = await session.fetchHandler(
+    `/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`,
+    { method: 'GET' }
+  )
+
+  if (!listResponse.ok) {
+    return // No records to delete
+  }
+
+  const listData = await listResponse.json() as { records?: Array<{ uri: string; value: Record<string, unknown> }> }
+  if (!listData.records || listData.records.length === 0) {
+    return // No records to delete
+  }
+
+  // Find and delete only GreenGale records
+  for (const item of listData.records) {
+    if (!isGreenGalePublication(item.value)) {
+      continue // Skip records from other apps
+    }
+
+    const rkey = item.uri.split('/').pop() || ''
+    if (!rkey) continue
+
+    try {
+      await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: SITE_STANDARD_PUBLICATION,
+          rkey,
+        }),
+      })
+      console.log(`[SiteStandard] Deleted publication record: ${rkey}`)
+    } catch (err) {
+      console.warn(`[SiteStandard] Failed to delete publication record: ${rkey}`, err)
+    }
+  }
 }
 
 /**
