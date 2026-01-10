@@ -12,6 +12,11 @@ import {
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
+import {
+  useDocumentMeta,
+  buildPostCanonical,
+  buildPostOgImage,
+} from '@/lib/useDocumentMeta'
 
 /**
  * Get the effective theme with publication fallback
@@ -43,6 +48,18 @@ export function PostPage() {
   const [error, setError] = useState<string | null>(null)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
   const { addRecentAuthor } = useRecentAuthors()
+
+  // Use the canonical handle from author data, or fall back to URL param
+  const canonicalHandle = author?.handle || handle || ''
+
+  // Set document metadata (title, canonical URL, OG tags)
+  useDocumentMeta({
+    title: entry?.title,
+    canonical: canonicalHandle && rkey ? buildPostCanonical(canonicalHandle, rkey) : undefined,
+    description: entry?.subtitle,
+    ogImage: canonicalHandle && rkey ? buildPostOgImage(canonicalHandle, rkey) : undefined,
+    ogType: 'article',
+  })
 
   useEffect(() => {
     if (!handle || !rkey) return
@@ -94,11 +111,6 @@ export function PostPage() {
           setActivePostTheme(themePreset)
           setActiveCustomColors(null)
         }
-
-        // Update page title
-        if (entryResult.title) {
-          document.title = `${entryResult.title} - GreenGale`
-        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load post')
       } finally {
@@ -109,7 +121,6 @@ export function PostPage() {
     load()
 
     return () => {
-      document.title = 'GreenGale'
       setActivePostTheme(null) // Reset theme when leaving post
       setActiveCustomColors(null)
     }

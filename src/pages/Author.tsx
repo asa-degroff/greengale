@@ -24,6 +24,11 @@ import {
   validateCustomColors,
   correctCustomColorsContrast,
 } from '@/lib/themes'
+import {
+  useDocumentMeta,
+  buildAuthorCanonical,
+  buildAuthorOgImage,
+} from '@/lib/useDocumentMeta'
 
 // Recent palettes storage (shared with Editor)
 const RECENT_PALETTES_KEY = 'recent-custom-palettes'
@@ -106,6 +111,19 @@ export function AuthorPage() {
 
   // Check if current user is the author
   const isOwnProfile = session?.did && author?.did && session.did === author.did
+
+  // Use the canonical handle from author data, or fall back to URL param
+  const canonicalHandle = author?.handle || handle || ''
+
+  // Set document metadata (title, canonical URL, OG tags)
+  useDocumentMeta({
+    title: publication?.name || author?.displayName || canonicalHandle
+      ? `${publication?.name || author?.displayName || canonicalHandle}'s Blog`
+      : undefined,
+    canonical: canonicalHandle ? buildAuthorCanonical(canonicalHandle) : undefined,
+    description: publication?.description || author?.description,
+    ogImage: canonicalHandle ? buildAuthorOgImage(canonicalHandle) : undefined,
+  })
 
   useEffect(() => {
     if (!handle) return

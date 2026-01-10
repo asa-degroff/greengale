@@ -4,6 +4,11 @@ import { TextLogo } from '@/components/TextLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
+import {
+  useDocumentMeta,
+  buildHomeCanonical,
+  buildHomeOgImage,
+} from '@/lib/useDocumentMeta'
 
 type FeedTab = 'greengale' | 'network'
 
@@ -50,6 +55,14 @@ export function HomePage() {
   const [networkCursor, setNetworkCursor] = useState<string | undefined>()
   const [networkLoadCount, setNetworkLoadCount] = useState(1)
   const [networkLoadingMore, setNetworkLoadingMore] = useState(false)
+
+  // Set document metadata (title, canonical URL, OG tags)
+  useDocumentMeta({
+    title: 'GreenGale',
+    canonical: buildHomeCanonical(),
+    description: 'Markdown blog platform powered by your internet handle. WhiteWind support and Standard Site indexing.',
+    ogImage: buildHomeOgImage(),
+  })
 
   useEffect(() => {
     async function loadRecentPosts() {
