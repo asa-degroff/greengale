@@ -7,6 +7,12 @@ interface BlueskyPostProps {
   showReplies?: boolean
   /** Depth in the reply tree (0 = top-level post) */
   depth?: number
+  /**
+   * When > 0, forces this post and its children to be expanded.
+   * Decrements by 1 for each child level.
+   * Used when user expands a collapsed thread to show the full branch.
+   */
+  expandDepthRemaining?: number
   /** Callback when user clicks on post text (for TTS seek) */
   onTextClick?: (text: string) => void
 }
@@ -48,15 +54,25 @@ function countNestedReplies(post: BlueskyPost): number {
   )
 }
 
+/** Max depth to expand when user clicks expand button */
+const EXPAND_DEPTH_LIMIT = 10
+
 export function BlueskyPostCard({
   post,
   isReply = false,
   showReplies = true,
   depth = 0,
+  expandDepthRemaining = 0,
   onTextClick,
 }: BlueskyPostProps) {
-  // Threads at depth >= 2 start collapsed
-  const [isExpanded, setIsExpanded] = useState(depth < 2)
+  // Track if user has manually expanded this post
+  const [userExpanded, setUserExpanded] = useState(false)
+
+  // Post is expanded if:
+  // 1. Depth < 2 (shallow posts always expanded), OR
+  // 2. Parent passed expandDepthRemaining > 0 (cascading expand), OR
+  // 3. User clicked expand on this post
+  const isExpanded = depth < 2 || expandDepthRemaining > 0 || userExpanded
 
   const blueskyUrl = getBlueskyWebUrl(post.uri)
 
@@ -78,6 +94,23 @@ export function BlueskyPostCard({
     ? { paddingLeft: `${Math.min(visualDepth + 1, 5) * 0.75}rem` }
     : undefined
 
+  // Calculate expandDepthRemaining to pass to children
+  // If user just expanded this post, start fresh with EXPAND_DEPTH_LIMIT
+  // Otherwise, decrement what was passed to us
+  const childExpandDepth = userExpanded
+    ? EXPAND_DEPTH_LIMIT - 1
+    : Math.max(0, expandDepthRemaining - 1)
+
+  // Handle expand click - expands this post and all children up to 10 levels
+  const handleExpand = () => {
+    setUserExpanded(true)
+  }
+
+  // Handle collapse click - collapses this post and all its children
+  const handleCollapse = () => {
+    setUserExpanded(false)
+  }
+
   // Collapsed preview: show author name and reply count
   if (isReply && !isExpanded && hasReplies) {
     const totalReplies = countNestedReplies(post)
@@ -87,7 +120,7 @@ export function BlueskyPostCard({
         style={paddingStyle}
       >
         <button
-          onClick={() => setIsExpanded(true)}
+          onClick={handleExpand}
           className="py-2 flex items-center gap-2 text-sm text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] transition-colors group"
         >
           {/* Expand icon */}
@@ -149,7 +182,7 @@ export function BlueskyPostCard({
               {/* Collapse button for expanded deep replies */}
               {isReply && depth >= 2 && isExpanded && (
                 <button
-                  onClick={() => setIsExpanded(false)}
+                  onClick={handleCollapse}
                   className="p-0.5 -ml-1 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-colors"
                   title="Collapse thread"
                 >
@@ -243,6 +276,7 @@ export function BlueskyPostCard({
               isReply={true}
               showReplies={true}
               depth={depth + 1}
+              expandDepthRemaining={childExpandDepth}
               onTextClick={onTextClick}
             />
           ))}

@@ -170,9 +170,9 @@ describe('BlueskyPostCard', () => {
       const expandButton = screen.getByRole('button')
       fireEvent.click(expandButton)
 
-      // Should now have a collapse button (minus icon)
-      const collapseButton = screen.getByTitle('Collapse thread')
-      expect(collapseButton).toBeDefined()
+      // Should now have collapse buttons (one for this post, plus any for expanded children)
+      const collapseButtons = screen.getAllByTitle('Collapse thread')
+      expect(collapseButtons.length).toBeGreaterThan(0)
     })
 
     it('collapses expanded thread when collapse button clicked', () => {
@@ -186,8 +186,9 @@ describe('BlueskyPostCard', () => {
       fireEvent.click(screen.getByRole('button'))
       expect(screen.getByText('Collapsible content')).toBeDefined()
 
-      // Collapse
-      fireEvent.click(screen.getByTitle('Collapse thread'))
+      // Collapse - click the first collapse button (the parent)
+      const collapseButtons = screen.getAllByTitle('Collapse thread')
+      fireEvent.click(collapseButtons[0])
       expect(screen.queryByText('Collapsible content')).toBeNull()
     })
 
@@ -200,6 +201,40 @@ describe('BlueskyPostCard', () => {
 
       // Should show full post even at deep depth since no replies to collapse
       expect(screen.getByText('Leaf node reply')).toBeDefined()
+    })
+
+    it('expands entire thread branch up to 10 levels when clicked', () => {
+      // Create a deep nested structure
+      const post = createMockPost({
+        text: 'Root collapsed post',
+        replies: [createMockPost({
+          text: 'Level 1 reply',
+          uri: 'at://did:plc:l1/app.bsky.feed.post/l1',
+          replies: [createMockPost({
+            text: 'Level 2 reply',
+            uri: 'at://did:plc:l2/app.bsky.feed.post/l2',
+            replies: [createMockPost({
+              text: 'Level 3 reply',
+              uri: 'at://did:plc:l3/app.bsky.feed.post/l3',
+              replies: []
+            })]
+          })]
+        })]
+      })
+      render(<BlueskyPostCard post={post} isReply={true} depth={2} />)
+
+      // Initially collapsed - only shows collapsed preview
+      expect(screen.queryByText('Root collapsed post')).toBeNull()
+      expect(screen.queryByText('Level 1 reply')).toBeNull()
+
+      // Click expand
+      fireEvent.click(screen.getByRole('button'))
+
+      // All levels should now be visible (cascading expand)
+      expect(screen.getByText('Root collapsed post')).toBeDefined()
+      expect(screen.getByText('Level 1 reply')).toBeDefined()
+      expect(screen.getByText('Level 2 reply')).toBeDefined()
+      expect(screen.getByText('Level 3 reply')).toBeDefined()
     })
   })
 
