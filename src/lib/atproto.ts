@@ -138,8 +138,10 @@ export interface Publication {
   enableSiteStandard?: boolean
 }
 
-// site.standard.theme.basic color format (RGB integers 0-255)
+// app.greengale.theme.color#rgb format (RGB integers 0-255)
+// Uses GreenGale namespace for colors while basicTheme uses site.standard.theme.basic
 export interface SiteStandardColor {
+  $type?: 'app.greengale.theme.color#rgb'
   r: number
   g: number
   b: number
@@ -147,10 +149,23 @@ export interface SiteStandardColor {
 
 // site.standard.theme.basic schema
 export interface SiteStandardBasicTheme {
+  $type?: 'site.standard.theme.basic'
   foreground?: SiteStandardColor
   background?: SiteStandardColor
   accent?: SiteStandardColor
   accentForeground?: SiteStandardColor
+}
+
+// app.greengale.theme record structure (stored at top level of publication)
+// Uses native GreenGale format with hex colors (not RGB like basicTheme)
+export interface GreenGaleTheme {
+  $type: 'app.greengale.theme'
+  preset?: string // Theme preset name (e.g., 'solarized-dark', 'dracula')
+  custom?: {
+    background?: string // Hex color (e.g., '#ffffff')
+    text?: string       // Hex color
+    accent?: string     // Hex color
+  }
 }
 
 // site.standard.publication record structure
@@ -160,6 +175,7 @@ export interface SiteStandardPublication {
   description?: string
   icon?: unknown // BlobRef
   basicTheme?: SiteStandardBasicTheme
+  theme?: GreenGaleTheme // GreenGale's full theme (app.greengale.theme)
   preferences?: unknown
   // Internal: the rkey used for this publication (TID format)
   rkey?: string
@@ -633,10 +649,9 @@ export async function savePublication(
         name: publication.name,
         description: publication.description,
         basicTheme: toBasicTheme(publication.theme),
+        theme: toGreenGaleTheme(publication.theme),
         preferences: {
-          greengale: {
-            theme: publication.theme,
-          },
+          greengale: {},
         },
       })
     } catch (err) {
@@ -673,7 +688,7 @@ export function hexToRgb(hex: string | undefined): SiteStandardColor | undefined
   // Validate parsed values
   if (isNaN(r) || isNaN(g) || isNaN(b)) return undefined
 
-  return { r, g, b }
+  return { $type: 'app.greengale.theme.color#rgb', r, g, b }
 }
 
 /**
@@ -728,8 +743,8 @@ export function computeAccentForeground(
 
   // Fallback to pure black/white if theme colors don't provide sufficient contrast
   return accentLuminance > 0.179
-    ? { r: 0, g: 0, b: 0 }
-    : { r: 255, g: 255, b: 255 }
+    ? { $type: 'app.greengale.theme.color#rgb', r: 0, g: 0, b: 0 }
+    : { $type: 'app.greengale.theme.color#rgb', r: 255, g: 255, b: 255 }
 }
 
 /**
@@ -774,10 +789,25 @@ export function toBasicTheme(theme?: Theme): SiteStandardBasicTheme | undefined 
     : undefined
 
   return {
+    $type: 'site.standard.theme.basic',
     foreground,
     background,
     accent,
     accentForeground,
+  }
+}
+
+/**
+ * Convert GreenGale theme to app.greengale.theme format
+ * Simply adds $type and passes through the native hex color format
+ */
+export function toGreenGaleTheme(theme?: Theme): GreenGaleTheme | undefined {
+  if (!theme) return undefined
+
+  return {
+    $type: 'app.greengale.theme',
+    preset: theme.preset,
+    custom: theme.custom,
   }
 }
 
@@ -879,6 +909,7 @@ export async function saveSiteStandardPublication(
     name: publication.name,
     description: publication.description || undefined,
     basicTheme: publication.basicTheme || undefined,
+    theme: publication.theme || undefined,
     preferences,
   }
 
@@ -1019,9 +1050,9 @@ export async function getSiteStandardPublication(
 }
 
 /**
- * Check if a basicTheme uses the old format (hex strings or old property names)
+ * Check if a basicTheme uses the old format (hex strings, old property names, or missing $type)
  * Old format: { primaryColor: '#hex', backgroundColor: '#hex', accentColor: '#hex' }
- * New format: { foreground: {r,g,b}, background: {r,g,b}, accent: {r,g,b}, accentForeground: {r,g,b} }
+ * New format: { $type: 'site.standard.theme.basic', foreground: {$type, r,g,b}, ... }
  */
 export function hasOldBasicThemeFormat(
   theme: unknown
@@ -1046,6 +1077,23 @@ export function hasOldBasicThemeFormat(
     typeof t.accent === 'string'
   ) {
     return true
+  }
+
+  // Check if $type is missing on the theme itself
+  if (t.$type !== 'site.standard.theme.basic') {
+    // Only flag as old format if there are color properties present
+    if (t.foreground || t.background || t.accent) {
+      return true
+    }
+  }
+
+  // Check if any color objects are missing $type
+  const colorProps = ['foreground', 'background', 'accent', 'accentForeground']
+  for (const prop of colorProps) {
+    const color = t[prop] as Record<string, unknown> | undefined
+    if (color && typeof color.r === 'number' && color.$type !== 'app.greengale.theme.color#rgb') {
+      return true
+    }
   }
 
   return false
@@ -1084,19 +1132,35 @@ export function convertOldBasicTheme(
     accentHex = t.accent
   }
 
-  // If already in RGB format, return as-is (shouldn't happen but be defensive)
+  // If already in RGB format, ensure $type fields are set
   if (!foregroundHex && !backgroundHex && !accentHex) {
     // Check if it's already valid RGB format
     if (
       (t.foreground && typeof (t.foreground as Record<string, unknown>).r === 'number') ||
       (t.background && typeof (t.background as Record<string, unknown>).r === 'number')
     ) {
-      return oldTheme as SiteStandardBasicTheme
+      // Add $type fields if missing
+      const existing = oldTheme as SiteStandardBasicTheme
+      return {
+        $type: 'site.standard.theme.basic',
+        foreground: existing.foreground
+          ? { $type: 'app.greengale.theme.color#rgb', ...existing.foreground }
+          : undefined,
+        background: existing.background
+          ? { $type: 'app.greengale.theme.color#rgb', ...existing.background }
+          : undefined,
+        accent: existing.accent
+          ? { $type: 'app.greengale.theme.color#rgb', ...existing.accent }
+          : undefined,
+        accentForeground: existing.accentForeground
+          ? { $type: 'app.greengale.theme.color#rgb', ...existing.accentForeground }
+          : undefined,
+      }
     }
     return undefined
   }
 
-  // Convert hex strings to RGB objects
+  // Convert hex strings to RGB objects (hexToRgb already adds $type)
   const foreground = hexToRgb(foregroundHex)
   const background = hexToRgb(backgroundHex)
   const accent = hexToRgb(accentHex)
@@ -1105,6 +1169,7 @@ export function convertOldBasicTheme(
     : undefined
 
   return {
+    $type: 'site.standard.theme.basic',
     foreground,
     background,
     accent,
@@ -1118,8 +1183,10 @@ export function convertOldBasicTheme(
  *
  * Migration tasks:
  * 1. Convert 'self' rkey to proper TID
- * 2. Convert old basicTheme format (hex strings) to new RGB format
+ * 2. Convert old basicTheme format (hex strings) to new RGB format with $type
  * 3. Add preferences.greengale identifier
+ * 4. Move theme from preferences.greengale.theme to top-level theme property
+ * 5. Convert old RGB theme format to new hex format
  */
 export async function migrateSiteStandardPublication(
   session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> }
@@ -1163,11 +1230,23 @@ export async function migrateSiteStandardPublication(
 
       if (!isGreenGaleRecord) continue
 
+      // Check if theme needs to be migrated from preferences to top-level
+      const oldThemeInPrefs = (preferences?.greengale as Record<string, unknown> | undefined)?.theme as Theme | undefined
+      const hasOldThemeLocation = oldThemeInPrefs !== undefined && !record.theme
+
+      // Check if top-level theme has old RGB format (needs conversion to hex)
+      const existingTheme = record.theme as Record<string, unknown> | undefined
+      const hasOldThemeFormat = existingTheme &&
+        existingTheme.$type === 'app.greengale.theme' &&
+        (existingTheme.foreground !== undefined || existingTheme.background !== undefined)
+
       // Check if migration is needed
       const needsMigration =
         rkey === 'self' ||
         !isValidTidRkey(rkey) ||
         hasOldBasicThemeFormat(record.basicTheme) ||
+        hasOldThemeLocation ||
+        hasOldThemeFormat ||
         !preferences?.greengale
 
       if (!needsMigration) continue
@@ -1179,15 +1258,54 @@ export async function migrateSiteStandardPublication(
         ? convertOldBasicTheme(record.basicTheme)
         : record.basicTheme
 
+      // Migrate theme to new format
+      // Priority: 1) Convert old RGB format to hex, 2) Move from preferences, 3) Keep undefined
+      let newTheme: GreenGaleTheme | undefined
+      if (hasOldThemeFormat && existingTheme) {
+        // Convert old RGB format to new hex format
+        // Extract preset from old format, custom colors need RGB->hex conversion
+        const oldPreset = existingTheme.preset as string | undefined
+        const oldFg = existingTheme.foreground as { r: number; g: number; b: number } | undefined
+        const oldBg = existingTheme.background as { r: number; g: number; b: number } | undefined
+        const oldAccent = existingTheme.accent as { r: number; g: number; b: number } | undefined
+
+        const rgbToHex = (c: { r: number; g: number; b: number }) =>
+          `#${c.r.toString(16).padStart(2, '0')}${c.g.toString(16).padStart(2, '0')}${c.b.toString(16).padStart(2, '0')}`
+
+        // If there were custom RGB colors, convert them to hex
+        const hasCustomColors = oldFg || oldBg || oldAccent
+        newTheme = {
+          $type: 'app.greengale.theme',
+          preset: oldPreset,
+          custom: hasCustomColors ? {
+            text: oldFg ? rgbToHex(oldFg) : undefined,
+            background: oldBg ? rgbToHex(oldBg) : undefined,
+            accent: oldAccent ? rgbToHex(oldAccent) : undefined,
+          } : undefined,
+        }
+      } else if (oldThemeInPrefs) {
+        // Move from preferences.greengale.theme to top-level
+        newTheme = toGreenGaleTheme(oldThemeInPrefs)
+      } else {
+        newTheme = undefined
+      }
+
+      // Build new preferences without the theme (it's now at top level)
+      const existingGreengale = (preferences?.greengale || {}) as Record<string, unknown>
+      const { theme: _removedTheme, ...cleanGreengale } = existingGreengale
+
       const newRecord = {
         $type: SITE_STANDARD_PUBLICATION,
         url: record.url,
         name: record.name,
         description: record.description,
         basicTheme: newBasicTheme,
+        theme: newTheme,
         preferences: {
           ...(preferences || {}),
-          greengale: preferences?.greengale || { migrated: true, migratedAt: new Date().toISOString() },
+          greengale: Object.keys(cleanGreengale).length > 0
+            ? cleanGreengale
+            : { migrated: true, migratedAt: new Date().toISOString() },
         },
       }
 

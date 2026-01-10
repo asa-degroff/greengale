@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { slugify, toBasicTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme } from '../atproto'
+import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme } from '../atproto'
 import type { BlogEntry, SiteStandardColor } from '../atproto'
 import type { Theme } from '../themes'
 
@@ -88,28 +88,30 @@ describe('AT Protocol Utilities', () => {
       expect(hexToRgb('')).toBeUndefined()
     })
 
+    const $type = 'app.greengale.theme.color#rgb' as const
+
     it('parses 6-character hex with hash', () => {
-      expect(hexToRgb('#ff0000')).toEqual({ r: 255, g: 0, b: 0 })
-      expect(hexToRgb('#00ff00')).toEqual({ r: 0, g: 255, b: 0 })
-      expect(hexToRgb('#0000ff')).toEqual({ r: 0, g: 0, b: 255 })
+      expect(hexToRgb('#ff0000')).toEqual({ $type, r: 255, g: 0, b: 0 })
+      expect(hexToRgb('#00ff00')).toEqual({ $type, r: 0, g: 255, b: 0 })
+      expect(hexToRgb('#0000ff')).toEqual({ $type, r: 0, g: 0, b: 255 })
     })
 
     it('parses 6-character hex without hash', () => {
-      expect(hexToRgb('ff0000')).toEqual({ r: 255, g: 0, b: 0 })
+      expect(hexToRgb('ff0000')).toEqual({ $type, r: 255, g: 0, b: 0 })
     })
 
     it('parses 3-character hex with hash', () => {
-      expect(hexToRgb('#f00')).toEqual({ r: 255, g: 0, b: 0 })
-      expect(hexToRgb('#0f0')).toEqual({ r: 0, g: 255, b: 0 })
-      expect(hexToRgb('#00f')).toEqual({ r: 0, g: 0, b: 255 })
+      expect(hexToRgb('#f00')).toEqual({ $type, r: 255, g: 0, b: 0 })
+      expect(hexToRgb('#0f0')).toEqual({ $type, r: 0, g: 255, b: 0 })
+      expect(hexToRgb('#00f')).toEqual({ $type, r: 0, g: 0, b: 255 })
     })
 
     it('parses 3-character hex without hash', () => {
-      expect(hexToRgb('f00')).toEqual({ r: 255, g: 0, b: 0 })
+      expect(hexToRgb('f00')).toEqual({ $type, r: 255, g: 0, b: 0 })
     })
 
     it('parses mixed case hex', () => {
-      expect(hexToRgb('#AbCdEf')).toEqual({ r: 171, g: 205, b: 239 })
+      expect(hexToRgb('#AbCdEf')).toEqual({ $type, r: 171, g: 205, b: 239 })
     })
 
     it('returns undefined for invalid hex length', () => {
@@ -124,62 +126,67 @@ describe('AT Protocol Utilities', () => {
   })
 
   describe('computeAccentForeground', () => {
+    const $type = 'app.greengale.theme.color#rgb' as const
+
     it('returns white for dark colors (fallback without theme colors)', () => {
       // Dark blue
-      expect(computeAccentForeground({ r: 0, g: 0, b: 128 })).toEqual({ r: 255, g: 255, b: 255 })
+      expect(computeAccentForeground({ r: 0, g: 0, b: 128 })).toEqual({ $type, r: 255, g: 255, b: 255 })
       // Black
-      expect(computeAccentForeground({ r: 0, g: 0, b: 0 })).toEqual({ r: 255, g: 255, b: 255 })
+      expect(computeAccentForeground({ r: 0, g: 0, b: 0 })).toEqual({ $type, r: 255, g: 255, b: 255 })
       // Dark purple
-      expect(computeAccentForeground({ r: 50, g: 0, b: 100 })).toEqual({ r: 255, g: 255, b: 255 })
+      expect(computeAccentForeground({ r: 50, g: 0, b: 100 })).toEqual({ $type, r: 255, g: 255, b: 255 })
     })
 
     it('returns black for light colors (fallback without theme colors)', () => {
       // White
-      expect(computeAccentForeground({ r: 255, g: 255, b: 255 })).toEqual({ r: 0, g: 0, b: 0 })
+      expect(computeAccentForeground({ r: 255, g: 255, b: 255 })).toEqual({ $type, r: 0, g: 0, b: 0 })
       // Yellow
-      expect(computeAccentForeground({ r: 255, g: 255, b: 0 })).toEqual({ r: 0, g: 0, b: 0 })
+      expect(computeAccentForeground({ r: 255, g: 255, b: 0 })).toEqual({ $type, r: 0, g: 0, b: 0 })
       // Light blue
-      expect(computeAccentForeground({ r: 100, g: 200, b: 255 })).toEqual({ r: 0, g: 0, b: 0 })
+      expect(computeAccentForeground({ r: 100, g: 200, b: 255 })).toEqual({ $type, r: 0, g: 0, b: 0 })
     })
 
     it('handles mid-range colors based on luminance (fallback)', () => {
       // Pure green has high luminance -> black text
-      expect(computeAccentForeground({ r: 0, g: 255, b: 0 })).toEqual({ r: 0, g: 0, b: 0 })
+      expect(computeAccentForeground({ r: 0, g: 255, b: 0 })).toEqual({ $type, r: 0, g: 0, b: 0 })
       // Pure red has luminance ~0.21 which is above 0.179 threshold -> black text
-      expect(computeAccentForeground({ r: 255, g: 0, b: 0 })).toEqual({ r: 0, g: 0, b: 0 })
+      expect(computeAccentForeground({ r: 255, g: 0, b: 0 })).toEqual({ $type, r: 0, g: 0, b: 0 })
       // Dark red has lower luminance -> white text
-      expect(computeAccentForeground({ r: 128, g: 0, b: 0 })).toEqual({ r: 255, g: 255, b: 255 })
+      expect(computeAccentForeground({ r: 128, g: 0, b: 0 })).toEqual({ $type, r: 255, g: 255, b: 255 })
     })
 
     it('uses foreground color when it has better contrast', () => {
       // Dark accent with dark foreground and light background
       // Dark foreground provides worse contrast, light background wins
-      const darkAccent = { r: 0, g: 0, b: 128 }
-      const darkFg = { r: 30, g: 30, b: 30 }
-      const lightBg = { r: 255, g: 255, b: 255 }
+      const darkAccent = { $type, r: 0, g: 0, b: 128 }
+      const darkFg = { $type, r: 30, g: 30, b: 30 }
+      const lightBg = { $type, r: 255, g: 255, b: 255 }
       expect(computeAccentForeground(darkAccent, darkFg, lightBg)).toEqual(lightBg)
     })
 
     it('uses background color when it has better contrast', () => {
       // Light accent (yellow) with light foreground and dark background
       // Dark background provides better contrast
-      const lightAccent = { r: 255, g: 255, b: 0 }
-      const lightFg = { r: 230, g: 230, b: 230 }
-      const darkBg = { r: 20, g: 20, b: 20 }
+      const lightAccent = { $type, r: 255, g: 255, b: 0 }
+      const lightFg = { $type, r: 230, g: 230, b: 230 }
+      const darkBg = { $type, r: 20, g: 20, b: 20 }
       expect(computeAccentForeground(lightAccent, lightFg, darkBg)).toEqual(darkBg)
     })
 
     it('falls back to black/white when theme colors lack contrast', () => {
       // Mid-range accent with similar mid-range foreground and background
-      const midAccent = { r: 128, g: 128, b: 128 }
-      const midFg = { r: 120, g: 120, b: 120 }
-      const midBg = { r: 140, g: 140, b: 140 }
+      const midAccent = { $type, r: 128, g: 128, b: 128 }
+      const midFg = { $type, r: 120, g: 120, b: 120 }
+      const midBg = { $type, r: 140, g: 140, b: 140 }
       // Neither provides 3:1 contrast, falls back to black (accent is light enough)
-      expect(computeAccentForeground(midAccent, midFg, midBg)).toEqual({ r: 0, g: 0, b: 0 })
+      expect(computeAccentForeground(midAccent, midFg, midBg)).toEqual({ $type, r: 0, g: 0, b: 0 })
     })
   })
 
   describe('toBasicTheme', () => {
+    const $type = 'app.greengale.theme.color#rgb' as const
+    const themeType = 'site.standard.theme.basic' as const
+
     it('returns undefined for undefined theme', () => {
       expect(toBasicTheme(undefined)).toBeUndefined()
     })
@@ -188,10 +195,11 @@ describe('AT Protocol Utilities', () => {
       // Empty theme falls through to default preset
       const result = toBasicTheme({})
       expect(result).toEqual({
-        foreground: { r: 26, g: 26, b: 26 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 37, g: 99, b: 235 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 26, g: 26, b: 26 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 37, g: 99, b: 235 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })
     })
 
@@ -205,10 +213,11 @@ describe('AT Protocol Utilities', () => {
       }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 0, g: 0, b: 0 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 0, g: 102, b: 204 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 0, g: 0, b: 0 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 0, g: 102, b: 204 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })
     })
 
@@ -220,8 +229,9 @@ describe('AT Protocol Utilities', () => {
       }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
+        $type: themeType,
         foreground: undefined,
-        background: { r: 255, g: 255, b: 255 },
+        background: { $type, r: 255, g: 255, b: 255 },
         accent: undefined,
         accentForeground: undefined,
       })
@@ -231,10 +241,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'default' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 26, g: 26, b: 26 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 37, g: 99, b: 235 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 26, g: 26, b: 26 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 37, g: 99, b: 235 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })
     })
 
@@ -242,10 +253,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'github-light' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 36, g: 41, b: 47 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 9, g: 105, b: 218 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 36, g: 41, b: 47 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 9, g: 105, b: 218 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })
     })
 
@@ -253,11 +265,12 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'github-dark' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 230, g: 237, b: 243 },
-        background: { r: 13, g: 17, b: 23 },
-        accent: { r: 88, g: 166, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 230, g: 237, b: 243 },
+        background: { $type, r: 13, g: 17, b: 23 },
+        accent: { $type, r: 88, g: 166, b: 255 },
         // Uses dark background for contrast with light accent
-        accentForeground: { r: 13, g: 17, b: 23 },
+        accentForeground: { $type, r: 13, g: 17, b: 23 },
       })
     })
 
@@ -265,11 +278,12 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'dracula' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 248, g: 248, b: 242 },
-        background: { r: 40, g: 42, b: 54 },
-        accent: { r: 189, g: 147, b: 249 },
+        $type: themeType,
+        foreground: { $type, r: 248, g: 248, b: 242 },
+        background: { $type, r: 40, g: 42, b: 54 },
+        accent: { $type, r: 189, g: 147, b: 249 },
         // Uses dark background for contrast with light purple accent
-        accentForeground: { r: 40, g: 42, b: 54 },
+        accentForeground: { $type, r: 40, g: 42, b: 54 },
       })
     })
 
@@ -277,11 +291,12 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'nord' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 236, g: 239, b: 244 },
-        background: { r: 46, g: 52, b: 64 },
-        accent: { r: 136, g: 192, b: 208 },
+        $type: themeType,
+        foreground: { $type, r: 236, g: 239, b: 244 },
+        background: { $type, r: 46, g: 52, b: 64 },
+        accent: { $type, r: 136, g: 192, b: 208 },
         // Uses dark background for contrast with light accent
-        accentForeground: { r: 46, g: 52, b: 64 },
+        accentForeground: { $type, r: 46, g: 52, b: 64 },
       })
     })
 
@@ -289,11 +304,12 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'solarized-light' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 101, g: 123, b: 131 },
-        background: { r: 253, g: 246, b: 227 },
-        accent: { r: 38, g: 139, b: 210 },
+        $type: themeType,
+        foreground: { $type, r: 101, g: 123, b: 131 },
+        background: { $type, r: 253, g: 246, b: 227 },
+        accent: { $type, r: 38, g: 139, b: 210 },
         // Uses light background for contrast with blue accent
-        accentForeground: { r: 253, g: 246, b: 227 },
+        accentForeground: { $type, r: 253, g: 246, b: 227 },
       })
     })
 
@@ -301,11 +317,12 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'solarized-dark' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 131, g: 148, b: 150 },
-        background: { r: 0, g: 43, b: 54 },
-        accent: { r: 38, g: 139, b: 210 },
+        $type: themeType,
+        foreground: { $type, r: 131, g: 148, b: 150 },
+        background: { $type, r: 0, g: 43, b: 54 },
+        accent: { $type, r: 38, g: 139, b: 210 },
         // Uses dark background for contrast with blue accent
-        accentForeground: { r: 0, g: 43, b: 54 },
+        accentForeground: { $type, r: 0, g: 43, b: 54 },
       })
     })
 
@@ -313,11 +330,12 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'monokai' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 248, g: 248, b: 242 },
-        background: { r: 39, g: 40, b: 34 },
-        accent: { r: 166, g: 226, b: 46 },
+        $type: themeType,
+        foreground: { $type, r: 248, g: 248, b: 242 },
+        background: { $type, r: 39, g: 40, b: 34 },
+        accent: { $type, r: 166, g: 226, b: 46 },
         // Uses dark background for contrast with bright green accent
-        accentForeground: { r: 39, g: 40, b: 34 },
+        accentForeground: { $type, r: 39, g: 40, b: 34 },
       })
     })
 
@@ -325,10 +343,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'unknown' as 'default' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 26, g: 26, b: 26 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 37, g: 99, b: 235 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 26, g: 26, b: 26 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 37, g: 99, b: 235 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })
     })
 
@@ -343,11 +362,12 @@ describe('AT Protocol Utilities', () => {
       }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 255, g: 255, b: 255 },
-        background: { r: 0, g: 0, b: 0 },
-        accent: { r: 255, g: 0, b: 0 },
+        $type: themeType,
+        foreground: { $type, r: 255, g: 255, b: 255 },
+        background: { $type, r: 0, g: 0, b: 0 },
+        accent: { $type, r: 255, g: 0, b: 0 },
         // Pure red #ff0000 has luminance ~0.21 > 0.179 threshold
-        accentForeground: { r: 0, g: 0, b: 0 },
+        accentForeground: { $type, r: 0, g: 0, b: 0 },
       })
     })
 
@@ -355,10 +375,11 @@ describe('AT Protocol Utilities', () => {
       const theme: Theme = { preset: 'custom' }
       const result = toBasicTheme(theme)
       expect(result).toEqual({
-        foreground: { r: 26, g: 26, b: 26 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 37, g: 99, b: 235 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+        $type: themeType,
+        foreground: { $type, r: 26, g: 26, b: 26 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 37, g: 99, b: 235 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })
     })
 
@@ -367,13 +388,81 @@ describe('AT Protocol Utilities', () => {
       const lightAccent: Theme = {
         custom: { accent: '#ffff00' },
       }
-      expect(toBasicTheme(lightAccent)?.accentForeground).toEqual({ r: 0, g: 0, b: 0 })
+      expect(toBasicTheme(lightAccent)?.accentForeground).toEqual({ $type, r: 0, g: 0, b: 0 })
 
       // Dark accent (dark blue) -> white foreground
       const darkAccent: Theme = {
         custom: { accent: '#000080' },
       }
-      expect(toBasicTheme(darkAccent)?.accentForeground).toEqual({ r: 255, g: 255, b: 255 })
+      expect(toBasicTheme(darkAccent)?.accentForeground).toEqual({ $type, r: 255, g: 255, b: 255 })
+    })
+  })
+
+  describe('toGreenGaleTheme', () => {
+    const ggThemeType = 'app.greengale.theme' as const
+
+    it('returns undefined for undefined theme', () => {
+      expect(toGreenGaleTheme(undefined)).toBeUndefined()
+    })
+
+    it('returns $type with undefined preset/custom for empty theme', () => {
+      const result = toGreenGaleTheme({})
+      expect(result).toEqual({
+        $type: ggThemeType,
+        preset: undefined,
+        custom: undefined,
+      })
+    })
+
+    it('passes through preset name', () => {
+      const theme: Theme = { preset: 'solarized-dark' }
+      const result = toGreenGaleTheme(theme)
+      expect(result).toEqual({
+        $type: ggThemeType,
+        preset: 'solarized-dark',
+        custom: undefined,
+      })
+    })
+
+    it('passes through custom colors as hex strings', () => {
+      const theme: Theme = {
+        custom: {
+          background: '#ffffff',
+          text: '#000000',
+          accent: '#0066cc',
+        },
+      }
+      const result = toGreenGaleTheme(theme)
+      expect(result).toEqual({
+        $type: ggThemeType,
+        preset: undefined,
+        custom: {
+          background: '#ffffff',
+          text: '#000000',
+          accent: '#0066cc',
+        },
+      })
+    })
+
+    it('passes through both preset and custom when both provided', () => {
+      const theme: Theme = {
+        preset: 'dracula',
+        custom: {
+          background: '#000000',
+          text: '#ffffff',
+          accent: '#ff0000',
+        },
+      }
+      const result = toGreenGaleTheme(theme)
+      expect(result).toEqual({
+        $type: ggThemeType,
+        preset: 'dracula',
+        custom: {
+          background: '#000000',
+          text: '#ffffff',
+          accent: '#ff0000',
+        },
+      })
     })
   })
 
@@ -937,6 +1026,9 @@ Third.`
   })
 
   describe('hasOldBasicThemeFormat', () => {
+    const $type = 'app.greengale.theme.color#rgb' as const
+    const themeType = 'site.standard.theme.basic' as const
+
     it('returns false for null/undefined', () => {
       expect(hasOldBasicThemeFormat(null)).toBe(false)
       expect(hasOldBasicThemeFormat(undefined)).toBe(false)
@@ -965,12 +1057,28 @@ Third.`
       expect(hasOldBasicThemeFormat({ accent: '#0066cc' })).toBe(true)
     })
 
-    it('returns false for new format with RGB objects', () => {
+    it('returns true for RGB objects without $type', () => {
+      // Missing $type on theme itself
       expect(hasOldBasicThemeFormat({
+        foreground: { $type, r: 0, g: 0, b: 0 },
+        background: { $type, r: 255, g: 255, b: 255 },
+      })).toBe(true)
+
+      // Missing $type on colors
+      expect(hasOldBasicThemeFormat({
+        $type: themeType,
         foreground: { r: 0, g: 0, b: 0 },
         background: { r: 255, g: 255, b: 255 },
-        accent: { r: 0, g: 102, b: 204 },
-        accentForeground: { r: 255, g: 255, b: 255 },
+      })).toBe(true)
+    })
+
+    it('returns false for new format with all $type fields', () => {
+      expect(hasOldBasicThemeFormat({
+        $type: themeType,
+        foreground: { $type, r: 0, g: 0, b: 0 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 0, g: 102, b: 204 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 },
       })).toBe(false)
     })
 
@@ -978,14 +1086,18 @@ Third.`
       expect(hasOldBasicThemeFormat({})).toBe(false)
     })
 
-    it('returns false for partial new format', () => {
+    it('returns false for partial new format with $type', () => {
       expect(hasOldBasicThemeFormat({
-        foreground: { r: 0, g: 0, b: 0 },
+        $type: themeType,
+        foreground: { $type, r: 0, g: 0, b: 0 },
       })).toBe(false)
     })
   })
 
   describe('convertOldBasicTheme', () => {
+    const $type = 'app.greengale.theme.color#rgb' as const
+    const themeType = 'site.standard.theme.basic' as const
+
     it('returns undefined for null/undefined', () => {
       expect(convertOldBasicTheme(null)).toBeUndefined()
       expect(convertOldBasicTheme(undefined)).toBeUndefined()
@@ -1004,10 +1116,11 @@ Third.`
       })
 
       expect(result).toEqual({
-        foreground: { r: 0, g: 0, b: 0 },
-        background: { r: 255, g: 255, b: 255 },
-        accent: { r: 0, g: 102, b: 204 },
-        accentForeground: { r: 255, g: 255, b: 255 }, // White bg provides contrast with dark blue accent
+        $type: themeType,
+        foreground: { $type, r: 0, g: 0, b: 0 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: { $type, r: 0, g: 102, b: 204 },
+        accentForeground: { $type, r: 255, g: 255, b: 255 }, // White bg provides contrast with dark blue accent
       })
     })
 
@@ -1019,10 +1132,11 @@ Third.`
       })
 
       expect(result).toEqual({
-        foreground: { r: 26, g: 26, b: 26 },
-        background: { r: 245, g: 245, b: 245 },
-        accent: { r: 255, g: 0, b: 0 },
-        accentForeground: { r: 26, g: 26, b: 26 }, // Uses dark foreground for light red accent
+        $type: themeType,
+        foreground: { $type, r: 26, g: 26, b: 26 },
+        background: { $type, r: 245, g: 245, b: 245 },
+        accent: { $type, r: 255, g: 0, b: 0 },
+        accentForeground: { $type, r: 26, g: 26, b: 26 }, // Uses dark foreground for light red accent
       })
     })
 
@@ -1031,18 +1145,25 @@ Third.`
         primaryColor: '#333333',
       })
 
-      expect(result?.foreground).toEqual({ r: 51, g: 51, b: 51 })
+      expect(result?.$type).toBe(themeType)
+      expect(result?.foreground).toEqual({ $type, r: 51, g: 51, b: 51 })
       expect(result?.background).toBeUndefined()
       expect(result?.accent).toBeUndefined()
     })
 
-    it('preserves already valid RGB format', () => {
+    it('adds $type to already valid RGB format', () => {
       const validTheme = {
         foreground: { r: 0, g: 0, b: 0 },
         background: { r: 255, g: 255, b: 255 },
       }
       const result = convertOldBasicTheme(validTheme)
-      expect(result).toEqual(validTheme)
+      expect(result).toEqual({
+        $type: themeType,
+        foreground: { $type, r: 0, g: 0, b: 0 },
+        background: { $type, r: 255, g: 255, b: 255 },
+        accent: undefined,
+        accentForeground: undefined,
+      })
     })
 
     it('returns undefined for empty object', () => {
@@ -1056,7 +1177,7 @@ Third.`
         backgroundColor: '#1a1a1a',
         accentColor: '#88c0d0', // Light blue
       })
-      expect(darkTheme?.accentForeground).toEqual({ r: 26, g: 26, b: 26 }) // Dark background
+      expect(darkTheme?.accentForeground).toEqual({ $type, r: 26, g: 26, b: 26 }) // Dark background
 
       // Light theme with dark accent - should use light background for accentForeground
       const lightTheme = convertOldBasicTheme({
@@ -1064,7 +1185,7 @@ Third.`
         backgroundColor: '#ffffff',
         accentColor: '#002b36', // Dark teal
       })
-      expect(lightTheme?.accentForeground).toEqual({ r: 255, g: 255, b: 255 }) // Light background
+      expect(lightTheme?.accentForeground).toEqual({ $type, r: 255, g: 255, b: 255 }) // Light background
     })
   })
 })
