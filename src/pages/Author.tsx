@@ -92,6 +92,7 @@ export function AuthorPage() {
   const [pubSaving, setPubSaving] = useState(false)
   const [pubError, setPubError] = useState<string | null>(null)
   const [pubEnableSiteStandard, setPubEnableSiteStandard] = useState(false)
+  const [pubShowInDiscover, setPubShowInDiscover] = useState(true)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   // Orphaned records cleanup state
   const [orphanedRecords, setOrphanedRecords] = useState<Array<{ rkey: string; title: string }>>([])
@@ -203,6 +204,7 @@ export function AuthorPage() {
       }
       // Default to true unless explicitly disabled
       setPubEnableSiteStandard(publication.enableSiteStandard !== false)
+      setPubShowInDiscover(publication.showInDiscover !== false)
     } else {
       // Default values for new publication
       setPubName(author?.displayName || '')
@@ -215,6 +217,7 @@ export function AuthorPage() {
         codeBackground: '',
       })
       setPubEnableSiteStandard(true) // Enabled by default
+      setPubShowInDiscover(true) // Discoverable by default
     }
     setPubError(null)
     setShowPublicationModal(true)
@@ -239,6 +242,7 @@ export function AuthorPage() {
               custom: pubTheme === 'custom' ? pubCustomColors : undefined,
             },
         enableSiteStandard: pubEnableSiteStandard || undefined,
+        showInDiscover: pubShowInDiscover,
       }
 
       await savePublication(
@@ -763,6 +767,26 @@ export function AuthorPage() {
                   })()}
                 </div>
 
+              {/* Discovery Settings */}
+              <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={pubShowInDiscover}
+                    onChange={(e) => setPubShowInDiscover(e.target.checked)}
+                    className="mt-1 w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-[var(--site-text)]">
+                      Show in Discover
+                    </span>
+                    <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
+                      Allow your posts to appear on the homepage and discovery feeds.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
               {/* site.standard Publishing */}
               <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
                 <label className="flex items-start gap-3 cursor-pointer">
@@ -777,7 +801,7 @@ export function AuthorPage() {
                       Publish to standard.site
                     </span>
                     <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
-                      Publish posts to site.standard collections for cross-platform compatibility. Enabled by default; can be overridden per-post.
+                      Publish site.standard.publication record for cross-platform compatibility. Can also be toggled per-document in the post editor.
                     </p>
                   </div>
                 </label>

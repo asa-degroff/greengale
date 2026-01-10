@@ -136,6 +136,7 @@ export interface Publication {
   description?: string
   theme?: Theme
   enableSiteStandard?: boolean
+  showInDiscover?: boolean
 }
 
 // app.greengale.theme.color#rgb format (RGB integers 0-255)
@@ -600,6 +601,7 @@ export async function getPublication(identifier: string): Promise<Publication | 
       description: record.description as string | undefined,
       theme: parseTheme(record.theme),
       enableSiteStandard: (record.enableSiteStandard as boolean | undefined) || false,
+      showInDiscover: (record.showInDiscover as boolean | undefined) ?? true,
     }
   } catch {
     // Publication doesn't exist
@@ -623,6 +625,7 @@ export async function savePublication(
     description: publication.description || undefined,
     theme: publication.theme || undefined,
     enableSiteStandard: publication.enableSiteStandard || undefined,
+    showInDiscover: publication.showInDiscover === false ? false : undefined,
   }
 
   const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
@@ -651,6 +654,7 @@ export async function savePublication(
         basicTheme: toBasicTheme(publication.theme),
         theme: toGreenGaleTheme(publication.theme),
         preferences: {
+          showInDiscover: publication.showInDiscover !== false,
           greengale: {},
         },
       })

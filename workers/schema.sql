@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS publications (
   theme_preset TEXT,
   url TEXT NOT NULL,
   enable_site_standard INTEGER DEFAULT 0,
+  show_in_discover INTEGER DEFAULT 1,
   updated_at TEXT DEFAULT (datetime('now'))
 );
 

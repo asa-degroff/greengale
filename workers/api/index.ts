@@ -765,6 +765,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     }
 
     // Cache miss - query database
+    // Join with publications to filter by show_in_discover setting
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -772,8 +773,10 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
         a.handle, a.display_name, a.avatar_url
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.visibility = 'public'
         AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (pub.show_in_discover = 1 OR pub.show_in_discover IS NULL)
     `
 
     const params: (string | number)[] = []
@@ -827,6 +830,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     // Cache miss - query database
     // Use external_url column (pre-computed during indexing)
     // Exclude posts that also have a GreenGale version (dual-published from GreenGale)
+    // Filter by show_in_discover setting from publications table
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -834,9 +838,11 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
         a.handle, a.display_name, a.avatar_url
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.visibility = 'public'
         AND p.uri LIKE '%/site.standard.document/%'
         AND p.external_url IS NOT NULL
+        AND (pub.show_in_discover = 1 OR pub.show_in_discover IS NULL)
         AND NOT EXISTS (
           SELECT 1 FROM posts gg
           WHERE gg.author_did = p.author_did

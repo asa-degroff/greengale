@@ -742,6 +742,16 @@ export class FirehoseConsumer extends DurableObject<Env> {
         return
       }
 
+      // Extract showInDiscover - defaults to true if not set
+      // site.standard stores it in preferences.showInDiscover, greengale stores it directly
+      let showInDiscover = true
+      if (isSiteStandard) {
+        const preferences = record?.preferences as Record<string, unknown> | undefined
+        showInDiscover = (preferences?.showInDiscover as boolean | undefined) !== false
+      } else {
+        showInDiscover = (record?.showInDiscover as boolean | undefined) !== false
+      }
+
       // Store theme data - either preset name or JSON for custom themes
       // site.standard uses 'basicTheme' instead of 'theme'
       let themePreset: string | null = null
@@ -783,15 +793,16 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Statement 1: Upsert publication
       statements.push(
         this.env.DB.prepare(`
-          INSERT INTO publications (author_did, name, description, theme_preset, url)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO publications (author_did, name, description, theme_preset, url, show_in_discover)
+          VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(author_did) DO UPDATE SET
             name = excluded.name,
             description = excluded.description,
             theme_preset = excluded.theme_preset,
             url = excluded.url,
+            show_in_discover = excluded.show_in_discover,
             updated_at = datetime('now')
-        `).bind(did, name, description, themePreset, url)
+        `).bind(did, name, description, themePreset, url, showInDiscover ? 1 : 0)
       )
 
       // Statement 2: Upsert author
