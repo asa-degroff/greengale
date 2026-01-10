@@ -402,7 +402,7 @@ app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
           try {
             const threadUrl = new URL(`${BLUESKY_API}/xrpc/app.bsky.feed.getPostThread`)
             threadUrl.searchParams.set('uri', post.uri)
-            threadUrl.searchParams.set('depth', '2')
+            threadUrl.searchParams.set('depth', '10')
             threadUrl.searchParams.set('parentHeight', '0')
 
             const threadResponse = await fetch(threadUrl.toString(), {
@@ -419,11 +419,8 @@ app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
             }
 
             if (threadData.thread && threadData.thread.replies) {
-              post.replies = threadData.thread.replies
-                .filter((r): r is BlueskyThreadViewPost => r.$type === 'app.bsky.feed.defs#threadViewPost')
-                .slice(0, 3)
-                .map((reply) => transformBlueskyPost(reply.post))
-                .sort((a, b) => b.likeCount - a.likeCount)
+              // Use recursive transformation to get full nested thread
+              post.replies = transformThreadReplies(threadData.thread.replies, 0, 10)
             }
           } catch (err) {
             console.error('Failed to fetch thread:', err)
@@ -653,6 +650,36 @@ function transformBlueskyPost(post: BlueskyPostView): TransformedPost {
     replyCount: post.replyCount || 0,
     quoteCount: post.quoteCount || 0,
   }
+}
+
+/**
+ * Recursively transform thread replies into nested TransformedPost structure.
+ * Limits replies per level and respects max depth to prevent excessive data.
+ */
+function transformThreadReplies(
+  replies: BlueskyThreadViewPost[] | undefined,
+  currentDepth: number = 0,
+  maxDepth: number = 10
+): TransformedPost[] {
+  if (!replies || replies.length === 0 || currentDepth >= maxDepth) {
+    return []
+  }
+
+  // Determine max replies based on depth
+  // depth 0: 5 replies, depth 1-3: 3 replies, depth 4+: 2 replies
+  const maxRepliesForDepth = currentDepth === 0 ? 5 : currentDepth <= 3 ? 3 : 2
+
+  return replies
+    .filter((r): r is BlueskyThreadViewPost =>
+      r.$type === 'app.bsky.feed.defs#threadViewPost' && r.post != null
+    )
+    .sort((a, b) => (b.post.likeCount || 0) - (a.post.likeCount || 0))
+    .slice(0, maxRepliesForDepth)
+    .map((reply) => {
+      const post = transformBlueskyPost(reply.post)
+      post.replies = transformThreadReplies(reply.replies, currentDepth + 1, maxDepth)
+      return post
+    })
 }
 
 // Get recent posts across all authors

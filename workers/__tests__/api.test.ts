@@ -1132,6 +1132,279 @@ describe('API Endpoints', () => {
       const res2 = await makeRequest(env, '/xrpc/app.greengale.feed.getBlueskyPost?rkey=abc')
       expect(res2.status).toBe(400)
     })
+
+    describe('getBlueskyInteractions with nested replies', () => {
+      const originalFetch = globalThis.fetch
+
+      beforeEach(() => {
+        // Reset cache for each test
+        env.CACHE._store.clear()
+      })
+
+      afterEach(() => {
+        globalThis.fetch = originalFetch
+      })
+
+      // Helper to create a mock Bluesky post
+      function createBlueskyPost(id: string, likeCount: number = 0, replyCount: number = 0) {
+        return {
+          uri: `at://did:plc:${id}/app.bsky.feed.post/${id}`,
+          cid: `cid${id}`,
+          author: {
+            did: `did:plc:${id}`,
+            handle: `user${id}.bsky.social`,
+            displayName: `User ${id}`,
+            avatar: `https://avatar.url/${id}`,
+          },
+          record: {
+            text: `Post text ${id}`,
+            createdAt: '2024-01-01T00:00:00.000Z',
+          },
+          indexedAt: '2024-01-01T00:00:00.000Z',
+          likeCount,
+          repostCount: 0,
+          replyCount,
+          quoteCount: 0,
+        }
+      }
+
+      // Helper to create a nested thread structure
+      function createThreadViewPost(id: string, likeCount: number, replies: unknown[] = []) {
+        return {
+          $type: 'app.bsky.feed.defs#threadViewPost',
+          post: createBlueskyPost(id, likeCount, replies.length),
+          replies,
+        }
+      }
+
+      it('transforms nested replies recursively', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        // Mock search response with one post that has replies
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            return new Response(JSON.stringify({
+              posts: [createBlueskyPost('root', 10, 3)],
+              hitsTotal: 1,
+            }))
+          }
+
+          if (url.includes('getPostThread')) {
+            // Return nested thread structure: root -> 3 replies -> 2 replies each -> 1 reply each
+            return new Response(JSON.stringify({
+              thread: {
+                $type: 'app.bsky.feed.defs#threadViewPost',
+                post: createBlueskyPost('root', 10, 3),
+                replies: [
+                  createThreadViewPost('reply1', 5, [
+                    createThreadViewPost('reply1-1', 3, [
+                      createThreadViewPost('reply1-1-1', 1, []),
+                    ]),
+                    createThreadViewPost('reply1-2', 2, []),
+                  ]),
+                  createThreadViewPost('reply2', 8, [
+                    createThreadViewPost('reply2-1', 4, []),
+                  ]),
+                  createThreadViewPost('reply3', 1, []),
+                ],
+              },
+            }))
+          }
+
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://example.com/post&includeReplies=true'
+        )
+        expect(res.status).toBe(200)
+
+        const data = await res.json() as { posts: Array<{ replies?: unknown[] }> }
+        expect(data.posts).toHaveLength(1)
+
+        // Root post should have replies
+        const rootPost = data.posts[0]
+        expect(rootPost.replies).toBeDefined()
+        expect(rootPost.replies!.length).toBeLessThanOrEqual(5) // max 5 at depth 0
+
+        // Replies should be sorted by like count (descending)
+        // reply2 (8 likes) should come before reply1 (5 likes)
+        const replies = rootPost.replies as Array<{ text: string; replies?: unknown[] }>
+        expect(replies[0].text).toBe('Post text reply2')
+        expect(replies[1].text).toBe('Post text reply1')
+        expect(replies[2].text).toBe('Post text reply3')
+
+        // Check nested replies exist
+        expect(replies[0].replies).toBeDefined()
+        expect(replies[1].replies).toBeDefined()
+      })
+
+      it('limits replies per level based on depth', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        // Create a post with many replies at different levels
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            return new Response(JSON.stringify({
+              posts: [createBlueskyPost('root', 10, 10)],
+              hitsTotal: 1,
+            }))
+          }
+
+          if (url.includes('getPostThread')) {
+            // Create 10 replies at level 1, each with 5 replies at level 2, etc.
+            const level2Replies = Array.from({ length: 5 }, (_, i) =>
+              createThreadViewPost(`l2-${i}`, i, [])
+            )
+            const level1Replies = Array.from({ length: 10 }, (_, i) =>
+              createThreadViewPost(`l1-${i}`, i, level2Replies)
+            )
+
+            return new Response(JSON.stringify({
+              thread: {
+                $type: 'app.bsky.feed.defs#threadViewPost',
+                post: createBlueskyPost('root', 10, 10),
+                replies: level1Replies,
+              },
+            }))
+          }
+
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://example.com/post&includeReplies=true'
+        )
+        const data = await res.json() as { posts: Array<{ replies?: Array<{ replies?: unknown[] }> }> }
+
+        // Depth 0: max 5 replies
+        expect(data.posts[0].replies!.length).toBe(5)
+
+        // Depth 1: max 3 replies per post
+        expect(data.posts[0].replies![0].replies!.length).toBe(3)
+      })
+
+      it('filters out invalid thread types', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            return new Response(JSON.stringify({
+              posts: [createBlueskyPost('root', 10, 3)],
+              hitsTotal: 1,
+            }))
+          }
+
+          if (url.includes('getPostThread')) {
+            return new Response(JSON.stringify({
+              thread: {
+                $type: 'app.bsky.feed.defs#threadViewPost',
+                post: createBlueskyPost('root', 10, 3),
+                replies: [
+                  createThreadViewPost('valid', 5, []),
+                  { $type: 'app.bsky.feed.defs#blockedPost' }, // Should be filtered
+                  { $type: 'app.bsky.feed.defs#notFoundPost' }, // Should be filtered
+                  createThreadViewPost('valid2', 3, []),
+                ],
+              },
+            }))
+          }
+
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://example.com/post&includeReplies=true'
+        )
+        const data = await res.json() as { posts: Array<{ replies?: unknown[] }> }
+
+        // Only valid threadViewPost types should be included
+        expect(data.posts[0].replies!.length).toBe(2)
+      })
+
+      it('handles posts with no replies', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            return new Response(JSON.stringify({
+              posts: [createBlueskyPost('root', 10, 0)], // replyCount = 0
+              hitsTotal: 1,
+            }))
+          }
+
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://example.com/post&includeReplies=true'
+        )
+        const data = await res.json() as { posts: Array<{ replies?: unknown[] }> }
+
+        // Should not fetch thread for posts with no replies
+        expect(mockFetch).toHaveBeenCalledTimes(1) // Only searchPosts call
+        expect(data.posts[0].replies).toBeUndefined()
+      })
+
+      it('respects max depth of 10', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        // Create a deeply nested structure (15 levels)
+        function createDeepThread(depth: number, currentDepth: number = 0): unknown {
+          if (currentDepth >= depth) return createThreadViewPost(`d${currentDepth}`, 1, [])
+          return createThreadViewPost(`d${currentDepth}`, 1, [
+            createDeepThread(depth, currentDepth + 1),
+          ])
+        }
+
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            return new Response(JSON.stringify({
+              posts: [createBlueskyPost('root', 10, 1)],
+              hitsTotal: 1,
+            }))
+          }
+
+          if (url.includes('getPostThread')) {
+            return new Response(JSON.stringify({
+              thread: {
+                $type: 'app.bsky.feed.defs#threadViewPost',
+                post: createBlueskyPost('root', 10, 1),
+                replies: [createDeepThread(15)],
+              },
+            }))
+          }
+
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://example.com/post&includeReplies=true'
+        )
+        const data = await res.json() as { posts: unknown[] }
+
+        // Count actual depth by traversing the structure
+        function countDepth(post: { replies?: unknown[] }): number {
+          if (!post.replies || post.replies.length === 0) return 1
+          return 1 + countDepth(post.replies[0] as { replies?: unknown[] })
+        }
+
+        // Should be capped at 11 total (root post + 10 levels of replies)
+        // transformThreadReplies processes depths 0-9 (10 levels), so with the root that's 11
+        const depth = countDepth(data.posts[0] as { replies?: unknown[] })
+        expect(depth).toBeLessThanOrEqual(11)
+      })
+    })
   })
 })
 

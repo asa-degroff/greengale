@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { type BlueskyPost, getBlueskyWebUrl } from '@/lib/bluesky'
 
 interface BlueskyPostProps {
   post: BlueskyPost
   isReply?: boolean
   showReplies?: boolean
-  maxVisibleReplies?: number
+  /** Depth in the reply tree (0 = top-level post) */
+  depth?: number
   /** Callback when user clicks on post text (for TTS seek) */
   onTextClick?: (text: string) => void
 }
@@ -37,22 +39,87 @@ function formatCount(count: number): string {
   return count.toString()
 }
 
+/** Count total nested replies recursively */
+function countNestedReplies(post: BlueskyPost): number {
+  if (!post.replies || post.replies.length === 0) return 0
+  return post.replies.reduce(
+    (count, reply) => count + 1 + countNestedReplies(reply),
+    0
+  )
+}
+
 export function BlueskyPostCard({
   post,
   isReply = false,
   showReplies = true,
-  maxVisibleReplies = 3,
+  depth = 0,
   onTextClick,
 }: BlueskyPostProps) {
+  // Threads at depth >= 2 start collapsed
+  const [isExpanded, setIsExpanded] = useState(depth < 2)
+
   const blueskyUrl = getBlueskyWebUrl(post.uri)
-  const visibleReplies = showReplies
+
+  // Determine max visible replies based on depth
+  // depth 0: 5 replies, depth 1-3: 3 replies, depth 4+: 2 replies
+  const maxVisibleReplies = depth === 0 ? 5 : depth <= 3 ? 3 : 2
+
+  const visibleReplies = showReplies && isExpanded
     ? (post.replies || []).slice(0, maxVisibleReplies)
     : []
   const hiddenRepliesCount = (post.replies?.length || 0) - visibleReplies.length
+  const hasReplies = (post.replies?.length || 0) > 0
+
+  // Cap visual indentation at depth 5 to prevent excessive narrowing
+  const visualDepth = Math.min(depth, 5)
+
+  // For deep threads, use smaller padding increments
+  const paddingStyle = isReply
+    ? { paddingLeft: `${Math.min(visualDepth + 1, 5) * 0.75}rem` }
+    : undefined
+
+  // Collapsed preview: show author name and reply count
+  if (isReply && !isExpanded && hasReplies) {
+    const totalReplies = countNestedReplies(post)
+    return (
+      <div
+        className="border-l-2 border-[var(--theme-border)]"
+        style={paddingStyle}
+      >
+        <button
+          onClick={() => setIsExpanded(true)}
+          className="py-2 flex items-center gap-2 text-sm text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] transition-colors group"
+        >
+          {/* Expand icon */}
+          <svg
+            className="w-4 h-4 text-[var(--theme-text-secondary)] group-hover:text-[var(--theme-accent)] transition-colors"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          <span className="font-medium text-[var(--theme-text)]">
+            {post.author.displayName || post.author.handle}
+          </span>
+          <span>replied</span>
+          {totalReplies > 0 && (
+            <span className="text-[var(--theme-accent)]">
+              +{totalReplies} {totalReplies === 1 ? 'reply' : 'replies'}
+            </span>
+          )}
+        </button>
+      </div>
+    )
+  }
 
   return (
-    <div className={`${isReply ? 'pl-4 border-l-2 border-[var(--theme-border)]' : ''}`}>
-      <div className={`${isReply ? 'py-2' : 'p-4 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-bg-secondary)]'}`}>
+    <div
+      className={isReply ? 'border-l-2 border-[var(--theme-border)]' : ''}
+      style={paddingStyle}
+    >
+      <div className={isReply ? 'py-2' : 'p-4 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-bg-secondary)]'}>
         {/* Author header */}
         <div className="flex items-start gap-3">
           {/* Avatar */}
@@ -77,8 +144,26 @@ export function BlueskyPostCard({
 
           {/* Content */}
           <div className="flex-1 min-w-0">
-            {/* Author info */}
+            {/* Author info with optional collapse button */}
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Collapse button for expanded deep replies */}
+              {isReply && depth >= 2 && isExpanded && (
+                <button
+                  onClick={() => setIsExpanded(false)}
+                  className="p-0.5 -ml-1 text-[var(--theme-text-secondary)] hover:text-[var(--theme-accent)] transition-colors"
+                  title="Collapse thread"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14" />
+                  </svg>
+                </button>
+              )}
               <a
                 href={`https://bsky.app/profile/${post.author.handle}`}
                 target="_blank"
@@ -103,7 +188,7 @@ export function BlueskyPostCard({
               {post.text}
             </p>
 
-            {/* Engagement stats */}
+            {/* Engagement stats (only for top-level posts) */}
             {!isReply && (
               <div className="mt-3 flex items-center gap-4 text-sm text-[var(--theme-text-secondary)]">
                 {/* Replies */}
@@ -157,7 +242,7 @@ export function BlueskyPostCard({
               post={reply}
               isReply={true}
               showReplies={true}
-              maxVisibleReplies={2}
+              depth={depth + 1}
               onTextClick={onTextClick}
             />
           ))}
@@ -166,7 +251,8 @@ export function BlueskyPostCard({
               href={blueskyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="block pl-4 text-sm text-[var(--theme-accent)] hover:underline"
+              className="block text-sm text-[var(--theme-accent)] hover:underline"
+              style={{ paddingLeft: `${Math.min(depth + 2, 6) * 0.75}rem` }}
             >
               View {hiddenRepliesCount} more {hiddenRepliesCount === 1 ? 'reply' : 'replies'} on Bluesky
             </a>
