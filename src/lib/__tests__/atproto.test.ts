@@ -88,7 +88,7 @@ describe('AT Protocol Utilities', () => {
       expect(hexToRgb('')).toBeUndefined()
     })
 
-    const $type = 'app.greengale.theme.color#rgb' as const
+    const $type = 'site.standard.theme.color#rgb' as const
 
     it('parses 6-character hex with hash', () => {
       expect(hexToRgb('#ff0000')).toEqual({ $type, r: 255, g: 0, b: 0 })
@@ -126,7 +126,7 @@ describe('AT Protocol Utilities', () => {
   })
 
   describe('computeAccentForeground', () => {
-    const $type = 'app.greengale.theme.color#rgb' as const
+    const $type = 'site.standard.theme.color#rgb' as const
 
     it('returns white for dark colors (fallback without theme colors)', () => {
       // Dark blue
@@ -184,7 +184,7 @@ describe('AT Protocol Utilities', () => {
   })
 
   describe('toBasicTheme', () => {
-    const $type = 'app.greengale.theme.color#rgb' as const
+    const $type = 'site.standard.theme.color#rgb' as const
     const themeType = 'site.standard.theme.basic' as const
 
     it('returns undefined for undefined theme', () => {
@@ -1026,7 +1026,7 @@ Third.`
   })
 
   describe('hasOldBasicThemeFormat', () => {
-    const $type = 'app.greengale.theme.color#rgb' as const
+    const $type = 'site.standard.theme.color#rgb' as const
     const themeType = 'site.standard.theme.basic' as const
 
     it('returns false for null/undefined', () => {
@@ -1095,7 +1095,7 @@ Third.`
   })
 
   describe('convertOldBasicTheme', () => {
-    const $type = 'app.greengale.theme.color#rgb' as const
+    const $type = 'site.standard.theme.color#rgb' as const
     const themeType = 'site.standard.theme.basic' as const
 
     it('returns undefined for null/undefined', () => {

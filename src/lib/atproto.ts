@@ -139,10 +139,9 @@ export interface Publication {
   showInDiscover?: boolean
 }
 
-// app.greengale.theme.color#rgb format (RGB integers 0-255)
-// Uses GreenGale namespace for colors while basicTheme uses site.standard.theme.basic
+// site.standard.theme.color#rgb format (RGB integers 0-255)
 export interface SiteStandardColor {
-  $type?: 'app.greengale.theme.color#rgb'
+  $type?: 'site.standard.theme.color#rgb'
   r: number
   g: number
   b: number
@@ -700,7 +699,7 @@ export function hexToRgb(hex: string | undefined): SiteStandardColor | undefined
   // Validate parsed values
   if (isNaN(r) || isNaN(g) || isNaN(b)) return undefined
 
-  return { $type: 'app.greengale.theme.color#rgb', r, g, b }
+  return { $type: 'site.standard.theme.color#rgb', r, g, b }
 }
 
 /**
@@ -755,8 +754,8 @@ export function computeAccentForeground(
 
   // Fallback to pure black/white if theme colors don't provide sufficient contrast
   return accentLuminance > 0.179
-    ? { $type: 'app.greengale.theme.color#rgb', r: 0, g: 0, b: 0 }
-    : { $type: 'app.greengale.theme.color#rgb', r: 255, g: 255, b: 255 }
+    ? { $type: 'site.standard.theme.color#rgb', r: 0, g: 0, b: 0 }
+    : { $type: 'site.standard.theme.color#rgb', r: 255, g: 255, b: 255 }
 }
 
 /**
@@ -1152,7 +1151,7 @@ export function hasOldBasicThemeFormat(
   const colorProps = ['foreground', 'background', 'accent', 'accentForeground']
   for (const prop of colorProps) {
     const color = t[prop] as Record<string, unknown> | undefined
-    if (color && typeof color.r === 'number' && color.$type !== 'app.greengale.theme.color#rgb') {
+    if (color && typeof color.r === 'number' && color.$type !== 'site.standard.theme.color#rgb') {
       return true
     }
   }
@@ -1205,16 +1204,16 @@ export function convertOldBasicTheme(
       return {
         $type: 'site.standard.theme.basic',
         foreground: existing.foreground
-          ? { $type: 'app.greengale.theme.color#rgb', ...existing.foreground }
+          ? { $type: 'site.standard.theme.color#rgb', ...existing.foreground }
           : undefined,
         background: existing.background
-          ? { $type: 'app.greengale.theme.color#rgb', ...existing.background }
+          ? { $type: 'site.standard.theme.color#rgb', ...existing.background }
           : undefined,
         accent: existing.accent
-          ? { $type: 'app.greengale.theme.color#rgb', ...existing.accent }
+          ? { $type: 'site.standard.theme.color#rgb', ...existing.accent }
           : undefined,
         accentForeground: existing.accentForeground
-          ? { $type: 'app.greengale.theme.color#rgb', ...existing.accentForeground }
+          ? { $type: 'site.standard.theme.color#rgb', ...existing.accentForeground }
           : undefined,
       }
     }
