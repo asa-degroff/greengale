@@ -13,13 +13,13 @@ import AvifEncoderWorker from './avif-encoder.worker?worker'
 
 // AT Protocol blob limit is 1,000,000 bytes
 const MAX_BLOB_SIZE = 1000 * 1000
-const MAX_PIXELS = 35_000_000 // Maximum total pixels (~50 megapixels)
+const MAX_PIXELS = 25_000_000 // Maximum total pixels (~50 megapixels)
 const MAX_DIMENSION = 10240 // Maximum single dimension (failsafe for very thin images)
 const MIN_DIMENSION = 256 // Minimum dimension before giving up on encoding
-const RESIZE_FACTOR = 0.75 // Scale factor when retrying after encoding failure
+const RESIZE_FACTOR = 0.5 // Scale factor when retrying after encoding failure
 // cqLevel: 0-63, lower is better quality (like CRF)
-const CQ_LEVEL_START = 20 // Starting quality (good balance)
-const CQ_LEVEL_MAX = 35 // Maximum cqLevel (lower quality) to try before failing
+const CQ_LEVEL_START = 12 // Starting quality (good balance)
+const CQ_LEVEL_MAX = 24 // Maximum cqLevel (lower quality) to try before failing
 
 /** Error thrown when AVIF encoding fails and may benefit from resizing */
 class ResizableEncodingError extends Error {
