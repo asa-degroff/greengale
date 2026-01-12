@@ -1199,21 +1199,21 @@ export function convertOldBasicTheme(
       (t.foreground && typeof (t.foreground as Record<string, unknown>).r === 'number') ||
       (t.background && typeof (t.background as Record<string, unknown>).r === 'number')
     ) {
-      // Add $type fields if missing
+      // Add/update $type fields (spread first, then $type to ensure it overwrites any old value)
       const existing = oldTheme as SiteStandardBasicTheme
       return {
         $type: 'site.standard.theme.basic',
         foreground: existing.foreground
-          ? { $type: 'site.standard.theme.color#rgb', ...existing.foreground }
+          ? { ...existing.foreground, $type: 'site.standard.theme.color#rgb' }
           : undefined,
         background: existing.background
-          ? { $type: 'site.standard.theme.color#rgb', ...existing.background }
+          ? { ...existing.background, $type: 'site.standard.theme.color#rgb' }
           : undefined,
         accent: existing.accent
-          ? { $type: 'site.standard.theme.color#rgb', ...existing.accent }
+          ? { ...existing.accent, $type: 'site.standard.theme.color#rgb' }
           : undefined,
         accentForeground: existing.accentForeground
-          ? { $type: 'site.standard.theme.color#rgb', ...existing.accentForeground }
+          ? { ...existing.accentForeground, $type: 'site.standard.theme.color#rgb' }
           : undefined,
       }
     }
