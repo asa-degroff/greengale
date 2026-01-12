@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
 import { TableOfContents } from './TableOfContents'
@@ -11,7 +11,7 @@ import { extractHeadings } from '@/lib/extractHeadings'
 import { useScrollSpy } from '@/lib/useScrollSpy'
 import { useTTS } from '@/lib/useTTS'
 import { useTTSSettings } from '@/lib/useTTSSettings'
-import { extractTextForTTSAsync } from '@/lib/tts'
+import { extractTextForTTSAsync, isDiscussionSentence } from '@/lib/tts'
 import type { AuthorProfile, BlogEntry } from '@/lib/atproto'
 
 interface BlogViewerProps {
@@ -64,6 +64,33 @@ export function BlogViewer({
   const ttsSettings = useTTSSettings()
   const isTTSActive = tts.state.status !== 'idle'
   const isTTSLoading = tts.state.status === 'loading-model'
+
+  // Track whether TTS is currently reading the discussions section.
+  // When in discussions mode, we pass currentSentence only to BlueskyInteractions
+  // to prevent MarkdownRenderer from fuzzy-matching Bluesky post content.
+  const inDiscussionsSectionRef = useRef(false)
+  const [inDiscussionsSection, setInDiscussionsSection] = useState(false)
+
+  useEffect(() => {
+    const sentence = tts.state.currentSentence
+
+    if (!sentence) {
+      // TTS stopped - reset to main content mode
+      inDiscussionsSectionRef.current = false
+      setInDiscussionsSection(false)
+      return
+    }
+
+    // Detect entry into discussions section by checking for marker sentences
+    if (isDiscussionSentence(sentence) && !inDiscussionsSectionRef.current) {
+      // Entering discussions section
+      inDiscussionsSectionRef.current = true
+      setInDiscussionsSection(true)
+    }
+    // Once in discussions mode, stay there until TTS stops.
+    // Don't try to auto-detect "return to main" because discussion posts
+    // often quote or reference text from the blog.
+  }, [tts.state.currentSentence])
 
   const handleListenClick = useCallback(async () => {
     if (isTTSActive) {
@@ -229,7 +256,7 @@ export function BlogViewer({
               content={content}
               enableLatex={latex}
               blobs={blobs}
-              currentSentence={tts.state.currentSentence}
+              currentSentence={inDiscussionsSection ? null : tts.state.currentSentence}
               onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
             />
           </div>
@@ -240,7 +267,7 @@ export function BlogViewer({
           <BlueskyInteractions
             postUrl={postUrl}
             postTitle={title}
-            currentSentence={tts.state.currentSentence}
+            currentSentence={inDiscussionsSection ? tts.state.currentSentence : null}
             onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
           />
         )}

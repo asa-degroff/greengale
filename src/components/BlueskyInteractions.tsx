@@ -123,14 +123,10 @@ export function BlueskyInteractions({
       el.classList.remove('tts-highlight')
     })
 
-    // Apply new highlight
+    // Apply new highlight (no auto-scroll - discussions section is short enough to be visible)
     if (bestMatch) {
       bestMatch.classList.add('tts-highlight')
       lastHighlightIndexRef.current = bestMatchIndex
-      bestMatch.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      })
     }
   }, [currentSentence])
 

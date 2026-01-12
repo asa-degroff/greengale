@@ -4,6 +4,7 @@ import {
   extractTextForTTS,
   extractTextForTTSAsync,
   splitIntoSentences,
+  isDiscussionSentence,
   float32ToWavBlob,
   detectCapabilities,
   shiftPitch,
@@ -245,6 +246,71 @@ describe('TTS Module', () => {
 
     it('has idle status', () => {
       expect(initialTTSState.status).toBe('idle')
+    })
+  })
+
+  describe('isDiscussionSentence', () => {
+    describe('Discussion Header', () => {
+      it('detects the discussions section header', () => {
+        expect(isDiscussionSentence('Discussions from the network.')).toBe(true)
+      })
+
+      it('is case insensitive for header', () => {
+        expect(isDiscussionSentence('DISCUSSIONS FROM THE NETWORK.')).toBe(true)
+        expect(isDiscussionSentence('discussions from the network.')).toBe(true)
+      })
+
+      it('handles whitespace in header', () => {
+        expect(isDiscussionSentence('  Discussions from the network.  ')).toBe(true)
+      })
+    })
+
+    describe('Post Markers', () => {
+      it('detects "Post by" sentences', () => {
+        expect(isDiscussionSentence('Post by John: This is a great article!')).toBe(true)
+        expect(isDiscussionSentence('Post by Jane Doe: Loved reading this.')).toBe(true)
+      })
+
+      it('detects "Reply by" sentences', () => {
+        expect(isDiscussionSentence('Reply by Alice: I agree with this.')).toBe(true)
+        expect(isDiscussionSentence('Reply by Bob Smith: Great point!')).toBe(true)
+      })
+
+      it('is case insensitive for post/reply', () => {
+        expect(isDiscussionSentence('POST BY User: content')).toBe(true)
+        expect(isDiscussionSentence('REPLY BY User: content')).toBe(true)
+        expect(isDiscussionSentence('post by User: content')).toBe(true)
+        expect(isDiscussionSentence('reply by User: content')).toBe(true)
+      })
+
+      it('handles author names with special characters', () => {
+        expect(isDiscussionSentence('Post by user.bsky.social: content')).toBe(true)
+        expect(isDiscussionSentence('Post by 日本語ユーザー: content')).toBe(true)
+      })
+    })
+
+    describe('Non-Discussion Content', () => {
+      it('returns false for regular blog content', () => {
+        expect(isDiscussionSentence('This is a regular sentence.')).toBe(false)
+        expect(isDiscussionSentence('Here is some blog content.')).toBe(false)
+      })
+
+      it('returns false for sentences containing "post" or "reply" not at start', () => {
+        expect(isDiscussionSentence('I will post this tomorrow.')).toBe(false)
+        expect(isDiscussionSentence('Please reply to this email.')).toBe(false)
+        expect(isDiscussionSentence('The post by the author was great.')).toBe(false)
+      })
+
+      it('returns false for similar but non-matching patterns', () => {
+        expect(isDiscussionSentence('Posted by John: content')).toBe(false)
+        expect(isDiscussionSentence('Reply from Alice: content')).toBe(false)
+        expect(isDiscussionSentence('Post: content without author')).toBe(false)
+      })
+
+      it('returns false for empty or whitespace strings', () => {
+        expect(isDiscussionSentence('')).toBe(false)
+        expect(isDiscussionSentence('   ')).toBe(false)
+      })
     })
   })
 

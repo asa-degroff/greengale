@@ -19,6 +19,23 @@ function stripUrls(text: string): string {
   return text.replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * Check if a TTS sentence is a marker for the discussions section.
+ * Used to coordinate highlighting between MarkdownRenderer and BlueskyInteractions.
+ *
+ * Discussion markers include:
+ * - "Discussions from the network." (section header)
+ * - "Post by {author}: ..." (discussion post)
+ * - "Reply by {author}: ..." (discussion reply)
+ */
+export function isDiscussionSentence(sentence: string): boolean {
+  const normalized = sentence.toLowerCase().trim()
+  return (
+    normalized === 'discussions from the network.' ||
+    /^(post|reply) by [^:]+:/i.test(sentence)
+  )
+}
+
 // ==================== STATE TYPES ====================
 
 export type TTSStatus =
