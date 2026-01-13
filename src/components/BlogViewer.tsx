@@ -124,6 +124,10 @@ export function BlogViewer({
     ttsSettings.setSpeed(speed)
   }, [tts, ttsSettings])
 
+  const handleAutoScrollChange = useCallback((autoScroll: boolean) => {
+    ttsSettings.setAutoScroll(autoScroll)
+  }, [ttsSettings])
+
   // Determine if this post has special content that benefits from a raw view
   // Show toggle for LaTeX, SVG code blocks, or any code blocks
   const hasSpecialContent = useMemo(() => {
@@ -258,6 +262,7 @@ export function BlogViewer({
               blobs={blobs}
               currentSentence={inDiscussionsSection ? null : tts.state.currentSentence}
               onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
+              autoScroll={ttsSettings.settings.autoScroll}
             />
           </div>
         )}
@@ -296,12 +301,14 @@ export function BlogViewer({
           playbackState={tts.playbackState}
           availableVoices={tts.availableVoices}
           currentVoice={tts.currentVoice}
+          autoScroll={ttsSettings.settings.autoScroll}
           onPause={tts.pause}
           onResume={tts.resume}
           onStop={tts.stop}
           onPlaybackRateChange={handleSpeedChange}
           onPitchChange={handlePitchChange}
           onVoiceChange={handleVoiceChange}
+          onAutoScrollChange={handleAutoScrollChange}
         />
       )}
     </article>

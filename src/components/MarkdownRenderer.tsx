@@ -26,6 +26,8 @@ interface MarkdownRendererProps {
   currentSentence?: string | null
   /** Callback when user clicks on a sentence (for TTS seek) */
   onSentenceClick?: (text: string) => void
+  /** Whether to auto-scroll to the current sentence (default: true) */
+  autoScroll?: boolean
 }
 
 // Normalize text for comparison (collapse whitespace, lowercase)
@@ -86,6 +88,7 @@ export function MarkdownRenderer({
   blobs,
   currentSentence,
   onSentenceClick,
+  autoScroll = true,
 }: MarkdownRendererProps) {
   const [rendered, setRendered] = useState<ReactNode>(null)
   const [error, setError] = useState<string | null>(null)
@@ -382,13 +385,15 @@ export function MarkdownRenderer({
     if (bestMatch) {
       bestMatch.classList.add('tts-highlight')
       lastHighlightIndexRef.current = bestMatchIndex
-      // Scroll into view with some margin from top
-      bestMatch.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      })
+      // Scroll into view if auto-scroll is enabled
+      if (autoScroll) {
+        bestMatch.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        })
+      }
     }
-  }, [currentSentence])
+  }, [currentSentence, autoScroll])
 
   if (error) {
     return (

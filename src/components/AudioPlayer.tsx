@@ -23,12 +23,14 @@ interface AudioPlayerProps {
   }
   availableVoices: string[]
   currentVoice: string
+  autoScroll: boolean
   onPause: () => void
   onResume: () => void
   onStop: () => void
   onPlaybackRateChange: (rate: PlaybackRate) => void
   onPitchChange: (rate: PitchRate) => void
   onVoiceChange: (voice: string) => void
+  onAutoScrollChange: (autoScroll: boolean) => void
 }
 
 export function AudioPlayer({
@@ -36,12 +38,14 @@ export function AudioPlayer({
   playbackState,
   availableVoices,
   currentVoice,
+  autoScroll,
   onPause,
   onResume,
   onStop,
   onPlaybackRateChange,
   onPitchChange,
   onVoiceChange,
+  onAutoScrollChange,
 }: AudioPlayerProps) {
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const voiceCategories = groupVoices(availableVoices)
@@ -193,6 +197,17 @@ export function AudioPlayer({
               ))}
             </select>
           </div>
+
+          {/* Auto-scroll Toggle */}
+          <button
+            onClick={() => onAutoScrollChange(!autoScroll)}
+            className={`audio-player-button audio-player-autoscroll ${autoScroll ? 'audio-player-autoscroll--active' : ''}`}
+            title={autoScroll ? 'Auto-scroll enabled' : 'Auto-scroll disabled'}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5" />
+            </svg>
+          </button>
         </div>
 
         {/* Close Button */}

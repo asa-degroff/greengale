@@ -1,6 +1,6 @@
 /**
  * Hook for persisting TTS settings to localStorage.
- * Settings include voice, pitch, and playback speed.
+ * Settings include voice, pitch, playback speed, and auto-scroll preference.
  */
 
 import { useState, useCallback } from 'react'
@@ -13,12 +13,14 @@ export interface TTSSettings {
   voice: string
   pitch: PitchRate
   speed: PlaybackRate
+  autoScroll: boolean
 }
 
 const DEFAULT_SETTINGS: TTSSettings = {
   voice: DEFAULT_VOICE,
   pitch: 1.0,
   speed: 1.0,
+  autoScroll: true,
 }
 
 function loadSettings(): TTSSettings {
@@ -35,6 +37,7 @@ function loadSettings(): TTSSettings {
       voice: typeof parsed.voice === 'string' && parsed.voice ? parsed.voice : DEFAULT_SETTINGS.voice,
       pitch: PITCH_RATES.includes(parsed.pitch) ? parsed.pitch : DEFAULT_SETTINGS.pitch,
       speed: PLAYBACK_RATES.includes(parsed.speed) ? parsed.speed : DEFAULT_SETTINGS.speed,
+      autoScroll: typeof parsed.autoScroll === 'boolean' ? parsed.autoScroll : DEFAULT_SETTINGS.autoScroll,
     }
   } catch {
     return DEFAULT_SETTINGS
@@ -76,10 +79,19 @@ export function useTTSSettings() {
     })
   }, [])
 
+  const setAutoScroll = useCallback((autoScroll: boolean) => {
+    setSettingsState((prev) => {
+      const next = { ...prev, autoScroll }
+      saveSettings(next)
+      return next
+    })
+  }, [])
+
   return {
     settings,
     setVoice,
     setPitch,
     setSpeed,
+    setAutoScroll,
   }
 }

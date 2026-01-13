@@ -1180,6 +1180,19 @@ html {
   height: 2rem;
 }
 
+.audio-player-autoscroll {
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.5;
+}
+
+.audio-player-autoscroll--active {
+  opacity: 1;
+  background: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
 .audio-player-sentence-display {
   flex: 1;
   min-width: 0;
