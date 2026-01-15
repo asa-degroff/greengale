@@ -2,6 +2,18 @@
   "lexicon": 1,
   "id": "app.greengale.document",
   "defs": {
+    "contentRef": {
+      "type": "object",
+      "description": "Reference to external content via AT-URI. Used in site.standard.document content union.",
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT-URI pointing to the full document content"
+        }
+      }
+    },
     "main": {
       "type": "record",
       "description": "A markdown document with extended theme and LaTeX support.",

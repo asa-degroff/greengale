@@ -189,6 +189,7 @@ export interface SiteStandardDocument {
   description?: string
   coverImage?: unknown // BlobRef
   content?: {
+    $type: 'app.greengale.document#contentRef'
     uri: string // AT-URI to app.greengale.document
   }
   textContent?: string

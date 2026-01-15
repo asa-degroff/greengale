@@ -723,6 +723,7 @@ export function EditorPage() {
               updatedAt: isEditing ? new Date().toISOString() : undefined,
               textContent: extractPlaintext(content),
               content: {
+                $type: 'app.greengale.document#contentRef',
                 uri: greengaleUri,
               },
             },
