@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme } from '../atproto'
-import type { BlogEntry, SiteStandardColor } from '../atproto'
+import type { BlogEntry, SiteStandardColor, SiteStandardDocument } from '../atproto'
 import type { Theme } from '../themes'
 
 // Mock fetch globally for resolveExternalUrl tests
@@ -1186,6 +1186,79 @@ Third.`
         accentColor: '#002b36', // Dark teal
       })
       expect(lightTheme?.accentForeground).toEqual({ $type, r: 255, g: 255, b: 255 }) // Light background
+    })
+  })
+
+  describe('SiteStandardDocument content field', () => {
+    it('requires $type in content for union type compliance', () => {
+      // This test documents the required structure for site.standard.document content field
+      // The content field is an open union that requires a $type discriminator
+      const validContent: SiteStandardDocument['content'] = {
+        $type: 'app.greengale.document#contentRef',
+        uri: 'at://did:plc:abc123/app.greengale.document/xyz789',
+      }
+      expect(validContent.$type).toBe('app.greengale.document#contentRef')
+      expect(validContent.uri).toMatch(/^at:\/\//)
+    })
+
+    it('accepts valid AT-URI format for content.uri', () => {
+      const validUris = [
+        'at://did:plc:abc123/app.greengale.document/xyz789',
+        'at://did:web:example.com/app.greengale.document/abc',
+        'at://handle.bsky.social/app.greengale.document/123',
+      ]
+
+      for (const uri of validUris) {
+        const content: SiteStandardDocument['content'] = {
+          $type: 'app.greengale.document#contentRef',
+          uri,
+        }
+        expect(content.uri).toBe(uri)
+      }
+    })
+
+    it('uses correct $type for GreenGale content references', () => {
+      // The $type must match the lexicon definition: app.greengale.document#contentRef
+      const content: SiteStandardDocument['content'] = {
+        $type: 'app.greengale.document#contentRef',
+        uri: 'at://did:plc:test/app.greengale.document/test123',
+      }
+      // Verify the type is the GreenGale contentRef type
+      expect(content.$type).toBe('app.greengale.document#contentRef')
+      // The type string should reference the contentRef definition in the document lexicon
+      expect(content.$type).toContain('#contentRef')
+    })
+
+    it('content field is optional in SiteStandardDocument', () => {
+      // site.standard.document allows content to be undefined
+      const docWithoutContent: SiteStandardDocument = {
+        site: 'at://did:plc:abc/site.standard.publication/tid123',
+        title: 'Test Document',
+        publishedAt: '2024-01-15T10:00:00Z',
+      }
+      expect(docWithoutContent.content).toBeUndefined()
+    })
+
+    it('full SiteStandardDocument structure with content', () => {
+      const fullDoc: SiteStandardDocument = {
+        site: 'at://did:plc:abc123/site.standard.publication/tid456',
+        path: '/handle/post-rkey',
+        title: 'Test Post Title',
+        description: 'A test post description',
+        content: {
+          $type: 'app.greengale.document#contentRef',
+          uri: 'at://did:plc:abc123/app.greengale.document/post-rkey',
+        },
+        textContent: 'Plain text version of the post',
+        publishedAt: '2024-01-15T10:00:00Z',
+        updatedAt: '2024-01-16T12:00:00Z',
+      }
+
+      expect(fullDoc.site).toMatch(/^at:\/\//)
+      expect(fullDoc.path).toBe('/handle/post-rkey')
+      expect(fullDoc.title).toBe('Test Post Title')
+      expect(fullDoc.content?.$type).toBe('app.greengale.document#contentRef')
+      expect(fullDoc.content?.uri).toMatch(/^at:\/\//)
     })
   })
 })
