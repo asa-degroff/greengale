@@ -4,6 +4,7 @@
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 const GREENGALE_V1_COLLECTION = 'app.greengale.blog.entry'
 const GREENGALE_V2_COLLECTION = 'app.greengale.document'
+const SITE_STANDARD_COLLECTION = 'site.standard.document'
 
 export interface BlogEntry {
   uri: string
@@ -16,6 +17,7 @@ export interface BlogEntry {
   subtitle?: string
   createdAt?: string
   visibility?: 'public' | 'url' | 'author'
+  siteStandardUri?: string // AT-URI of site.standard.document if dual-published
 }
 
 export interface AuthorProfile {
@@ -119,6 +121,27 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
 }
 
 /**
+ * Check if a site.standard.document record exists for a given rkey
+ */
+async function checkSiteStandardDocument(
+  pdsEndpoint: string,
+  did: string,
+  rkey: string
+): Promise<string | undefined> {
+  try {
+    const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(SITE_STANDARD_COLLECTION)}&rkey=${encodeURIComponent(rkey)}`
+    const response = await fetch(url)
+    if (response.ok) {
+      const data = await response.json() as { uri: string }
+      return data.uri
+    }
+  } catch {
+    // Ignore errors - record doesn't exist
+  }
+  return undefined
+}
+
+/**
  * Fetch a blog entry from the author's PDS
  */
 export async function getBlogEntry(
@@ -158,6 +181,12 @@ export async function getBlogEntry(
         ? (record.publishedAt as string | undefined)
         : (record.createdAt as string | undefined)
 
+      // For GreenGale V2 documents, check if site.standard.document exists
+      let siteStandardUri: string | undefined
+      if (isV2) {
+        siteStandardUri = await checkSiteStandardDocument(pdsEndpoint, did, rkey)
+      }
+
       return {
         uri: data.uri,
         cid: data.cid,
@@ -169,6 +198,7 @@ export async function getBlogEntry(
         subtitle: record.subtitle as string | undefined,
         createdAt,
         visibility: visibility as BlogEntry['visibility'],
+        siteStandardUri,
       }
     } catch {
       // Continue to next collection

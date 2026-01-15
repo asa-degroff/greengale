@@ -158,6 +158,22 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     )
   }
 
+  // Handle /:handle/.well-known/site.standard.publication for user blog verification
+  // e.g., /3fz.org/.well-known/site.standard.publication
+  const userPublicationMatch = url.pathname.match(/^\/([^/]+)\/\.well-known\/site\.standard\.publication$/)
+  if (userPublicationMatch) {
+    const handle = userPublicationMatch[1]
+    const workerUrl = `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
+    const workerResponse = await fetch(workerUrl)
+    return new Response(await workerResponse.text(), {
+      status: workerResponse.status,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
+  }
+
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
   const isBotRequest = isBot(userAgent)
