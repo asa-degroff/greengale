@@ -8,6 +8,7 @@
       "properties": {
         "preset": {
           "type": "string",
+          "maxLength": 32,
           "enum": [
             "github-light",
             "github-dark",
@@ -32,18 +33,22 @@
       "properties": {
         "background": {
           "type": "string",
+          "maxLength": 64,
           "description": "Background color"
         },
         "text": {
           "type": "string",
+          "maxLength": 64,
           "description": "Primary text color"
         },
         "accent": {
           "type": "string",
+          "maxLength": 64,
           "description": "Accent/link color"
         },
         "codeBackground": {
           "type": "string",
+          "maxLength": 64,
           "description": "Code block background color"
         }
       }
@@ -56,6 +61,7 @@
         "url": {
           "type": "string",
           "format": "uri",
+          "maxLength": 2048,
           "description": "URL of the OGP image"
         },
         "width": {
@@ -80,6 +86,7 @@
         },
         "name": {
           "type": "string",
+          "maxLength": 256,
           "description": "Original filename"
         },
         "alt": {

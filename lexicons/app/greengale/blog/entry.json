@@ -33,6 +33,7 @@
           },
           "visibility": {
             "type": "string",
+            "maxLength": 16,
             "enum": ["public", "url", "author"],
             "default": "public",
             "description": "Controls who can view this entry"

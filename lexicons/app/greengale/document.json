@@ -18,6 +18,7 @@
           "url": {
             "type": "string",
             "format": "uri",
+            "maxLength": 2048,
             "description": "Base publication URL (e.g., https://greengale.app)"
           },
           "path": {
@@ -45,6 +46,7 @@
           },
           "visibility": {
             "type": "string",
+            "maxLength": 16,
             "enum": ["public", "url", "author"],
             "default": "public",
             "description": "Controls who can view this document"

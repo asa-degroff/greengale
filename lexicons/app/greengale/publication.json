@@ -5,7 +5,7 @@
     "main": {
       "type": "record",
       "description": "A publication/blog configuration with title, description, and default theme. Compatible with site.standard ecosystem.",
-      "key": "self",
+      "key": "literal:self",
       "record": {
         "type": "object",
         "required": ["url", "name"],
@@ -13,6 +13,7 @@
           "url": {
             "type": "string",
             "format": "uri",
+            "maxLength": 2048,
             "description": "Publication base URL (e.g., https://greengale.app)"
           },
           "name": {
