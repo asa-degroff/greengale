@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "A publication/blog configuration with title, description, and default theme. Compatible with site.standard ecosystem.",
+      "description": "A publication configuration with title, description, and default theme.",
       "key": "literal:self",
       "record": {
         "type": "object",
