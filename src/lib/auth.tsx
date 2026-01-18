@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
-import { migrateSiteStandardPublication } from './atproto'
+import { migrateSiteStandardPublication, fixSiteStandardUrls } from './atproto'
 
 // Minimal OAuth scopes: blog entry collections + V2 document collection + publication + site.standard + blob uploads
 const OAUTH_SCOPE =
@@ -135,6 +135,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } catch (migrationError) {
               console.error('[Auth] Migration error:', migrationError)
               // Don't block auth if migration fails - it will retry next login
+            }
+          }
+
+          // Fix site.standard URL issues (publication URL and document paths)
+          // Uses localStorage to track completion per user (v1 = initial fix)
+          const urlFixKey = `site-standard-url-fix-v1-${did}`
+          if (!localStorage.getItem(urlFixKey)) {
+            console.log('[Auth] Checking site.standard URLs...')
+            try {
+              const urlFixResult = await fixSiteStandardUrls(result.session, resolvedHandle)
+              if (urlFixResult.publicationFixed || urlFixResult.documentsFixed > 0) {
+                console.log(`[Auth] URL fix completed: publication=${urlFixResult.publicationFixed}, documents=${urlFixResult.documentsFixed}`)
+              } else if (urlFixResult.error) {
+                console.warn('[Auth] URL fix failed:', urlFixResult.error)
+              } else {
+                console.log('[Auth] No URL fixes needed')
+              }
+              // Mark as complete even if no fixes were needed
+              localStorage.setItem(urlFixKey, new Date().toISOString())
+            } catch (urlFixError) {
+              console.error('[Auth] URL fix error:', urlFixError)
+              // Don't block auth if URL fix fails - it will retry next login
             }
           }
 

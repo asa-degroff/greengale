@@ -1432,3 +1432,144 @@ export async function migrateSiteStandardPublication(
     return { migrated: false, error: message }
   }
 }
+
+/**
+ * Fix site.standard URL issues:
+ * 1. Publication URL should be https://greengale.app/{handle} not https://greengale.app
+ * 2. Document path should be /{rkey} not /{handle}/{rkey}
+ *
+ * @returns Object with counts of fixed records and any errors
+ */
+export async function fixSiteStandardUrls(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> },
+  handle: string
+): Promise<{ publicationFixed: boolean; documentsFixed: number; error?: string }> {
+  const expectedPubUrl = `https://greengale.app/${handle}`
+  let publicationFixed = false
+  let documentsFixed = 0
+
+  try {
+    // Step 1: Fix publication URL if needed
+    const pubListResponse = await session.fetchHandler(
+      `/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`,
+      { method: 'GET' }
+    )
+
+    if (pubListResponse.ok) {
+      const pubListData = (await pubListResponse.json()) as {
+        records?: Array<{ uri: string; value: Record<string, unknown> }>
+      }
+
+      for (const item of pubListData.records || []) {
+        const record = item.value
+        const rkey = item.uri.split('/').pop() || ''
+
+        // Check if this is a GreenGale record
+        const preferences = record.preferences as Record<string, unknown> | undefined
+        const isGreenGaleRecord =
+          preferences?.greengale ||
+          (typeof record.url === 'string' && record.url.includes('greengale.app'))
+
+        if (!isGreenGaleRecord) continue
+
+        // Check if URL needs fixing (missing handle or has wrong format)
+        const currentUrl = record.url as string
+        if (currentUrl === 'https://greengale.app' || currentUrl === 'https://greengale.app/') {
+          console.log(`[URL Fix] Fixing publication URL: ${currentUrl} -> ${expectedPubUrl}`)
+
+          const updatedRecord = {
+            ...record,
+            url: expectedPubUrl,
+          }
+
+          const putResponse = await session.fetchHandler(
+            `/xrpc/com.atproto.repo.putRecord`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                repo: session.did,
+                collection: SITE_STANDARD_PUBLICATION,
+                rkey: rkey,
+                record: updatedRecord,
+              }),
+            }
+          )
+
+          if (putResponse.ok) {
+            publicationFixed = true
+            console.log(`[URL Fix] Successfully fixed publication URL`)
+          } else {
+            const errorText = await putResponse.text()
+            console.warn(`[URL Fix] Failed to fix publication URL: ${errorText}`)
+          }
+        }
+      }
+    }
+
+    // Step 2: Fix document paths if needed
+    const docListResponse = await session.fetchHandler(
+      `/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(SITE_STANDARD_DOCUMENT)}&limit=100`,
+      { method: 'GET' }
+    )
+
+    if (docListResponse.ok) {
+      const docListData = (await docListResponse.json()) as {
+        records?: Array<{ uri: string; value: Record<string, unknown> }>
+      }
+
+      // Pattern to detect duplicate handle in path: /{handle}/{rkey} where rkey is a TID
+      const duplicateHandlePattern = new RegExp(`^/${handle}/([234567a-z]{13})$`)
+
+      for (const item of docListData.records || []) {
+        const record = item.value
+        const rkey = item.uri.split('/').pop() || ''
+        const currentPath = record.path as string | undefined
+
+        if (!currentPath) continue
+
+        // Check if path has the duplicate handle pattern
+        const match = currentPath.match(duplicateHandlePattern)
+        if (match) {
+          const docRkey = match[1]
+          const fixedPath = `/${docRkey}`
+
+          console.log(`[URL Fix] Fixing document path: ${currentPath} -> ${fixedPath}`)
+
+          const updatedRecord = {
+            ...record,
+            path: fixedPath,
+          }
+
+          const putResponse = await session.fetchHandler(
+            `/xrpc/com.atproto.repo.putRecord`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                repo: session.did,
+                collection: SITE_STANDARD_DOCUMENT,
+                rkey: rkey,
+                record: updatedRecord,
+              }),
+            }
+          )
+
+          if (putResponse.ok) {
+            documentsFixed++
+            console.log(`[URL Fix] Successfully fixed document ${rkey}`)
+          } else {
+            const errorText = await putResponse.text()
+            console.warn(`[URL Fix] Failed to fix document ${rkey}: ${errorText}`)
+          }
+        }
+      }
+    }
+
+    return { publicationFixed, documentsFixed }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[URL Fix] Failed to fix site.standard URLs:', message)
+    return { publicationFixed, documentsFixed, error: message }
+  }
+}

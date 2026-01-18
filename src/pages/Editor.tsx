@@ -716,7 +716,7 @@ export function EditorPage() {
             session,
             {
               site: siteStandardPublicationUri,
-              path: `/${handle}/${resultRkey}`,
+              path: `/${resultRkey}`,
               title: title.trim(),
               description: subtitle || undefined,
               publishedAt,

@@ -7,6 +7,7 @@ import {
   listBlogEntries,
   getPublication,
   savePublication,
+  fixSiteStandardUrls,
   type BlogEntry,
   type AuthorProfile,
   type Publication,
@@ -99,6 +100,9 @@ export function AuthorPage() {
   const [scanningOrphans, setScanningOrphans] = useState(false)
   const [deletingOrphans, setDeletingOrphans] = useState(false)
   const [orphanScanComplete, setOrphanScanComplete] = useState(false)
+  // URL fix state
+  const [fixingUrls, setFixingUrls] = useState(false)
+  const [urlFixResult, setUrlFixResult] = useState<{ publicationFixed: boolean; documentsFixed: number } | null>(null)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
   // Check if custom colors have valid contrast
@@ -233,7 +237,7 @@ export function AuthorPage() {
     try {
       const newPublication: Publication = {
         name: pubName.trim(),
-        url: 'https://greengale.app',
+        url: `https://greengale.app/${handle}`,
         description: pubDescription.trim() || undefined,
         theme: pubTheme === 'default' && !pubCustomColors.background
           ? undefined
@@ -362,6 +366,39 @@ export function AuthorPage() {
       setPubError(err instanceof Error ? err.message : 'Failed to delete orphaned records')
     } finally {
       setDeletingOrphans(false)
+    }
+  }
+
+  // Fix site.standard URL issues (publication URL and document paths)
+  const handleFixUrls = async () => {
+    if (!session || !handle) return
+
+    setFixingUrls(true)
+    setUrlFixResult(null)
+    setPubError(null)
+
+    try {
+      const result = await fixSiteStandardUrls(
+        {
+          did: session.did,
+          fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options),
+        },
+        handle
+      )
+
+      setUrlFixResult(result)
+
+      if (result.error) {
+        setPubError(result.error)
+      }
+
+      // Clear the localStorage key to allow automatic re-check on next login
+      localStorage.removeItem(`site-standard-url-fix-v1-${session.did}`)
+    } catch (err) {
+      console.error('Error fixing URLs:', err)
+      setPubError(err instanceof Error ? err.message : 'Failed to fix URLs')
+    } finally {
+      setFixingUrls(false)
     }
   }
 
@@ -845,6 +882,39 @@ export function AuthorPage() {
                             {deletingOrphans ? 'Deleting...' : `Delete ${orphanedRecords.length} orphaned record${orphanedRecords.length !== 1 ? 's' : ''}`}
                           </button>
                         </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* URL Fix */}
+                <div className="pt-3 border-t border-[var(--site-border)]">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs text-[var(--site-text-secondary)]">
+                        Fix standard.site URLs
+                      </span>
+                      <p className="text-xs text-[var(--site-text-secondary)] opacity-70 mt-0.5">
+                        Fix publication URL and document paths
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleFixUrls}
+                      disabled={fixingUrls}
+                      className="px-3 py-1 text-xs border border-[var(--site-border)] rounded hover:bg-[var(--site-bg)] text-[var(--site-text-secondary)] disabled:opacity-50"
+                    >
+                      {fixingUrls ? 'Fixing...' : 'Fix URLs'}
+                    </button>
+                  </div>
+
+                  {urlFixResult && (
+                    <div className="mt-2">
+                      {urlFixResult.publicationFixed || urlFixResult.documentsFixed > 0 ? (
+                        <p className="text-xs text-green-500">
+                          Fixed: {urlFixResult.publicationFixed ? 'publication URL' : ''}{urlFixResult.publicationFixed && urlFixResult.documentsFixed > 0 ? ', ' : ''}{urlFixResult.documentsFixed > 0 ? `${urlFixResult.documentsFixed} document path${urlFixResult.documentsFixed !== 1 ? 's' : ''}` : ''}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-green-500">No URL fixes needed.</p>
                       )}
                     </div>
                   )}
