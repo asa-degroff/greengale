@@ -141,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Fix site.standard URL issues (publication URL and document paths)
           // Uses localStorage to track completion per user (v1 = initial fix)
           const urlFixKey = `site-standard-url-fix-v1-${did}`
-          if (!localStorage.getItem(urlFixKey)) {
+          if (!localStorage.getItem(urlFixKey) && resolvedHandle) {
             console.log('[Auth] Checking site.standard URLs...')
             try {
               const urlFixResult = await fixSiteStandardUrls(result.session, resolvedHandle)
