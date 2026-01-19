@@ -10,7 +10,7 @@ const LETTERS = ['G', 'r', 'e', 'e', 'n', 'G', 'a', 'l', 'e']
 // Cumulative rotation positions for each letter (degrees around the cylinder)
 // More breathing room for e's, n, and l to prevent overlap
 // G=wide, r=narrow, e=medium, e=medium, n=medium, G=wide, a=medium, l=narrow, e=medium
-const LETTER_POSITIONS = [0, 7, 13, 20, 27, 35, 43, 48.5, 54]
+const LETTER_POSITIONS = [0, 7, 13, 20, 27.2, 35.4, 43.4, 48.9, 54.4]
 
 // Initial offset to center the visible letters in view
 const INITIAL_ROTATION_OFFSET = -27.5
