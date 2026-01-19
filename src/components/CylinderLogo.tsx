@@ -27,6 +27,11 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
   const dragStartProgressRef = useRef(0)
   const stopAtLoopEndRef = useRef(false)
   const lastProgressRef = useRef(0)
+  // Velocity tracking for inertia
+  const lastDragXRef = useRef(0)
+  const lastDragTimeRef = useRef(0)
+  const velocityRef = useRef(0)
+  const inertiaTweenRef = useRef<gsap.core.Tween | null>(null)
 
   // Wrap progress to 0-1 range
   const wrapProgress = useCallback((p: number) => {
@@ -112,6 +117,7 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
     return () => {
       window.removeEventListener('resize', handleResize)
       animationRef.current?.kill()
+      inertiaTweenRef.current?.kill()
     }
   }, [])
 
@@ -120,6 +126,8 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
     if (!isDraggingRef.current && animationRef.current) {
       // Cancel any pending stop-at-loop-end
       stopAtLoopEndRef.current = false
+      // Kill any ongoing inertia
+      inertiaTweenRef.current?.kill()
       gsap.to(animationRef.current, { timeScale: 1, duration: 0.5 })
       animationRef.current.play()
     }
@@ -142,6 +150,14 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
     dragStartXRef.current = e.clientX
     dragStartProgressRef.current = animationRef.current.progress()
 
+    // Initialize velocity tracking
+    lastDragXRef.current = e.clientX
+    lastDragTimeRef.current = performance.now()
+    velocityRef.current = 0
+
+    // Kill any ongoing inertia
+    inertiaTweenRef.current?.kill()
+
     // Pause auto-spin during drag
     animationRef.current.pause()
     gsap.killTweensOf(animationRef.current)
@@ -153,6 +169,19 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
   // Drag move
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDraggingRef.current || !animationRef.current) return
+
+    const now = performance.now()
+    const deltaTime = now - lastDragTimeRef.current
+
+    // Calculate velocity (pixels per millisecond)
+    if (deltaTime > 0) {
+      const deltaX = lastDragXRef.current - e.clientX
+      velocityRef.current = deltaX / deltaTime
+    }
+
+    // Update tracking
+    lastDragXRef.current = e.clientX
+    lastDragTimeRef.current = now
 
     const deltaX = dragStartXRef.current - e.clientX
     const progressDelta = deltaX / DRAG_DISTANCE_PER_ROTATION
@@ -168,22 +197,52 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
     isDraggingRef.current = false
     ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
 
-    // Check if still hovering to resume auto-spin
+    const velocity = velocityRef.current
+    const hasSignificantVelocity = Math.abs(velocity) > 0.1
+
+    // Check if still hovering
     const container = containerRef.current
-    if (container) {
-      const rect = container.getBoundingClientRect()
-      const isHovering =
-        e.clientX >= rect.left &&
+    const rect = container?.getBoundingClientRect()
+    const isHovering = rect
+      ? e.clientX >= rect.left &&
         e.clientX <= rect.right &&
         e.clientY >= rect.top &&
         e.clientY <= rect.bottom
+      : false
 
-      if (isHovering && animationRef.current) {
-        gsap.to(animationRef.current, { timeScale: 1, duration: 0.5 })
-        animationRef.current.play()
-      }
+    if (hasSignificantVelocity && animationRef.current) {
+      // Apply inertia - convert velocity to progress change
+      // velocity is in pixels/ms, we need progress units
+      const currentProgress = animationRef.current.progress()
+      // Calculate throw distance based on velocity (more velocity = more distance)
+      const throwDistance = (velocity * 500) / DRAG_DISTANCE_PER_ROTATION
+      const targetProgress = currentProgress + throwDistance
+
+      // Create inertia tween
+      const progressObj = { value: currentProgress }
+      inertiaTweenRef.current = gsap.to(progressObj, {
+        value: targetProgress,
+        duration: Math.min(Math.abs(throwDistance) * 3, 2), // Duration based on distance, max 2s
+        ease: 'power2.out',
+        onUpdate: () => {
+          if (animationRef.current) {
+            animationRef.current.progress(wrapProgress(progressObj.value))
+          }
+        },
+        onComplete: () => {
+          // After inertia completes, resume auto-spin if still hovering
+          if (isHovering && animationRef.current) {
+            gsap.to(animationRef.current, { timeScale: 1, duration: 0.5 })
+            animationRef.current.play()
+          }
+        },
+      })
+    } else if (isHovering && animationRef.current) {
+      // No significant velocity, just resume auto-spin
+      gsap.to(animationRef.current, { timeScale: 1, duration: 0.5 })
+      animationRef.current.play()
     }
-  }, [])
+  }, [wrapProgress])
 
   return (
     <div
