@@ -25,6 +25,8 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
   const isDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
   const dragStartProgressRef = useRef(0)
+  const stopAtLoopEndRef = useRef(false)
+  const lastProgressRef = useRef(0)
 
   // Wrap progress to 0-1 range
   const wrapProgress = useCallback((p: number) => {
@@ -73,6 +75,30 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
         ease: 'none',
         repeat: -1,
         paused: true, // Start paused
+        onUpdate: function () {
+          // Check if we need to stop at the end of a loop
+          if (stopAtLoopEndRef.current && animationRef.current) {
+            const progress = animationRef.current.progress()
+            // Detect when we've crossed from high progress back to low (loop completed)
+            // Progress goes 0 -> 1, then wraps back to 0 on repeat
+            if (lastProgressRef.current > 0.95 && progress < 0.05) {
+              stopAtLoopEndRef.current = false
+              // Smooth deceleration instead of abrupt stop
+              gsap.to(animationRef.current, {
+                timeScale: 0,
+                duration: 0.5,
+                ease: 'power2.out',
+                onComplete: () => {
+                  // Just pause, don't snap position - let it rest where it naturally stopped
+                  if (animationRef.current) {
+                    animationRef.current.pause()
+                  }
+                },
+              })
+            }
+            lastProgressRef.current = progress
+          }
+        },
       }
     )
 
@@ -92,15 +118,19 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
   // Mouse enter - start spinning
   const handleMouseEnter = useCallback(() => {
     if (!isDraggingRef.current && animationRef.current) {
+      // Cancel any pending stop-at-loop-end
+      stopAtLoopEndRef.current = false
       gsap.to(animationRef.current, { timeScale: 1, duration: 0.5 })
       animationRef.current.play()
     }
   }, [])
 
-  // Mouse leave - stop spinning
+  // Mouse leave - continue until loop completes, then stop
   const handleMouseLeave = useCallback(() => {
     if (!isDraggingRef.current && animationRef.current) {
-      gsap.to(animationRef.current, { timeScale: 0, duration: 0.5 })
+      // Set flag to stop at the end of the current loop
+      stopAtLoopEndRef.current = true
+      lastProgressRef.current = animationRef.current.progress()
     }
   }, [])
 
