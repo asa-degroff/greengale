@@ -45,14 +45,19 @@ export function CylinderLogo({ className = '' }: CylinderLogoProps) {
     // Wrap rotation values to keep them in visible range (-90 to 90)
     const wrapRotation = gsap.utils.wrap(-90, 90)
 
-    // Calculate responsive radius based on container width
+    // Calculate responsive radius based on font size (not container width)
+    // This ensures letter spacing scales proportionally with the text size
     const updateRadius = () => {
-      const container = containerRef.current
-      if (!container) return
+      const firstLetter = letters[0]
+      if (!firstLetter) return
 
-      const containerWidth = container.offsetWidth
-      // Radius scales with container, with min/max bounds
-      const radius = Math.min(Math.max(containerWidth * 0.4, 80), 200)
+      // Get the computed font size of the letters
+      const computedStyle = window.getComputedStyle(firstLetter)
+      const fontSize = parseFloat(computedStyle.fontSize)
+
+      // Radius proportional to font size - this keeps the visual spacing consistent
+      // Multiplier tuned to match original spacing (was ~200px at ~48px font)
+      const radius = fontSize * 4.25
 
       gsap.set(letters, {
         xPercent: -50,
