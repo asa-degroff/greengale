@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BlogCard } from '@/components/BlogCard'
-import { TextLogo } from '@/components/TextLogo'
+import { CylinderLogo } from '@/components/CylinderLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
@@ -133,7 +133,7 @@ export function HomePage() {
     <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
-          <TextLogo className="h-8 md:h-10 mx-auto mb-4 text-[var(--site-text)]" />
+          <CylinderLogo className="h-10 md:h-14 text-3xl md:text-5xl mb-4 text-[var(--site-text)]" />
           <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle. WhiteWind support and Standard Site indexing.</a>
