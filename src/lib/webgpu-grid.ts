@@ -121,9 +121,12 @@ export class WebGPURippleGrid {
   private eventHandlers: {
     pointerdown: (e: PointerEvent) => void
     pointermove: (e: PointerEvent) => void
+    pointerrawupdate: (e: PointerEvent) => void
     pointerup: () => void
+    pointercancel: () => void
     pointerleave: () => void
   } | null = null
+  private activePointerId: number | null = null
 
   // Theme colors (normalized 0-1)
   private gridColor: RGB = [0.3, 0.35, 0.25]
@@ -311,6 +314,7 @@ export class WebGPURippleGrid {
         e.clientY <= rect.bottom
       ) {
         this.isMouseDown = true
+        this.activePointerId = e.pointerId
         const coords = getNormalizedCoordinates(e.clientX, e.clientY)
         this.lastMouseX = coords.x
         this.lastMouseY = coords.y
@@ -319,27 +323,74 @@ export class WebGPURippleGrid {
     }
 
     const handlePointerMove = (e: PointerEvent) => {
-      if (!this.isMouseDown) return
+      if (!this.isMouseDown || e.pointerId !== this.activePointerId) return
+
+      // Use coalesced events for smooth touch tracking on mobile
+      // This gives us all the intermediate points that were combined into this event
+      const events = e.getCoalescedEvents?.() ?? [e]
+      const now = performance.now()
+
+      for (const coalescedEvent of events) {
+        const coords = getNormalizedCoordinates(coalescedEvent.clientX, coalescedEvent.clientY)
+        // Add ripple directly for each coalesced point to ensure smooth trails
+        this.rippleManager.addRipple(coords.x, coords.y, now)
+      }
+
+      // Update last position for the render loop fallback
       const coords = getNormalizedCoordinates(e.clientX, e.clientY)
       this.lastMouseX = coords.x
       this.lastMouseY = coords.y
     }
 
-    const handlePointerUp = () => {
+    // pointerrawupdate fires even during scroll, giving us continuous tracking
+    // This is key for mobile where scrolling would otherwise stop pointermove events
+    const handlePointerRawUpdate = (e: PointerEvent) => {
+      if (!this.isMouseDown || e.pointerId !== this.activePointerId) return
+
+      const events = e.getCoalescedEvents?.() ?? [e]
+      const now = performance.now()
+
+      for (const coalescedEvent of events) {
+        const coords = getNormalizedCoordinates(coalescedEvent.clientX, coalescedEvent.clientY)
+        this.rippleManager.addRipple(coords.x, coords.y, now)
+      }
+
+      const coords = getNormalizedCoordinates(e.clientX, e.clientY)
+      this.lastMouseX = coords.x
+      this.lastMouseY = coords.y
+    }
+
+    const handlePointerUp = (e?: PointerEvent) => {
+      if (e && e.pointerId !== this.activePointerId) return
       if (this.isMouseDown) {
         this.isMouseDown = false
+        this.activePointerId = null
       }
+    }
+
+    const handlePointerCancel = (e?: PointerEvent) => {
+      // pointercancel fires when browser takes over (e.g., for scrolling)
+      // We intentionally do NOT reset state here because pointerrawupdate
+      // continues to fire during scroll, allowing us to keep tracking.
+      // State is only reset on pointerup (when finger actually leaves screen).
+      // This is a no-op but we keep the handler to document the behavior.
+      void e
     }
 
     window.addEventListener('pointerdown', handlePointerDown, { passive: true })
     window.addEventListener('pointermove', handlePointerMove, { passive: true })
+    // pointerrawupdate isn't in TS DOM types yet, cast to EventListener
+    window.addEventListener('pointerrawupdate', handlePointerRawUpdate as EventListener, { passive: true })
     window.addEventListener('pointerup', handlePointerUp, { passive: true })
+    window.addEventListener('pointercancel', handlePointerCancel, { passive: true })
     window.addEventListener('pointerleave', handlePointerUp, { passive: true })
 
     this.eventHandlers = {
       pointerdown: handlePointerDown,
       pointermove: handlePointerMove,
+      pointerrawupdate: handlePointerRawUpdate,
       pointerup: handlePointerUp,
+      pointercancel: handlePointerCancel,
       pointerleave: handlePointerUp,
     }
   }
@@ -422,7 +473,9 @@ export class WebGPURippleGrid {
     if (this.eventHandlers) {
       window.removeEventListener('pointerdown', this.eventHandlers.pointerdown)
       window.removeEventListener('pointermove', this.eventHandlers.pointermove)
+      window.removeEventListener('pointerrawupdate', this.eventHandlers.pointerrawupdate as EventListener)
       window.removeEventListener('pointerup', this.eventHandlers.pointerup)
+      window.removeEventListener('pointercancel', this.eventHandlers.pointercancel)
       window.removeEventListener('pointerleave', this.eventHandlers.pointerleave)
       this.eventHandlers = null
     }
