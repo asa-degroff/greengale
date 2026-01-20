@@ -206,6 +206,71 @@ describe('API Endpoints', () => {
       const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=nopub.bsky.social')
       expect(res.status).toBe(404)
     })
+
+    it('skips publications with invalid TID rkeys', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:user123' })
+
+      // Mock DID document response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // Mock listRecords with invalid TID (wrong length) first, then valid TID
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [
+            // Invalid: 'self' is not a valid TID
+            { uri: 'at://did:plc:user123/site.standard.publication/self', value: { preferences: { greengale: {} } } },
+            // Invalid: too short
+            { uri: 'at://did:plc:user123/site.standard.publication/abc', value: { preferences: { greengale: {} } } },
+            // Valid: exactly 13 base32-sortable chars
+            { uri: 'at://did:plc:user123/site.standard.publication/3validtidhere', value: { preferences: { greengale: {} } } },
+          ],
+        }),
+      })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=test.bsky.social')
+      expect(res.status).toBe(200)
+
+      const text = await res.text()
+      // Should return the valid TID, skipping invalid ones
+      expect(text).toBe('at://did:plc:user123/site.standard.publication/3validtidhere')
+    })
+
+    it('skips non-GreenGale publications (without preferences.greengale)', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:user123' })
+
+      // Mock DID document response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // First record has no preferences.greengale, second one does
+      // TIDs must be exactly 13 chars using only 234567a-z
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [
+            // Not a GreenGale record (no preferences.greengale)
+            { uri: 'at://did:plc:user123/site.standard.publication/3otherpubhere', value: { name: 'Other Site' } },
+            // GreenGale record
+            { uri: 'at://did:plc:user123/site.standard.publication/3greengalepub', value: { preferences: { greengale: {} } } },
+          ],
+        }),
+      })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=test.bsky.social')
+      expect(res.status).toBe(200)
+
+      const text = await res.text()
+      // Should return the GreenGale publication, not the other one
+      expect(text).toBe('at://did:plc:user123/site.standard.publication/3greengalepub')
+    })
   })
 
   describe('getRecentPosts', () => {
