@@ -430,7 +430,7 @@ export const DEFAULT_VOICE = 'af_heart'
 export const SAMPLE_RATE = 24000
 export const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 
-export const PLAYBACK_RATES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const
+export const PLAYBACK_RATES = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0] as const
 export type PlaybackRate = (typeof PLAYBACK_RATES)[number]
 
 export const PITCH_RATES = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5] as const
