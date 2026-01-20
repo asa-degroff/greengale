@@ -105,6 +105,9 @@ export async function renderPostHtml(options: RenderOptions): Promise<string> {
   ${entry.siteStandardUri ? `<!-- site.standard Document Verification -->
   <link rel="site.standard.document" href="${escapeHtml(entry.siteStandardUri)}">` : ''}
 
+  ${entry.siteStandardPublicationUri ? `<!-- site.standard Publication Verification -->
+  <link rel="site.standard.publication" href="${escapeHtml(entry.siteStandardPublicationUri)}">` : ''}
+
   <!-- JSON-LD Structured Data -->
   <script type="application/ld+json">
 ${JSON.stringify(jsonLd, null, 2)}

@@ -5,6 +5,7 @@ const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 const GREENGALE_V1_COLLECTION = 'app.greengale.blog.entry'
 const GREENGALE_V2_COLLECTION = 'app.greengale.document'
 const SITE_STANDARD_COLLECTION = 'site.standard.document'
+const SITE_STANDARD_PUBLICATION = 'site.standard.publication'
 
 export interface BlogEntry {
   uri: string
@@ -18,6 +19,7 @@ export interface BlogEntry {
   createdAt?: string
   visibility?: 'public' | 'url' | 'author'
   siteStandardUri?: string // AT-URI of site.standard.document if dual-published
+  siteStandardPublicationUri?: string // AT-URI of author's site.standard.publication
 }
 
 export interface AuthorProfile {
@@ -142,6 +144,51 @@ async function checkSiteStandardDocument(
 }
 
 /**
+ * Check if a TID is valid (13 characters, base32-sortable)
+ */
+function isValidTid(rkey: string): boolean {
+  return /^[234567abcdefghijklmnopqrstuvwxyz]{13}$/.test(rkey)
+}
+
+/**
+ * Get the site.standard.publication AT-URI for a user
+ * Returns the first publication record with a valid TID rkey that has GreenGale preferences
+ */
+async function getSiteStandardPublicationUri(
+  pdsEndpoint: string,
+  did: string
+): Promise<string | undefined> {
+  try {
+    const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`
+    const listRes = await fetch(listUrl)
+    if (!listRes.ok) return undefined
+
+    const listData = await listRes.json() as {
+      records?: Array<{ uri: string; value: Record<string, unknown> }>
+    }
+    if (!listData.records || listData.records.length === 0) return undefined
+
+    // Find a GreenGale record with a valid TID rkey
+    for (const record of listData.records) {
+      // Only consider records that belong to GreenGale (have preferences.greengale)
+      const preferences = record.value?.preferences as Record<string, unknown> | undefined
+      if (!preferences?.greengale) {
+        continue
+      }
+
+      const rkey = record.uri.split('/').pop() || ''
+      if (isValidTid(rkey)) {
+        return record.uri
+      }
+    }
+
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Fetch a blog entry from the author's PDS
  */
 export async function getBlogEntry(
@@ -181,10 +228,20 @@ export async function getBlogEntry(
         ? (record.publishedAt as string | undefined)
         : (record.createdAt as string | undefined)
 
-      // For GreenGale V2 documents, check if site.standard.document exists
+      // For GreenGale V2 documents, check if site.standard records exist
       let siteStandardUri: string | undefined
+      let siteStandardPublicationUri: string | undefined
       if (isV2) {
-        siteStandardUri = await checkSiteStandardDocument(pdsEndpoint, did, rkey)
+        // Check for document and publication in parallel
+        const [docUri, pubUri] = await Promise.all([
+          checkSiteStandardDocument(pdsEndpoint, did, rkey),
+          getSiteStandardPublicationUri(pdsEndpoint, did),
+        ])
+        siteStandardUri = docUri
+        // Only include publication URI if document exists (indicates dual-publishing is enabled)
+        if (docUri) {
+          siteStandardPublicationUri = pubUri
+        }
       }
 
       return {
@@ -199,6 +256,7 @@ export async function getBlogEntry(
         createdAt,
         visibility: visibility as BlogEntry['visibility'],
         siteStandardUri,
+        siteStandardPublicationUri,
       }
     } catch {
       // Continue to next collection

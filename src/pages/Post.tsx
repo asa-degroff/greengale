@@ -8,6 +8,7 @@ import {
   getPublication,
   type BlogEntry,
   type AuthorProfile,
+  type Publication,
 } from '@/lib/atproto'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast, type Theme } from '@/lib/themes'
@@ -44,6 +45,7 @@ export function PostPage() {
   const { session } = useAuth()
   const [entry, setEntry] = useState<BlogEntry | null>(null)
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
+  const [publication, setPublication] = useState<Publication | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
@@ -88,6 +90,7 @@ export function PostPage() {
 
         setEntry(entryResult)
         setAuthor(authorResult)
+        setPublication(publicationResult)
 
         // Track this author as recently viewed
         addRecentAuthor({
@@ -139,6 +142,61 @@ export function PostPage() {
       link.remove()
     }
   }, [entry?.uri])
+
+  // Add site.standard.document link tag for posts that are dual-published
+  useEffect(() => {
+    // Only add if:
+    // 1. We have the entry and author data
+    // 2. The publication has site.standard enabled
+    // 3. The post is from GreenGale (not WhiteWind)
+    if (!entry || !publication?.enableSiteStandard || entry.source !== 'greengale') return
+
+    const siteStandardDocUri = `at://${entry.authorDid}/site.standard.document/${entry.rkey}`
+
+    const link = document.createElement('link')
+    link.rel = 'site.standard.document'
+    link.href = siteStandardDocUri
+    document.head.appendChild(link)
+
+    return () => {
+      link.remove()
+    }
+  }, [entry, publication?.enableSiteStandard])
+
+  // Add site.standard.publication link tag
+  // This helps validators find the author's publication from the document page
+  useEffect(() => {
+    if (!author?.handle || !publication?.enableSiteStandard) return
+
+    let cancelled = false
+    const link = document.createElement('link')
+
+    async function fetchPublicationUri() {
+      try {
+        // Fetch the publication AT-URI from the well-known endpoint
+        const response = await fetch(
+          `/.well-known/site.standard.publication?handle=${encodeURIComponent(author!.handle)}`
+        )
+        if (!response.ok || cancelled) return
+
+        const uri = await response.text()
+        if (cancelled || !uri.startsWith('at://')) return
+
+        link.rel = 'site.standard.publication'
+        link.href = uri
+        document.head.appendChild(link)
+      } catch {
+        // Silently fail - publication link is not critical
+      }
+    }
+
+    fetchPublicationUri()
+
+    return () => {
+      cancelled = true
+      link.remove()
+    }
+  }, [author?.handle, publication?.enableSiteStandard])
 
   if (loading) {
     return (
