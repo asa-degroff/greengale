@@ -315,6 +315,19 @@ describe('API Endpoints', () => {
         expect.objectContaining({ expirationTtl: 1800 })
       )
     })
+
+    it('limits each author to 3 posts using window function', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
+
+      // Verify the query uses a CTE with ROW_NUMBER to limit per-author posts
+      expect(env.DB.prepare).toHaveBeenCalled()
+      const query = env.DB.prepare.mock.calls[0][0]
+      expect(query).toContain('WITH ranked_posts AS')
+      expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank')
+      expect(query).toContain('WHERE author_rank <= 3')
+    })
   })
 
   describe('getAuthorPosts', () => {

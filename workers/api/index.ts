@@ -889,28 +889,38 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     }
 
     // Cache miss - query database
-    let query = `
-      SELECT
-        p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-        p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url,
-        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
-      FROM posts p
-      LEFT JOIN authors a ON p.author_did = a.did
-      LEFT JOIN publications pub ON p.author_did = pub.author_did
-      WHERE p.visibility = 'public'
-        AND p.uri NOT LIKE '%/site.standard.document/%'
-        AND COALESCE(pub.show_in_discover, 1) = 1
+    // Use a CTE with window function to limit each author to 3 posts max
+    // This prevents very active users from dominating the recents feed
+    const cursorClause = cursor ? 'AND p.indexed_at < ?' : ''
+    const query = `
+      WITH ranked_posts AS (
+        SELECT
+          p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
+          p.visibility, p.created_at, p.indexed_at,
+          a.handle, a.display_name, a.avatar_url,
+          (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank
+        FROM posts p
+        LEFT JOIN authors a ON p.author_did = a.did
+        LEFT JOIN publications pub ON p.author_did = pub.author_did
+        WHERE p.visibility = 'public'
+          AND p.uri NOT LIKE '%/site.standard.document/%'
+          AND COALESCE(pub.show_in_discover, 1) = 1
+          ${cursorClause}
+      )
+      SELECT uri, author_did, rkey, title, subtitle, source,
+             visibility, created_at, indexed_at,
+             handle, display_name, avatar_url, tags
+      FROM ranked_posts
+      WHERE author_rank <= 3
+      ORDER BY indexed_at DESC
+      LIMIT ?
     `
 
     const params: (string | number)[] = []
-
     if (cursor) {
-      query += ` AND p.indexed_at < ?`
       params.push(cursor)
     }
-
-    query += ` ORDER BY p.indexed_at DESC LIMIT ?`
     params.push(limit + 1)
 
     const result = await c.env.DB.prepare(query).bind(...params).all()
