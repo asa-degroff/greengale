@@ -765,6 +765,35 @@ export function shiftPitch(
   return output
 }
 
+// ==================== TTS MODEL CACHE DETECTION ====================
+
+/**
+ * Check if the TTS model is cached.
+ * Transformers.js v3 uses the Cache API (not IndexedDB) for model storage.
+ * We check for the presence of model files in the cache to determine if the model is available.
+ */
+export async function isTTSModelCached(): Promise<boolean> {
+  // Check if Cache API is available
+  if (typeof caches === 'undefined') return false
+
+  try {
+    // Transformers.js v3 uses the Cache API with cache name 'transformers-cache'
+    const cache = await caches.open('transformers-cache')
+    const keys = await cache.keys()
+
+    // Check if any cached URL contains our model ID (Kokoro)
+    const hasKokoroModel = keys.some((request) => {
+      const url = request.url.toLowerCase()
+      return url.includes('kokoro') && (url.includes('.onnx') || url.includes('model'))
+    })
+
+    return hasKokoroModel
+  } catch {
+    // Cache API not available or error accessing cache
+    return false
+  }
+}
+
 // ==================== WAV ENCODING ====================
 
 /**

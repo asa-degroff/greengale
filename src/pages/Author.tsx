@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
+import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
 import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
@@ -12,6 +13,8 @@ import {
   type AuthorProfile,
   type Publication,
 } from '@/lib/atproto'
+import type { PitchRate, PlaybackRate } from '@/lib/tts'
+import { DEFAULT_VOICE } from '@/lib/tts'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { useThemePreference } from '@/lib/useThemePreference'
 import {
@@ -94,6 +97,9 @@ export function AuthorPage() {
   const [pubError, setPubError] = useState<string | null>(null)
   const [pubEnableSiteStandard, setPubEnableSiteStandard] = useState(false)
   const [pubShowInDiscover, setPubShowInDiscover] = useState(true)
+  const [pubVoice, setPubVoice] = useState<string>(DEFAULT_VOICE)
+  const [pubPitch, setPubPitch] = useState<PitchRate>(1.0)
+  const [pubSpeed, setPubSpeed] = useState<PlaybackRate>(1.0)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   // Orphaned records cleanup state
   const [orphanedRecords, setOrphanedRecords] = useState<Array<{ rkey: string; title: string }>>([])
@@ -209,6 +215,10 @@ export function AuthorPage() {
       // Default to true unless explicitly disabled
       setPubEnableSiteStandard(publication.enableSiteStandard !== false)
       setPubShowInDiscover(publication.showInDiscover !== false)
+      // Initialize voice settings from publication
+      setPubVoice(publication.voiceTheme?.voice || DEFAULT_VOICE)
+      setPubPitch((publication.voiceTheme?.pitch as PitchRate) || 1.0)
+      setPubSpeed((publication.voiceTheme?.speed as PlaybackRate) || 1.0)
     } else {
       // Default values for new publication
       setPubName(author?.displayName || '')
@@ -222,6 +232,10 @@ export function AuthorPage() {
       })
       setPubEnableSiteStandard(true) // Enabled by default
       setPubShowInDiscover(true) // Discoverable by default
+      // Reset voice settings to defaults for new publication
+      setPubVoice(DEFAULT_VOICE)
+      setPubPitch(1.0)
+      setPubSpeed(1.0)
     }
     setPubError(null)
     setShowPublicationModal(true)
@@ -235,6 +249,17 @@ export function AuthorPage() {
     setPubError(null)
 
     try {
+      // Build voiceTheme only if user has customized settings (not all defaults)
+      const hasCustomVoiceSettings =
+        pubVoice !== DEFAULT_VOICE || pubPitch !== 1.0 || pubSpeed !== 1.0
+      const voiceTheme = hasCustomVoiceSettings
+        ? {
+            voice: pubVoice !== DEFAULT_VOICE ? pubVoice : undefined,
+            pitch: pubPitch !== 1.0 ? pubPitch : undefined,
+            speed: pubSpeed !== 1.0 ? pubSpeed : undefined,
+          }
+        : undefined
+
       const newPublication: Publication = {
         name: pubName.trim(),
         url: `https://greengale.app/${handle}`,
@@ -247,6 +272,7 @@ export function AuthorPage() {
             },
         enableSiteStandard: pubEnableSiteStandard || undefined,
         showInDiscover: pubShowInDiscover,
+        voiceTheme,
       }
 
       await savePublication(
@@ -822,6 +848,22 @@ export function AuthorPage() {
                     </p>
                   </div>
                 </label>
+              </div>
+
+              {/* Voice Settings */}
+              <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
+                <h3 className="text-sm font-medium text-[var(--site-text)] mb-3">Voice Settings</h3>
+                <p className="text-xs text-[var(--site-text-secondary)] mb-4">
+                  Set default voice for TTS playback. Readers can still adjust settings in their player.
+                </p>
+                <VoiceSettingsPreview
+                  voice={pubVoice}
+                  pitch={pubPitch}
+                  speed={pubSpeed}
+                  onVoiceChange={setPubVoice}
+                  onPitchChange={setPubPitch}
+                  onSpeedChange={setPubSpeed}
+                />
               </div>
 
               {/* site.standard Publishing */}

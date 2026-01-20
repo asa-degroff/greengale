@@ -35,6 +35,11 @@
             "type": "boolean",
             "default": false,
             "description": "When enabled, also publishes to site.standard.publication and site.standard.document collections for cross-platform compatibility"
+          },
+          "voiceTheme": {
+            "type": "ref",
+            "ref": "app.greengale.blog.defs#voiceTheme",
+            "description": "Default voice settings for TTS playback on posts"
           }
         }
       }

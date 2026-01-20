@@ -127,6 +127,25 @@
           "description": "The short string name of the value or type of this label"
         }
       }
+    },
+    "voiceTheme": {
+      "type": "object",
+      "description": "Voice theme configuration for TTS playback",
+      "properties": {
+        "voice": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Voice ID for TTS (e.g., 'af_heart', 'am_adam')"
+        },
+        "pitch": {
+          "type": "integer",
+          "description": "Pitch multiplier x100 (100 = normal, range 50-150)"
+        },
+        "speed": {
+          "type": "integer",
+          "description": "Playback speed multiplier x100 (100 = normal, range 50-200)"
+        }
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme } from '../atproto'
+import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme, parseVoiceTheme, voiceThemeToRecord } from '../atproto'
 import type { BlogEntry, SiteStandardColor, SiteStandardDocument } from '../atproto'
 import type { Theme } from '../themes'
 
@@ -1397,6 +1397,216 @@ Third.`
       expect(fullDoc.title).toBe('Test Post Title')
       expect(fullDoc.content?.$type).toBe('app.greengale.document#contentRef')
       expect(fullDoc.content?.uri).toMatch(/^at:\/\//)
+    })
+  })
+
+  describe('parseVoiceTheme', () => {
+    it('returns undefined for null/undefined', () => {
+      expect(parseVoiceTheme(null)).toBeUndefined()
+      expect(parseVoiceTheme(undefined)).toBeUndefined()
+    })
+
+    it('returns undefined for non-objects', () => {
+      expect(parseVoiceTheme('string')).toBeUndefined()
+      expect(parseVoiceTheme(123)).toBeUndefined()
+      expect(parseVoiceTheme(true)).toBeUndefined()
+      expect(parseVoiceTheme([])).toBeUndefined()
+    })
+
+    it('returns undefined for empty object', () => {
+      expect(parseVoiceTheme({})).toBeUndefined()
+    })
+
+    it('parses voice setting', () => {
+      expect(parseVoiceTheme({ voice: 'af_heart' })).toEqual({ voice: 'af_heart' })
+      expect(parseVoiceTheme({ voice: 'am_adam' })).toEqual({ voice: 'am_adam' })
+    })
+
+    it('ignores empty voice string', () => {
+      expect(parseVoiceTheme({ voice: '' })).toBeUndefined()
+    })
+
+    it('ignores non-string voice', () => {
+      expect(parseVoiceTheme({ voice: 123 })).toBeUndefined()
+      expect(parseVoiceTheme({ voice: null })).toBeUndefined()
+    })
+
+    it('parses valid pitch values', () => {
+      expect(parseVoiceTheme({ pitch: 0.5 })).toEqual({ pitch: 0.5 })
+      expect(parseVoiceTheme({ pitch: 1.0 })).toEqual({ pitch: 1.0 })
+      expect(parseVoiceTheme({ pitch: 1.5 })).toEqual({ pitch: 1.5 })
+      expect(parseVoiceTheme({ pitch: 0.75 })).toEqual({ pitch: 0.75 })
+    })
+
+    it('ignores pitch values outside valid range', () => {
+      expect(parseVoiceTheme({ pitch: 0.4 })).toBeUndefined()
+      expect(parseVoiceTheme({ pitch: 1.6 })).toBeUndefined()
+      expect(parseVoiceTheme({ pitch: 0 })).toBeUndefined()
+      expect(parseVoiceTheme({ pitch: 2.0 })).toBeUndefined()
+    })
+
+    it('ignores non-number pitch', () => {
+      expect(parseVoiceTheme({ pitch: '1.0' })).toBeUndefined()
+      expect(parseVoiceTheme({ pitch: null })).toBeUndefined()
+    })
+
+    it('parses valid speed values', () => {
+      expect(parseVoiceTheme({ speed: 0.5 })).toEqual({ speed: 0.5 })
+      expect(parseVoiceTheme({ speed: 1.0 })).toEqual({ speed: 1.0 })
+      expect(parseVoiceTheme({ speed: 2.0 })).toEqual({ speed: 2.0 })
+      expect(parseVoiceTheme({ speed: 1.5 })).toEqual({ speed: 1.5 })
+    })
+
+    it('ignores speed values outside valid range', () => {
+      expect(parseVoiceTheme({ speed: 0.4 })).toBeUndefined()
+      expect(parseVoiceTheme({ speed: 2.1 })).toBeUndefined()
+      expect(parseVoiceTheme({ speed: 0 })).toBeUndefined()
+    })
+
+    it('ignores non-number speed', () => {
+      expect(parseVoiceTheme({ speed: '1.0' })).toBeUndefined()
+      expect(parseVoiceTheme({ speed: null })).toBeUndefined()
+    })
+
+    it('parses complete voiceTheme object', () => {
+      expect(parseVoiceTheme({
+        voice: 'bf_emma',
+        pitch: 0.9,
+        speed: 1.2,
+      })).toEqual({
+        voice: 'bf_emma',
+        pitch: 0.9,
+        speed: 1.2,
+      })
+    })
+
+    it('parses partial voiceTheme with valid values only', () => {
+      expect(parseVoiceTheme({
+        voice: 'am_adam',
+        pitch: 0.3, // Invalid (out of range)
+        speed: 1.5,
+      })).toEqual({
+        voice: 'am_adam',
+        speed: 1.5,
+      })
+
+      expect(parseVoiceTheme({
+        voice: '',      // Invalid (empty)
+        pitch: 1.0,
+        speed: 'fast',  // Invalid (not a number)
+      })).toEqual({
+        pitch: 1.0,
+      })
+    })
+
+    it('ignores unknown properties', () => {
+      expect(parseVoiceTheme({
+        voice: 'af_heart',
+        unknownProp: 'value',
+        anotherProp: 123,
+      })).toEqual({
+        voice: 'af_heart',
+      })
+    })
+
+    it('handles boundary values for pitch', () => {
+      expect(parseVoiceTheme({ pitch: 0.5 })).toEqual({ pitch: 0.5 })
+      expect(parseVoiceTheme({ pitch: 1.5 })).toEqual({ pitch: 1.5 })
+      // Just outside boundaries
+      expect(parseVoiceTheme({ pitch: 0.49 })).toBeUndefined()
+      expect(parseVoiceTheme({ pitch: 1.51 })).toBeUndefined()
+    })
+
+    it('handles boundary values for speed', () => {
+      expect(parseVoiceTheme({ speed: 0.5 })).toEqual({ speed: 0.5 })
+      expect(parseVoiceTheme({ speed: 2.0 })).toEqual({ speed: 2.0 })
+      // Just outside boundaries
+      expect(parseVoiceTheme({ speed: 0.49 })).toBeUndefined()
+      expect(parseVoiceTheme({ speed: 2.01 })).toBeUndefined()
+    })
+
+    // Integer format tests (AT Protocol stores as x100)
+    it('parses pitch from integer format (x100)', () => {
+      expect(parseVoiceTheme({ pitch: 50 })).toEqual({ pitch: 0.5 })
+      expect(parseVoiceTheme({ pitch: 100 })).toEqual({ pitch: 1.0 })
+      expect(parseVoiceTheme({ pitch: 150 })).toEqual({ pitch: 1.5 })
+      expect(parseVoiceTheme({ pitch: 90 })).toEqual({ pitch: 0.9 })
+    })
+
+    it('parses speed from integer format (x100)', () => {
+      expect(parseVoiceTheme({ speed: 50 })).toEqual({ speed: 0.5 })
+      expect(parseVoiceTheme({ speed: 100 })).toEqual({ speed: 1.0 })
+      expect(parseVoiceTheme({ speed: 200 })).toEqual({ speed: 2.0 })
+      expect(parseVoiceTheme({ speed: 125 })).toEqual({ speed: 1.25 })
+    })
+
+    it('parses complete voiceTheme from integer format', () => {
+      expect(parseVoiceTheme({
+        voice: 'bf_emma',
+        pitch: 90,
+        speed: 120,
+      })).toEqual({
+        voice: 'bf_emma',
+        pitch: 0.9,
+        speed: 1.2,
+      })
+    })
+  })
+
+  describe('voiceThemeToRecord', () => {
+    it('returns undefined for undefined input', () => {
+      expect(voiceThemeToRecord(undefined)).toBeUndefined()
+    })
+
+    it('returns undefined for empty voiceTheme', () => {
+      expect(voiceThemeToRecord({})).toBeUndefined()
+    })
+
+    it('converts voice only', () => {
+      expect(voiceThemeToRecord({ voice: 'af_heart' })).toEqual({ voice: 'af_heart' })
+    })
+
+    it('converts pitch to integer format (x100)', () => {
+      expect(voiceThemeToRecord({ pitch: 0.5 })).toEqual({ pitch: 50 })
+      expect(voiceThemeToRecord({ pitch: 0.9 })).toEqual({ pitch: 90 })
+      expect(voiceThemeToRecord({ pitch: 1.5 })).toEqual({ pitch: 150 })
+    })
+
+    it('converts speed to integer format (x100)', () => {
+      expect(voiceThemeToRecord({ speed: 0.5 })).toEqual({ speed: 50 })
+      expect(voiceThemeToRecord({ speed: 1.25 })).toEqual({ speed: 125 })
+      expect(voiceThemeToRecord({ speed: 2.0 })).toEqual({ speed: 200 })
+    })
+
+    it('excludes pitch when value is 1.0 (default)', () => {
+      expect(voiceThemeToRecord({ pitch: 1.0 })).toBeUndefined()
+      expect(voiceThemeToRecord({ voice: 'af_heart', pitch: 1.0 })).toEqual({ voice: 'af_heart' })
+    })
+
+    it('excludes speed when value is 1.0 (default)', () => {
+      expect(voiceThemeToRecord({ speed: 1.0 })).toBeUndefined()
+      expect(voiceThemeToRecord({ voice: 'af_heart', speed: 1.0 })).toEqual({ voice: 'af_heart' })
+    })
+
+    it('converts complete voiceTheme', () => {
+      expect(voiceThemeToRecord({
+        voice: 'bf_emma',
+        pitch: 0.9,
+        speed: 1.2,
+      })).toEqual({
+        voice: 'bf_emma',
+        pitch: 90,
+        speed: 120,
+      })
+    })
+
+    it('handles partial voiceTheme with non-default values', () => {
+      expect(voiceThemeToRecord({
+        pitch: 0.75,
+        speed: 1.0, // Default, should be excluded
+      })).toEqual({
+        pitch: 75,
+      })
     })
   })
 })

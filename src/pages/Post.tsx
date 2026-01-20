@@ -283,6 +283,7 @@ export function PostPage() {
         blobs={entry.blobs}
         postUrl={`${window.location.origin}/${handle}/${rkey}`}
         tags={entry.tags}
+        publicationVoiceTheme={publication?.voiceTheme}
       />
     </div>
   )

@@ -124,12 +124,70 @@ function parseTheme(rawTheme: unknown): Theme | undefined {
   return Object.keys(result).length > 0 ? result : undefined
 }
 
+export function parseVoiceTheme(rawVoiceTheme: unknown): VoiceTheme | undefined {
+  if (!rawVoiceTheme || typeof rawVoiceTheme !== 'object') return undefined
+
+  const voiceTheme = rawVoiceTheme as Record<string, unknown>
+  const result: VoiceTheme = {}
+
+  if (typeof voiceTheme.voice === 'string' && voiceTheme.voice.length > 0) {
+    result.voice = voiceTheme.voice
+  }
+
+  // Pitch is stored as integer (x100) in AT Protocol, convert to float
+  if (typeof voiceTheme.pitch === 'number') {
+    const pitch = voiceTheme.pitch >= 50 ? voiceTheme.pitch / 100 : voiceTheme.pitch
+    if (pitch >= 0.5 && pitch <= 1.5) {
+      result.pitch = pitch
+    }
+  }
+
+  // Speed is stored as integer (x100) in AT Protocol, convert to float
+  if (typeof voiceTheme.speed === 'number') {
+    const speed = voiceTheme.speed >= 50 ? voiceTheme.speed / 100 : voiceTheme.speed
+    if (speed >= 0.5 && speed <= 2.0) {
+      result.speed = speed
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+/**
+ * Convert VoiceTheme to AT Protocol format (integers x100 for pitch/speed)
+ */
+export function voiceThemeToRecord(voiceTheme: VoiceTheme | undefined): Record<string, string | number> | undefined {
+  if (!voiceTheme) return undefined
+
+  const result: Record<string, string | number> = {}
+
+  if (voiceTheme.voice) {
+    result.voice = voiceTheme.voice
+  }
+
+  if (voiceTheme.pitch !== undefined && voiceTheme.pitch !== 1.0) {
+    result.pitch = Math.round(voiceTheme.pitch * 100)
+  }
+
+  if (voiceTheme.speed !== undefined && voiceTheme.speed !== 1.0) {
+    result.speed = Math.round(voiceTheme.speed * 100)
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
 export interface AuthorProfile {
   did: string
   handle: string
   displayName?: string
   avatar?: string
   description?: string
+}
+
+export interface VoiceTheme {
+  voice?: string
+  pitch?: number
+  speed?: number
 }
 
 export interface Publication {
@@ -139,6 +197,7 @@ export interface Publication {
   theme?: Theme
   enableSiteStandard?: boolean
   showInDiscover?: boolean
+  voiceTheme?: VoiceTheme
 }
 
 // site.standard.theme.color#rgb format (RGB integers 0-255)
@@ -628,6 +687,7 @@ export async function getPublication(identifier: string): Promise<Publication | 
       theme: parseTheme(record.theme),
       enableSiteStandard: (record.enableSiteStandard as boolean | undefined) || false,
       showInDiscover: (record.showInDiscover as boolean | undefined) ?? true,
+      voiceTheme: parseVoiceTheme(record.voiceTheme),
     }
   } catch {
     // Publication doesn't exist
@@ -652,6 +712,7 @@ export async function savePublication(
     theme: publication.theme || undefined,
     enableSiteStandard: publication.enableSiteStandard || undefined,
     showInDiscover: publication.showInDiscover === false ? false : undefined,
+    voiceTheme: voiceThemeToRecord(publication.voiceTheme),
   }
 
   const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {

@@ -13,7 +13,8 @@ import { useScrollSpy } from '@/lib/useScrollSpy'
 import { useTTS } from '@/lib/useTTS'
 import { useTTSSettings } from '@/lib/useTTSSettings'
 import { extractTextForTTSAsync, isDiscussionSentence } from '@/lib/tts'
-import type { AuthorProfile, BlogEntry } from '@/lib/atproto'
+import type { AuthorProfile, BlogEntry, VoiceTheme } from '@/lib/atproto'
+import { DEFAULT_VOICE } from '@/lib/tts'
 
 interface BlogViewerProps {
   content: string
@@ -27,6 +28,7 @@ interface BlogViewerProps {
   blobs?: BlogEntry['blobs']
   postUrl?: string
   tags?: string[]
+  publicationVoiceTheme?: VoiceTheme
 }
 
 // Check if content has SVG code blocks that will be transformed by remark-svg
@@ -58,6 +60,7 @@ export function BlogViewer({
   blobs,
   postUrl,
   tags,
+  publicationVoiceTheme,
 }: BlogViewerProps) {
   const { forceDefaultTheme } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
@@ -101,15 +104,29 @@ export function BlogViewer({
     } else {
       const text = await extractTextForTTSAsync(content, blobs, postUrl)
       if (text.trim()) {
-        // Start TTS with saved settings
+        // Apply settings precedence: Publication theme > User localStorage > Global defaults
+        // Publication theme takes priority so authors can set the intended voice for their content
+        const effectiveVoice = publicationVoiceTheme?.voice
+          || ttsSettings.settings.voice
+          || DEFAULT_VOICE
+
+        const effectivePitch = (publicationVoiceTheme?.pitch as typeof ttsSettings.settings.pitch)
+          || ttsSettings.settings.pitch
+          || 1.0
+
+        const effectiveSpeed = (publicationVoiceTheme?.speed as typeof ttsSettings.settings.speed)
+          || ttsSettings.settings.speed
+          || 1.0
+
+        // Start TTS with effective settings
         tts.start(text, {
-          voice: ttsSettings.settings.voice,
-          pitch: ttsSettings.settings.pitch,
-          speed: ttsSettings.settings.speed,
+          voice: effectiveVoice,
+          pitch: effectivePitch,
+          speed: effectiveSpeed,
         })
       }
     }
-  }, [content, blobs, postUrl, isTTSActive, tts, ttsSettings.settings])
+  }, [content, blobs, postUrl, isTTSActive, tts, ttsSettings.settings, publicationVoiceTheme])
 
   // Callbacks that update both TTS and persist settings
   const handleVoiceChange = useCallback((voice: string) => {
