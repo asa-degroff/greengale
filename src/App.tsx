@@ -2,6 +2,7 @@ import { createBrowserRouter, RouterProvider, Outlet } from 'react-router-dom'
 import { AuthProvider } from '@/lib/auth'
 import { ThemePreferenceProvider } from '@/lib/useThemePreference'
 import { Sidebar } from '@/components/Sidebar'
+import { PWAUpdatePrompt } from '@/components/PWAUpdatePrompt'
 import { HomePage } from '@/pages/Home'
 import { AuthorPage } from '@/pages/Author'
 import { PostPage } from '@/pages/Post'
@@ -45,7 +46,12 @@ const router = createBrowserRouter([
 ])
 
 function App() {
-  return <RouterProvider router={router} />
+  return (
+    <>
+      <RouterProvider router={router} />
+      <PWAUpdatePrompt />
+    </>
+  )
 }
 
 export default App
