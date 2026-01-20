@@ -924,6 +924,89 @@ describe('API Endpoints', () => {
       expect(data.results).toHaveLength(1)
       expect(data.results[0].post.title).toBe('My Dual-Published Post')
     })
+
+    it('returns tag search results with correct format', async () => {
+      const mockResults = [
+        {
+          did: 'did:plc:abc',
+          handle: 'test.bsky.social',
+          display_name: 'Test User',
+          avatar_url: 'https://example.com/avatar.jpg',
+          pub_name: null,
+          pub_url: null,
+          post_rkey: '3abc123',
+          post_title: 'Post About JavaScript',
+          matched_tag: 'javascript',
+          match_priority: 7,
+          match_type: 'tag',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=javascript')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.results).toHaveLength(1)
+      expect(data.results[0]).toEqual({
+        did: 'did:plc:abc',
+        handle: 'test.bsky.social',
+        displayName: 'Test User',
+        avatarUrl: 'https://example.com/avatar.jpg',
+        publication: null,
+        matchType: 'tag',
+        post: {
+          rkey: '3abc123',
+          title: 'Post About JavaScript',
+        },
+        tag: 'javascript',
+      })
+    })
+
+    it('handles mixed author, post, and tag results', async () => {
+      const mockResults = [
+        { did: 'did:1', handle: 'user1', match_type: 'handle', post_rkey: null, post_title: null, matched_tag: null },
+        { did: 'did:2', handle: 'user2', match_type: 'postTitle', post_rkey: 'post123', post_title: 'A Great Post', matched_tag: null },
+        { did: 'did:3', handle: 'user3', match_type: 'tag', post_rkey: 'post456', post_title: 'Tagged Post', matched_tag: 'react' },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=react')
+      const data = await res.json()
+
+      expect(data.results).toHaveLength(3)
+      expect(data.results[0].matchType).toBe('handle')
+      expect(data.results[0].tag).toBeUndefined()
+      expect(data.results[1].matchType).toBe('postTitle')
+      expect(data.results[1].tag).toBeUndefined()
+      expect(data.results[2].matchType).toBe('tag')
+      expect(data.results[2].tag).toBe('react')
+      expect(data.results[2].post).toEqual({ rkey: 'post456', title: 'Tagged Post' })
+    })
+
+    it('includes tag in match types', async () => {
+      const mockResults = [
+        { did: 'did:1', handle: 'user1', match_type: 'handle' },
+        { did: 'did:2', handle: 'user2', display_name: 'Display', match_type: 'displayName' },
+        { did: 'did:3', handle: 'user3', pub_name: 'Blog Name', match_type: 'publicationName' },
+        { did: 'did:4', handle: 'user4', pub_url: 'https://example.com', match_type: 'publicationUrl' },
+        { did: 'did:5', handle: 'user5', post_rkey: 'post1', post_title: 'Post Title', match_type: 'postTitle' },
+        { did: 'did:6', handle: 'user6', post_rkey: 'post2', post_title: 'Tagged Post', matched_tag: 'typescript', match_type: 'tag' },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockResults })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.search.publications?q=test')
+      const data = await res.json()
+
+      expect(data.results.map((r: { matchType: string }) => r.matchType)).toEqual([
+        'handle',
+        'displayName',
+        'publicationName',
+        'publicationUrl',
+        'postTitle',
+        'tag',
+      ])
+    })
   })
 
   describe('checkWhitelist', () => {

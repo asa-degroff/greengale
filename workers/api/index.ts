@@ -1274,6 +1274,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
     // 4. Publication name contains
     // 5. Publication URL contains
     // 6. Post title contains
+    // 7. Post tag matches
     const result = await c.env.DB.prepare(`
       SELECT * FROM (
         -- Part 1: Author/publication matches
@@ -1286,6 +1287,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           p.url as pub_url,
           NULL as post_rkey,
           NULL as post_title,
+          NULL as matched_tag,
           CASE
             WHEN LOWER(a.handle) = ?1 THEN 1
             WHEN LOWER(a.handle) LIKE ?2 THEN 2
@@ -1324,6 +1326,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           NULL as pub_url,
           posts.rkey as post_rkey,
           posts.title as post_title,
+          NULL as matched_tag,
           6 as match_priority,
           'postTitle' as match_type,
           a.posts_count
@@ -1335,6 +1338,33 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           GROUP BY author_did, rkey
         ) posts
         JOIN authors a ON posts.author_did = a.did
+
+        UNION ALL
+
+        -- Part 3: Tag matches - find posts with matching tags
+        SELECT
+          a.did,
+          a.handle,
+          a.display_name,
+          a.avatar_url,
+          NULL as pub_name,
+          NULL as pub_url,
+          tagged_posts.rkey as post_rkey,
+          tagged_posts.title as post_title,
+          tagged_posts.tag as matched_tag,
+          7 as match_priority,
+          'tag' as match_type,
+          a.posts_count
+        FROM (
+          SELECT p.author_did, p.rkey, MIN(p.uri) as uri, p.title, pt.tag
+          FROM posts p
+          JOIN post_tags pt ON p.uri = pt.post_uri
+          WHERE p.visibility = 'public'
+            AND p.uri NOT LIKE '%/site.standard.document/%'
+            AND LOWER(pt.tag) LIKE ?3
+          GROUP BY p.author_did, p.rkey, pt.tag
+        ) tagged_posts
+        JOIN authors a ON tagged_posts.author_did = a.did
       )
       ORDER BY match_priority ASC, posts_count DESC
       LIMIT ?4
@@ -1354,6 +1384,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       pub_url: string | null
       post_rkey: string | null
       post_title: string | null
+      matched_tag: string | null
       match_type: string
     }
 
@@ -1366,11 +1397,12 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
         name: row.pub_name,
         url: row.pub_url || null,
       } : null,
-      matchType: row.match_type as 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle',
+      matchType: row.match_type as 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle' | 'tag',
       post: row.post_rkey ? {
         rkey: row.post_rkey,
         title: row.post_title || '',
       } : undefined,
+      tag: row.matched_tag || undefined,
     }))
 
     const response = { results }

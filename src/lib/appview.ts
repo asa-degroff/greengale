@@ -200,12 +200,14 @@ export interface SearchResult {
     name: string
     url: string | null
   } | null
-  matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle'
-  // Optional post info for postTitle matches
+  matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle' | 'tag'
+  // Optional post info for postTitle and tag matches
   post?: {
     rkey: string
     title: string
   }
+  // Optional tag info for tag matches
+  tag?: string
 }
 
 export interface SearchPublicationsResponse {
