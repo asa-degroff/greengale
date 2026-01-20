@@ -7,6 +7,8 @@ import {
   getPost,
   getAuthorProfile,
   searchPublications,
+  getPostsByTag,
+  getPopularTags,
 } from '../appview'
 
 // Mock fetch globally
@@ -478,6 +480,154 @@ describe('AppView API Client', () => {
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringMatching(/author=user%2Bspecial%40example\.com/)
       )
+    })
+  })
+
+  describe('getPostsByTag', () => {
+    it('fetches posts by tag with default limit', async () => {
+      const posts = [
+        { uri: 'at://did:plc:abc/app.greengale.document/123', tags: ['javascript'] },
+      ]
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'javascript', posts }))
+
+      const result = await getPostsByTag('javascript')
+
+      expect(result.posts).toEqual(posts)
+      expect(result.tag).toBe('javascript')
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/getPostsByTag\?tag=javascript.*limit=50/)
+      )
+    })
+
+    it('fetches posts by tag with custom limit', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'typescript', posts: [] }))
+
+      await getPostsByTag('typescript', 25)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/limit=25/)
+      )
+    })
+
+    it('includes cursor when provided', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'react', posts: [], cursor: 'next' }))
+
+      await getPostsByTag('react', 50, 'cursor123')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/cursor=cursor123/)
+      )
+    })
+
+    it('returns cursor for pagination', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'vue', posts: [], cursor: 'nextPage' }))
+
+      const result = await getPostsByTag('vue')
+
+      expect(result.cursor).toBe('nextPage')
+    })
+
+    it('encodes tag with special characters', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'c++', posts: [] }))
+
+      await getPostsByTag('c++')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/tag=c%2B%2B/)
+      )
+    })
+
+    it('throws error on failed request', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({}, { ok: false, status: 500, statusText: 'Internal Server Error' })
+      )
+
+      await expect(getPostsByTag('invalid')).rejects.toThrow('Failed to fetch posts by tag')
+    })
+
+    it('handles tag with spaces', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'machine learning', posts: [] }))
+
+      await getPostsByTag('machine learning')
+
+      // URLSearchParams encodes spaces as + (standard URL encoding)
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/tag=machine\+learning/)
+      )
+    })
+
+    it('returns empty array when no posts match tag', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'obscure-tag', posts: [] }))
+
+      const result = await getPostsByTag('obscure-tag')
+
+      expect(result.posts).toEqual([])
+    })
+  })
+
+  describe('getPopularTags', () => {
+    it('fetches popular tags with default limit', async () => {
+      const tags = [
+        { tag: 'javascript', count: 100 },
+        { tag: 'typescript', count: 75 },
+      ]
+      mockFetch.mockResolvedValueOnce(mockResponse({ tags }))
+
+      const result = await getPopularTags()
+
+      expect(result.tags).toEqual(tags)
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/getPopularTags\?limit=20$/)
+      )
+    })
+
+    it('fetches popular tags with custom limit', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tags: [] }))
+
+      await getPopularTags(50)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/limit=50/)
+      )
+    })
+
+    it('returns tags sorted by count', async () => {
+      const tags = [
+        { tag: 'most-popular', count: 500 },
+        { tag: 'second', count: 250 },
+        { tag: 'third', count: 100 },
+      ]
+      mockFetch.mockResolvedValueOnce(mockResponse({ tags }))
+
+      const result = await getPopularTags(3)
+
+      expect(result.tags[0].count).toBeGreaterThanOrEqual(result.tags[1].count)
+      expect(result.tags[1].count).toBeGreaterThanOrEqual(result.tags[2].count)
+    })
+
+    it('returns empty array when no tags exist', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ tags: [] }))
+
+      const result = await getPopularTags()
+
+      expect(result.tags).toEqual([])
+    })
+
+    it('throws error on failed request', async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockResponse({}, { ok: false, status: 500, statusText: 'Internal Server Error' })
+      )
+
+      await expect(getPopularTags()).rejects.toThrow('Failed to fetch popular tags')
+    })
+
+    it('handles tag with count of zero (edge case)', async () => {
+      const tags = [{ tag: 'new-tag', count: 0 }]
+      mockFetch.mockResolvedValueOnce(mockResponse({ tags }))
+
+      const result = await getPopularTags()
+
+      expect(result.tags[0].count).toBe(0)
     })
   })
 })

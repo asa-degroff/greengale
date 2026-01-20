@@ -7,6 +7,7 @@ import { AuthorPage } from '@/pages/Author'
 import { PostPage } from '@/pages/Post'
 import { AuthCallbackPage } from '@/pages/AuthCallback'
 import { EditorPage } from '@/pages/Editor'
+import { TagPage } from '@/pages/Tag'
 import { TermsPage } from '@/pages/Terms'
 import { PrivacyPage } from '@/pages/Privacy'
 
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
       { path: '/edit/:rkey', element: <EditorPage /> },
       { path: '/terms', element: <TermsPage /> },
       { path: '/privacy', element: <PrivacyPage /> },
+      { path: '/tag/:tag', element: <TagPage /> },
       { path: '/:handle', element: <AuthorPage /> },
       { path: '/:handle/:rkey', element: <PostPage /> },
     ],

@@ -86,6 +86,8 @@ export interface BlogEntry {
   path?: string
   // External URL for site.standard posts (resolved from publication)
   externalUrl?: string
+  // Tags for categorization
+  tags?: string[]
 }
 
 function parseTheme(rawTheme: unknown): Theme | undefined {
@@ -325,6 +327,17 @@ export async function getBlogEntry(
         ? (record.publishedAt as string | undefined)
         : (record.createdAt as string | undefined)
 
+      // Extract tags (normalize: lowercase, trim, dedupe)
+      const rawTags = record.tags as string[] | undefined
+      const tags = rawTags
+        ? [...new Set(
+            rawTags
+              .filter(t => typeof t === 'string')
+              .map(t => t.toLowerCase().trim())
+              .filter(t => t.length > 0)
+          )]
+        : undefined
+
       return {
         uri: response.data.uri,
         cid: response.data.cid || '',
@@ -342,6 +355,7 @@ export async function getBlogEntry(
         // V2 fields
         url: isV2 ? (record.url as string | undefined) : undefined,
         path: isV2 ? (record.path as string | undefined) : undefined,
+        tags,
       }
     } catch {
       // Continue to next collection

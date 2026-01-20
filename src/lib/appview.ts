@@ -26,6 +26,7 @@ export interface AppViewPost {
     displayName: string | null
     avatar: string | null
   }
+  tags?: string[]
 }
 
 export interface AppViewPublication {
@@ -226,6 +227,69 @@ export async function searchPublications(
 
   if (!response.ok) {
     throw new Error(`Failed to search publications: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Response for posts by tag
+ */
+export interface TagPostsResponse {
+  tag: string
+  posts: AppViewPost[]
+  cursor?: string
+}
+
+/**
+ * Get posts by tag
+ */
+export async function getPostsByTag(
+  tag: string,
+  limit = 50,
+  cursor?: string
+): Promise<TagPostsResponse> {
+  const params = new URLSearchParams({ tag, limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.feed.getPostsByTag?${params}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch posts by tag: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Popular tag with count
+ */
+export interface PopularTag {
+  tag: string
+  count: number
+}
+
+/**
+ * Response for popular tags
+ */
+export interface PopularTagsResponse {
+  tags: PopularTag[]
+}
+
+/**
+ * Get popular tags with post counts
+ */
+export async function getPopularTags(limit = 20): Promise<PopularTagsResponse> {
+  const params = new URLSearchParams({ limit: String(limit) })
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.feed.getPopularTags?${params}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch popular tags: ${response.statusText}`)
   }
 
   return response.json()

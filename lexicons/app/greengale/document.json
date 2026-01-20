@@ -78,6 +78,16 @@
             "type": "boolean",
             "default": false,
             "description": "Legacy field for LaTeX math rendering. LaTeX is now always enabled for GreenGale posts; this field is kept for backward compatibility."
+          },
+          "tags": {
+            "type": "array",
+            "maxLength": 100,
+            "items": {
+              "type": "string",
+              "maxLength": 100,
+              "maxGraphemes": 50
+            },
+            "description": "Optional array of strings to tag/categorize the document. Avoid prepending with hashtags."
           }
         }
       }

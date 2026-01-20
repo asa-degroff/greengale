@@ -748,6 +748,129 @@ function transformThreadReplies(
     })
 }
 
+// Cache TTL for tag queries (5 minutes)
+const TAG_CACHE_TTL = 5 * 60
+
+// Get posts by tag
+app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
+  const tag = c.req.query('tag')
+  if (!tag) {
+    return c.json({ error: 'Missing tag parameter' }, 400)
+  }
+
+  const normalizedTag = tag.toLowerCase().trim()
+  if (normalizedTag.length === 0) {
+    return c.json({ error: 'Invalid tag parameter' }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
+  const cursor = c.req.query('cursor')
+
+  const cacheKey = `tag_posts:${normalizedTag}:${limit}:${cursor || ''}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    let query = `
+      SELECT
+        p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
+        p.visibility, p.created_at, p.indexed_at,
+        a.handle, a.display_name, a.avatar_url
+      FROM posts p
+      INNER JOIN post_tags pt ON p.uri = pt.post_uri
+      LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
+      WHERE pt.tag = ?
+        AND p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND COALESCE(pub.show_in_discover, 1) = 1
+    `
+
+    const params: (string | number)[] = [normalizedTag]
+
+    if (cursor) {
+      query += ` AND p.indexed_at < ?`
+      params.push(cursor)
+    }
+
+    query += ` ORDER BY p.indexed_at DESC LIMIT ?`
+    params.push(limit + 1)
+
+    const result = await c.env.DB.prepare(query).bind(...params).all()
+    const posts = result.results || []
+
+    const hasMore = posts.length > limit
+    const returnPosts = hasMore ? posts.slice(0, limit) : posts
+
+    const response = {
+      tag: normalizedTag,
+      posts: returnPosts.map(formatPost),
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+    }
+
+    // Cache for 5 minutes
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: TAG_CACHE_TTL,
+    })
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error fetching posts by tag:', error)
+    return c.json({ error: 'Failed to fetch posts' }, 500)
+  }
+})
+
+// Get popular tags with post counts
+app.get('/xrpc/app.greengale.feed.getPopularTags', async (c) => {
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100)
+
+  const cacheKey = `popular_tags:${limit}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    // Aggregate post counts per tag
+    // Only count public posts that are visible in discover
+    const result = await c.env.DB.prepare(`
+      SELECT pt.tag, COUNT(*) as count
+      FROM post_tags pt
+      INNER JOIN posts p ON pt.post_uri = p.uri
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
+      WHERE p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND COALESCE(pub.show_in_discover, 1) = 1
+      GROUP BY pt.tag
+      ORDER BY count DESC
+      LIMIT ?
+    `).bind(limit).all()
+
+    const tags = (result.results || []).map((row) => ({
+      tag: row.tag as string,
+      count: row.count as number,
+    }))
+
+    const response = { tags }
+
+    // Cache for 30 minutes
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: 30 * 60,
+    })
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error fetching popular tags:', error)
+    return c.json({ error: 'Failed to fetch tags' }, 500)
+  }
+})
+
 // Get recent posts across all authors
 // Note: Recent posts feed only shows public posts (no viewer parameter needed)
 app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
@@ -1026,7 +1149,13 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
     }
     // 'url' visibility allows anyone with the link, 'public' is open to all
 
-    return c.json({ post: formatPost(post) })
+    // Fetch tags for this post
+    const tagsResult = await c.env.DB.prepare(
+      'SELECT tag FROM post_tags WHERE post_uri = ? ORDER BY tag'
+    ).bind(post.uri).all()
+    const tags = (tagsResult.results || []).map(r => r.tag as string)
+
+    return c.json({ post: formatPost(post, tags) })
   } catch (error) {
     console.error('Error fetching post:', error)
     return c.json({ error: 'Failed to fetch post' }, 500)
@@ -2186,7 +2315,7 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
 })
 
 // Format post from DB row to API response
-function formatPost(row: Record<string, unknown>) {
+function formatPost(row: Record<string, unknown>, tags?: string[]) {
   return {
     uri: row.uri,
     authorDid: row.author_did,
@@ -2203,6 +2332,7 @@ function formatPost(row: Record<string, unknown>) {
       displayName: row.display_name,
       avatar: row.avatar_url,
     } : undefined,
+    tags: tags?.length ? tags : undefined,
   }
 }
 

@@ -383,6 +383,17 @@ export class FirehoseConsumer extends DurableObject<Env> {
         ? this.extractFirstImageCid(record)
         : null
 
+      // Extract tags from record (normalize: lowercase, trim, dedupe, limit to 100)
+      const rawTags = record?.tags as string[] | undefined
+      const tags = rawTags
+        ? [...new Set(
+            rawTags
+              .filter(t => typeof t === 'string')
+              .map(t => t.toLowerCase().trim())
+              .filter(t => t.length > 0 && t.length <= 100)
+          )].slice(0, 100)
+        : []
+
       // Create content preview (first 300 chars, strip markdown)
       const contentPreview = content
         .replace(/[#*`\[\]()!]/g, '')
@@ -400,12 +411,21 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       // Phase 2: Invalidate cache BEFORE DB write to prevent stale data
       // Note: Homepage uses limit=24, so we must include that key
-      await Promise.all([
+      const cacheInvalidations = [
         this.env.CACHE.delete('recent_posts:12:'),
         this.env.CACHE.delete('recent_posts:24:'),
         this.env.CACHE.delete('recent_posts:50:'),
         this.env.CACHE.delete('recent_posts:100:'),
-      ])
+        // Invalidate popular tags cache when posts change
+        this.env.CACHE.delete('popular_tags:20'),
+        this.env.CACHE.delete('popular_tags:50'),
+        this.env.CACHE.delete('popular_tags:100'),
+      ]
+      // Invalidate tag-specific caches for each tag
+      for (const tag of tags) {
+        cacheInvalidations.push(this.env.CACHE.delete(`tag_posts:${tag}:50:`))
+      }
+      await Promise.all(cacheInvalidations)
 
       // Phase 3: Atomic database batch - all operations succeed or all roll back
       const statements: D1PreparedStatement[] = []
@@ -477,6 +497,20 @@ export class FirehoseConsumer extends DurableObject<Env> {
         `).bind(did, did)
       )
 
+      // Statement 4: Delete old tags for this post
+      statements.push(
+        this.env.DB.prepare('DELETE FROM post_tags WHERE post_uri = ?').bind(uri)
+      )
+
+      // Statement 5+: Insert new tags
+      for (const tag of tags) {
+        statements.push(
+          this.env.DB.prepare(
+            'INSERT OR IGNORE INTO post_tags (post_uri, tag) VALUES (?, ?)'
+          ).bind(uri, tag)
+        )
+      }
+
       // Execute all statements atomically
       await this.env.DB.batch(statements)
 
@@ -514,15 +548,30 @@ export class FirehoseConsumer extends DurableObject<Env> {
       ).bind(authorDid).first()
       const handle = authorRow?.handle as string | undefined
 
+      // Get tags for this post before deletion (for cache invalidation)
+      const tagsResult = await this.env.DB.prepare(
+        'SELECT tag FROM post_tags WHERE post_uri = ?'
+      ).bind(uri).all()
+      const postTags = (tagsResult.results || []).map(r => r.tag as string)
+
       // Phase 1: Invalidate cache BEFORE DB write to prevent stale data
       // Note: Homepage uses limit=24, so we must include that key
-      await Promise.all([
+      const cacheInvalidations = [
         this.env.CACHE.delete('recent_posts:12:'),
         this.env.CACHE.delete('recent_posts:24:'),
         this.env.CACHE.delete('recent_posts:50:'),
         this.env.CACHE.delete('recent_posts:100:'),
         handle ? this.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
-      ])
+        // Invalidate popular tags cache when posts are deleted
+        this.env.CACHE.delete('popular_tags:20'),
+        this.env.CACHE.delete('popular_tags:50'),
+        this.env.CACHE.delete('popular_tags:100'),
+      ]
+      // Invalidate tag-specific caches for each tag
+      for (const tag of postTags) {
+        cacheInvalidations.push(this.env.CACHE.delete(`tag_posts:${tag}:50:`))
+      }
+      await Promise.all(cacheInvalidations)
 
       // Phase 2: Atomic database batch - delete post AND update count together
       await this.env.DB.batch([

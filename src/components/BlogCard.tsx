@@ -8,9 +8,10 @@ interface BlogCardProps {
   entry: BlogEntry
   author?: AuthorProfile
   externalUrl?: string | null
+  tags?: string[]
 }
 
-export function BlogCard({ entry, author, externalUrl }: BlogCardProps) {
+export function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
   const preview = extractText(entry.content, 160)
   const thumbnail = extractFirstImage(entry.content)
 
@@ -88,6 +89,25 @@ export function BlogCard({ entry, author, externalUrl }: BlogCardProps) {
             <p className="text-sm text-[var(--site-text-secondary)] mb-2 line-clamp-1">
               {entry.subtitle}
             </p>
+          )}
+          {tags && tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {tags.slice(0, 5).map((tag) => (
+                <Link
+                  key={tag}
+                  to={`/tag/${encodeURIComponent(tag)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-block px-2 py-0.5 rounded-full text-xs bg-[var(--site-accent)]/10 text-[var(--site-accent)] hover:bg-[var(--site-accent)]/20 transition-colors"
+                >
+                  {tag}
+                </Link>
+              ))}
+              {tags.length > 5 && (
+                <span className="inline-block px-2 py-0.5 text-xs text-[var(--site-text-secondary)]">
+                  +{tags.length - 5} more
+                </span>
+              )}
+            </div>
           )}
           <p className="text-sm text-[var(--site-text-secondary)] line-clamp-3 mb-3">
             {preview}

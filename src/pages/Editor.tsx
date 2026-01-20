@@ -95,6 +95,8 @@ export function EditorPage() {
 
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState('')
   const [content, setContent] = useState('')
   const [lexicon, setLexicon] = useState<LexiconType>('greengale')
   const [theme, setTheme] = useState<ThemePreset>('default')
@@ -369,6 +371,7 @@ export function EditorPage() {
       // Network posts aren't editable in GreenGale, default to greengale
       setLexicon(entry.source === 'whitewind' ? 'whitewind' : 'greengale')
       setVisibility(entry.visibility || 'public')
+      setTags(entry.tags || [])
       setOriginalCreatedAt(entry.createdAt || null)
 
       // Determine original collection for V1→V2 migration
@@ -552,6 +555,8 @@ export function EditorPage() {
                     labels: b.labels,
                   }))
                 : undefined,
+            // Tags for categorization (only include if there are tags)
+            tags: tags.length > 0 ? tags : undefined,
           }
 
       let response: Response
@@ -726,6 +731,7 @@ export function EditorPage() {
                 $type: 'app.greengale.document#contentRef',
                 uri: greengaleUri,
               },
+              tags: tags.length > 0 ? tags : undefined,
             },
             resultRkey
           )
@@ -741,7 +747,7 @@ export function EditorPage() {
       setError(err instanceof Error ? err.message : 'Failed to save post')
       return null
     }
-  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, theme, customColors, publishToSiteStandard, uploadedBlobs, rkey])
+  }, [session, handle, content, visibility, isWhiteWind, isEditing, originalCreatedAt, originalCollection, title, subtitle, tags, theme, customColors, publishToSiteStandard, uploadedBlobs, rkey])
 
   async function handlePublish() {
     setPublishAttempted(true)
@@ -1248,6 +1254,77 @@ export function EditorPage() {
                 className="w-full px-4 py-3 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
               />
             </div>
+
+            {/* Tags - GreenGale only */}
+            {!isWhiteWind && (
+              <div>
+                <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
+                  Tags <span className="text-xs font-normal">({tags.length}/100)</span>
+                </label>
+                <div className="space-y-2">
+                  {/* Tag chips */}
+                  {tags.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm bg-[var(--site-accent)]/10 text-[var(--site-accent)]"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={() => setTags(tags.filter((t) => t !== tag))}
+                            className="hover:text-red-500 focus:outline-none"
+                            aria-label={`Remove tag ${tag}`}
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Tag input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+                          e.preventDefault()
+                          const newTag = tagInput.trim().toLowerCase().replace(/^#/, '')
+                          if (newTag && !tags.includes(newTag) && tags.length < 100 && newTag.length <= 100) {
+                            setTags([...tags, newTag])
+                          }
+                          setTagInput('')
+                        }
+                      }}
+                      placeholder="Add a tag and press Enter"
+                      className="flex-1 px-4 py-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] text-sm"
+                      disabled={tags.length >= 100}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (tagInput.trim()) {
+                          const newTag = tagInput.trim().toLowerCase().replace(/^#/, '')
+                          if (newTag && !tags.includes(newTag) && tags.length < 100 && newTag.length <= 100) {
+                            setTags([...tags, newTag])
+                          }
+                          setTagInput('')
+                        }
+                      }}
+                      disabled={!tagInput.trim() || tags.length >= 100}
+                      className="px-3 py-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Content */}
             <div>
