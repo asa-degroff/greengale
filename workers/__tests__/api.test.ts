@@ -1185,6 +1185,311 @@ describe('API Endpoints', () => {
     })
   })
 
+  describe('getPostsByTag', () => {
+    it('returns 400 when tag parameter is missing', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Missing tag parameter')
+    })
+
+    it('returns empty posts array when no posts have the tag', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=javascript')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toEqual([])
+      expect(data.cursor).toBeUndefined()
+    })
+
+    it('returns posts with matching tag', async () => {
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:abc/app.greengale.document/123',
+          author_did: 'did:plc:abc',
+          rkey: '123',
+          title: 'JavaScript Tutorial',
+          source: 'greengale',
+          visibility: 'public',
+          created_at: '2024-01-01T00:00:00Z',
+          indexed_at: '2024-01-01T00:00:00Z',
+          handle: 'test.bsky.social',
+          tags: 'javascript,tutorial',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=javascript')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toHaveLength(1)
+      expect(data.posts[0].title).toBe('JavaScript Tutorial')
+      expect(data.posts[0].tags).toEqual(['javascript', 'tutorial'])
+    })
+
+    it('normalizes tag to lowercase', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=JavaScript')
+
+      // The query should use lowercase tag
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('javascript', 51)
+    })
+
+    it('respects limit parameter', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=test&limit=10')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('test', 11) // limit + 1
+    })
+
+    it('caps limit at 100', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=test&limit=500')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('test', 101) // 100 + 1
+    })
+
+    it('returns cursor when more posts available', async () => {
+      const mockPosts = Array(51).fill(null).map((_, i) => ({
+        uri: `at://did:plc:abc/app.greengale.document/${i}`,
+        author_did: 'did:plc:abc',
+        rkey: `${i}`,
+        title: `Post ${i}`,
+        source: 'greengale',
+        visibility: 'public',
+        indexed_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        tags: 'test',
+      }))
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=test')
+      const data = await res.json()
+
+      expect(data.posts).toHaveLength(50)
+      expect(data.cursor).toBeDefined()
+    })
+
+    it('uses cursor for pagination', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=test&cursor=2024-01-15T00:00:00Z')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('test', '2024-01-15T00:00:00Z', 51)
+    })
+
+    it('only returns public posts (not site.standard)', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=test')
+
+      const query = env.DB.prepare.mock.calls[0][0]
+      expect(query).toContain("p.visibility = 'public'")
+      expect(query).toContain("p.uri NOT LIKE '%/site.standard.document/%'")
+    })
+
+    it('caches response for 5 minutes', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=javascript')
+
+      expect(env.CACHE.put).toHaveBeenCalledWith(
+        expect.stringContaining('tag_posts:javascript:'),
+        expect.any(String),
+        expect.objectContaining({ expirationTtl: 300 })
+      )
+    })
+
+    it('returns cached response when available', async () => {
+      const cachedResponse = { posts: [{ uri: 'cached', tags: ['javascript'] }], cursor: undefined }
+      env.CACHE.get.mockResolvedValueOnce(cachedResponse)
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=javascript')
+      const data = await res.json()
+
+      expect(data.posts[0].uri).toBe('cached')
+      expect(env.DB.prepare).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('getPopularTags', () => {
+    it('returns empty array when no tags exist', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.tags).toEqual([])
+    })
+
+    it('returns tags with counts', async () => {
+      const mockTags = [
+        { tag: 'javascript', count: 50 },
+        { tag: 'typescript', count: 30 },
+        { tag: 'react', count: 20 },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockTags })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.tags).toHaveLength(3)
+      expect(data.tags[0]).toEqual({ tag: 'javascript', count: 50 })
+      expect(data.tags[1]).toEqual({ tag: 'typescript', count: 30 })
+      expect(data.tags[2]).toEqual({ tag: 'react', count: 20 })
+    })
+
+    it('respects limit parameter', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags?limit=5')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(5)
+    })
+
+    it('uses default limit of 20', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(20)
+    })
+
+    it('caps limit at 100', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags?limit=500')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(100)
+    })
+
+    it('only counts public posts (not site.standard)', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
+
+      const query = env.DB.prepare.mock.calls[0][0]
+      expect(query).toContain("p.visibility = 'public'")
+      expect(query).toContain("p.uri NOT LIKE '%/site.standard.document/%'")
+    })
+
+    it('caches response for 30 minutes', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
+
+      expect(env.CACHE.put).toHaveBeenCalledWith(
+        expect.stringContaining('popular_tags:'),
+        expect.any(String),
+        expect.objectContaining({ expirationTtl: 1800 })
+      )
+    })
+
+    it('returns cached response when available', async () => {
+      const cachedResponse = { tags: [{ tag: 'cached', count: 10 }] }
+      env.CACHE.get.mockResolvedValueOnce(cachedResponse)
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
+      const data = await res.json()
+
+      expect(data.tags[0].tag).toBe('cached')
+      expect(env.DB.prepare).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('Tags in post responses', () => {
+    it('includes tags in getRecentPosts response', async () => {
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:abc/app.greengale.document/123',
+          author_did: 'did:plc:abc',
+          rkey: '123',
+          title: 'Test Post',
+          source: 'greengale',
+          visibility: 'public',
+          indexed_at: '2024-01-01T00:00:00Z',
+          tags: 'javascript,react,typescript',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
+      const data = await res.json()
+
+      expect(data.posts[0].tags).toEqual(['javascript', 'react', 'typescript'])
+    })
+
+    it('includes tags in getAuthorPosts response', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:abc/app.greengale.document/123',
+          author_did: 'did:plc:abc',
+          rkey: '123',
+          title: 'Test Post',
+          source: 'greengale',
+          visibility: 'public',
+          indexed_at: '2024-01-01T00:00:00Z',
+          tags: 'tutorial',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=test.bsky.social')
+      const data = await res.json()
+
+      expect(data.posts[0].tags).toEqual(['tutorial'])
+    })
+
+    it('includes tags in getPost response', async () => {
+      const mockPost = {
+        uri: 'at://did:plc:abc/app.greengale.document/xyz',
+        author_did: 'did:plc:abc',
+        rkey: 'xyz',
+        title: 'Test Post',
+        visibility: 'public',
+      }
+      // Mock post query
+      env.DB._statement.first.mockResolvedValueOnce(mockPost)
+      // Mock tags query
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [{ tag: 'featured' }, { tag: 'announcement' }]
+      })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
+      const data = await res.json()
+
+      expect(data.post.tags).toEqual(['featured', 'announcement'])
+    })
+
+    it('returns undefined when post has no tags', async () => {
+      const mockPost = {
+        uri: 'at://did:plc:abc/app.greengale.document/xyz',
+        author_did: 'did:plc:abc',
+        rkey: 'xyz',
+        title: 'Test Post',
+        visibility: 'public',
+      }
+      // Mock post query
+      env.DB._statement.first.mockResolvedValueOnce(mockPost)
+      // Mock empty tags query
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
+      const data = await res.json()
+
+      expect(data.post.tags).toBeUndefined()
+    })
+  })
+
   describe('Bluesky Integration', () => {
     it('returns 400 when url parameter is missing for interactions', async () => {
       const res = await makeRequest(env, '/xrpc/app.greengale.feed.getBlueskyInteractions')

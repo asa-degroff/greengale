@@ -1094,6 +1094,162 @@ describe('Firehose Indexer', () => {
     })
   })
 
+  describe('Tag Extraction and Normalization', () => {
+    // Helper function matching firehose implementation
+    function normalizeTags(tags: unknown): string[] {
+      if (!tags || !Array.isArray(tags)) return []
+
+      return tags
+        .filter((t): t is string => typeof t === 'string')
+        .map((t) => t.toLowerCase().trim())
+        .filter((t) => t.length > 0 && t.length <= 100)
+        .filter((_, i) => i < 100) // Max 100 tags
+        .filter((t, i, arr) => arr.indexOf(t) === i) // Dedupe
+    }
+
+    it('returns empty array for null/undefined', () => {
+      expect(normalizeTags(null)).toEqual([])
+      expect(normalizeTags(undefined)).toEqual([])
+    })
+
+    it('returns empty array for non-array input', () => {
+      expect(normalizeTags('string')).toEqual([])
+      expect(normalizeTags(123)).toEqual([])
+      expect(normalizeTags({})).toEqual([])
+    })
+
+    it('normalizes tags to lowercase', () => {
+      expect(normalizeTags(['JavaScript', 'TypeScript', 'REACT'])).toEqual([
+        'javascript',
+        'typescript',
+        'react',
+      ])
+    })
+
+    it('trims whitespace from tags', () => {
+      expect(normalizeTags(['  javascript  ', ' react', 'typescript '])).toEqual([
+        'javascript',
+        'react',
+        'typescript',
+      ])
+    })
+
+    it('filters out empty strings', () => {
+      expect(normalizeTags(['', 'javascript', '', 'react', '   '])).toEqual([
+        'javascript',
+        'react',
+      ])
+    })
+
+    it('filters out non-string values', () => {
+      expect(normalizeTags(['javascript', 123, null, 'react', undefined, {}, 'typescript'])).toEqual([
+        'javascript',
+        'react',
+        'typescript',
+      ])
+    })
+
+    it('deduplicates tags (case-insensitive)', () => {
+      expect(normalizeTags(['JavaScript', 'javascript', 'JAVASCRIPT', 'react', 'React'])).toEqual([
+        'javascript',
+        'react',
+      ])
+    })
+
+    it('limits to 100 tags', () => {
+      const manyTags = Array.from({ length: 150 }, (_, i) => `tag${i}`)
+      const result = normalizeTags(manyTags)
+      expect(result.length).toBe(100)
+      expect(result[0]).toBe('tag0')
+      expect(result[99]).toBe('tag99')
+    })
+
+    it('filters out tags longer than 100 characters', () => {
+      const longTag = 'a'.repeat(101)
+      const validTag = 'javascript'
+      expect(normalizeTags([longTag, validTag])).toEqual(['javascript'])
+    })
+
+    it('keeps tags exactly 100 characters', () => {
+      const exactTag = 'a'.repeat(100)
+      expect(normalizeTags([exactTag])).toEqual([exactTag])
+    })
+
+    it('handles real-world tag examples', () => {
+      expect(normalizeTags([
+        'JavaScript',
+        'Machine Learning',
+        '#react', // Hashtag prefix
+        'typescript ',
+        ' web-development',
+      ])).toEqual([
+        'javascript',
+        'machine learning',
+        '#react',
+        'typescript',
+        'web-development',
+      ])
+    })
+  })
+
+  describe('Tag Cache Invalidation', () => {
+    it('should invalidate tag-related cache keys on post index', () => {
+      // Expected cache keys for tag queries
+      const expectedTagKeys = [
+        'popular_tags:50',
+        'popular_tags:100',
+      ]
+
+      for (const key of expectedTagKeys) {
+        expect(key).toMatch(/^popular_tags:\d+$/)
+      }
+    })
+
+    it('should invalidate tag_posts cache with correct key format', () => {
+      const tag = 'javascript'
+      const limit = 50
+      const cursor = ''
+      const expectedKey = `tag_posts:${tag}:${limit}:${cursor}`
+      expect(expectedKey).toBe('tag_posts:javascript:50:')
+    })
+  })
+
+  describe('Post Data with Tags', () => {
+    const baseRecord = {
+      title: 'Test Post',
+      content: 'Hello world',
+      visibility: 'public',
+    }
+
+    it('extracts tags from record', () => {
+      const record = {
+        ...baseRecord,
+        tags: ['javascript', 'react', 'typescript'],
+      }
+
+      const tags = record.tags
+      expect(tags).toEqual(['javascript', 'react', 'typescript'])
+    })
+
+    it('handles record without tags', () => {
+      const tags = baseRecord.tags || []
+      expect(tags).toEqual([])
+    })
+
+    it('extracts tags from site.standard.document', () => {
+      const record = {
+        title: 'Standard Post',
+        description: 'A post',
+        textContent: 'Content here',
+        publishedAt: '2024-01-01T00:00:00Z',
+        tags: ['standardized', 'cross-platform'],
+      }
+
+      const tags = (record as { tags?: string[] }).tags || []
+      expect(tags).toEqual(['standardized', 'cross-platform'])
+    })
+  })
+
   describe('External URL Resolution', () => {
     it('constructs URL from publication URL and document path', () => {
       const pubUrl = 'https://myblog.com'

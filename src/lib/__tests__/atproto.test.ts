@@ -1189,6 +1189,144 @@ Third.`
     })
   })
 
+  describe('Tag normalization in BlogEntry', () => {
+    // Helper function matching the normalization logic in getBlogEntry/listBlogEntries
+    function normalizeTags(rawTags: unknown): string[] | undefined {
+      if (!rawTags || !Array.isArray(rawTags)) return undefined
+      const normalized = rawTags
+        .filter((t): t is string => typeof t === 'string')
+        .map((t) => t.toLowerCase().trim())
+        .filter((t) => t.length > 0)
+        .filter((t, i, arr) => arr.indexOf(t) === i)
+      return normalized.length > 0 ? normalized : undefined
+    }
+
+    it('returns undefined for null/undefined tags', () => {
+      expect(normalizeTags(null)).toBeUndefined()
+      expect(normalizeTags(undefined)).toBeUndefined()
+    })
+
+    it('returns undefined for non-array tags', () => {
+      expect(normalizeTags('string')).toBeUndefined()
+      expect(normalizeTags(123)).toBeUndefined()
+      expect(normalizeTags({})).toBeUndefined()
+    })
+
+    it('returns undefined for empty array', () => {
+      expect(normalizeTags([])).toBeUndefined()
+    })
+
+    it('normalizes tags to lowercase', () => {
+      expect(normalizeTags(['JavaScript', 'TypeScript', 'REACT'])).toEqual([
+        'javascript',
+        'typescript',
+        'react',
+      ])
+    })
+
+    it('trims whitespace from tags', () => {
+      expect(normalizeTags(['  javascript  ', ' react ', 'typescript'])).toEqual([
+        'javascript',
+        'react',
+        'typescript',
+      ])
+    })
+
+    it('filters out empty strings after trimming', () => {
+      expect(normalizeTags(['', 'javascript', '   ', 'react'])).toEqual([
+        'javascript',
+        'react',
+      ])
+    })
+
+    it('filters out non-string values', () => {
+      expect(normalizeTags(['javascript', 123, null, 'react', undefined])).toEqual([
+        'javascript',
+        'react',
+      ])
+    })
+
+    it('deduplicates tags (case-insensitive)', () => {
+      expect(normalizeTags(['JavaScript', 'javascript', 'JAVASCRIPT', 'react', 'React'])).toEqual([
+        'javascript',
+        'react',
+      ])
+    })
+
+    it('preserves tag order (first occurrence wins)', () => {
+      expect(normalizeTags(['React', 'javascript', 'REACT', 'typescript'])).toEqual([
+        'react',
+        'javascript',
+        'typescript',
+      ])
+    })
+
+    it('handles tags with special characters', () => {
+      expect(normalizeTags(['c++', 'c#', '.net', 'node.js'])).toEqual([
+        'c++',
+        'c#',
+        '.net',
+        'node.js',
+      ])
+    })
+
+    it('handles multi-word tags', () => {
+      expect(normalizeTags(['machine learning', 'Web Development', 'Open Source'])).toEqual([
+        'machine learning',
+        'web development',
+        'open source',
+      ])
+    })
+
+    it('handles tags with numbers', () => {
+      expect(normalizeTags(['ES6', 'web3', 'Python3'])).toEqual([
+        'es6',
+        'web3',
+        'python3',
+      ])
+    })
+  })
+
+  describe('BlogEntry tags interface', () => {
+    it('allows tags to be undefined', () => {
+      const entry: BlogEntry = {
+        uri: 'at://did:plc:test/app.greengale.document/test',
+        cid: 'cid123',
+        authorDid: 'did:plc:test',
+        rkey: 'test',
+        source: 'greengale',
+        content: 'Test',
+      }
+      expect(entry.tags).toBeUndefined()
+    })
+
+    it('allows tags to be an array of strings', () => {
+      const entry: BlogEntry = {
+        uri: 'at://did:plc:test/app.greengale.document/test',
+        cid: 'cid123',
+        authorDid: 'did:plc:test',
+        rkey: 'test',
+        source: 'greengale',
+        content: 'Test',
+        tags: ['javascript', 'react', 'typescript'],
+      }
+      expect(entry.tags).toEqual(['javascript', 'react', 'typescript'])
+    })
+
+    it('allows empty tags array', () => {
+      const entry: BlogEntry = {
+        uri: 'at://did:plc:test/app.greengale.document/test',
+        cid: 'cid123',
+        authorDid: 'did:plc:test',
+        rkey: 'test',
+        source: 'greengale',
+        content: 'Test',
+        tags: [],
+      }
+      expect(entry.tags).toEqual([])
+    })
+  })
+
   describe('SiteStandardDocument content field', () => {
     it('requires $type in content for union type compliance', () => {
       // This test documents the required structure for site.standard.document content field
