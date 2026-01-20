@@ -43,9 +43,9 @@ export function TagPage() {
 
   // Set document metadata
   useDocumentMeta({
-    title: `#${decodedTag} - GreenGale`,
+    title: `${decodedTag} - GreenGale`,
     canonical: buildHomeCanonical(),
-    description: `Posts tagged with #${decodedTag}`,
+    description: `Posts tagged with ${decodedTag}`,
   })
 
   useEffect(() => {
@@ -98,7 +98,7 @@ export function TagPage() {
             Back to Home
           </Link>
           <h1 className="text-3xl font-bold text-[var(--site-text)]">
-            <span className="text-[var(--site-accent)]">#</span>
+            <span className="text-[var(--site-accent)]"></span>
             {decodedTag}
           </h1>
         </div>
