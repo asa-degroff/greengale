@@ -24,6 +24,7 @@ function toBlogEntry(post: AppViewPost): BlogEntry {
     content: '', // AppView doesn't return full content
     createdAt: post.createdAt || undefined,
     source: post.source,
+    tags: post.tags,
   }
 }
 
@@ -194,6 +195,7 @@ export function HomePage() {
                           key={post.uri}
                           entry={toBlogEntry(post)}
                           author={toAuthorProfile(post)}
+                          tags={post.tags}
                         />
                       ))}
                     </div>
@@ -235,6 +237,7 @@ export function HomePage() {
                           entry={toBlogEntry(post)}
                           author={toAuthorProfile(post)}
                           externalUrl={post.externalUrl}
+                          tags={post.tags}
                         />
                       ))}
                     </div>

@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { AuthorCard } from './AuthorCard'
 import { TableOfContents } from './TableOfContents'
@@ -25,6 +26,7 @@ interface BlogViewerProps {
   source?: 'whitewind' | 'greengale' | 'network'
   blobs?: BlogEntry['blobs']
   postUrl?: string
+  tags?: string[]
 }
 
 // Check if content has SVG code blocks that will be transformed by remark-svg
@@ -55,6 +57,7 @@ export function BlogViewer({
   source,
   blobs,
   postUrl,
+  tags,
 }: BlogViewerProps) {
   const { forceDefaultTheme } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
@@ -170,6 +173,19 @@ export function BlogViewer({
             <p className="text-xl text-[var(--theme-text-secondary)] mb-4">
               {subtitle}
             </p>
+          )}
+          {tags && tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {tags.map((tag) => (
+                <Link
+                  key={tag}
+                  to={`/tag/${encodeURIComponent(tag)}`}
+                  className="inline-block px-3 py-1 rounded-full text-sm bg-[var(--theme-accent)]/10 text-[var(--theme-accent)] hover:bg-[var(--theme-accent)]/20 transition-colors"
+                >
+                  {tag}
+                </Link>
+              ))}
+            </div>
           )}
           <div className="flex items-center gap-4 text-sm text-[var(--theme-text-secondary)]">
             {formattedDate && <time dateTime={createdAt}>{formattedDate}</time>}

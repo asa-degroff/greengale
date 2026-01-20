@@ -224,6 +224,7 @@ export function PostPage() {
         source={entry.source}
         blobs={entry.blobs}
         postUrl={`${window.location.origin}/${handle}/${rkey}`}
+        tags={entry.tags}
       />
     </div>
   )

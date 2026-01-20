@@ -508,6 +508,17 @@ export async function listBlogEntries(
           // Get path for both V2 and site.standard
           const path = (isV2 || isSiteStandard) ? (record.path as string | undefined) : undefined
 
+          // Extract tags (normalize: lowercase, trim, dedupe)
+          const rawTags = record.tags as string[] | undefined
+          const tags = rawTags
+            ? [...new Set(
+                rawTags
+                  .filter(t => typeof t === 'string')
+                  .map(t => t.toLowerCase().trim())
+                  .filter(t => t.length > 0)
+              )]
+            : undefined
+
           const entry: BlogEntry = {
             uri: item.uri,
             cid: item.cid,
@@ -525,6 +536,7 @@ export async function listBlogEntries(
             // V2 fields
             url: isV2 ? (record.url as string | undefined) : undefined,
             path,
+            tags,
           }
 
           entries.push(entry)

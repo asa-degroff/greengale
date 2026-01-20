@@ -779,7 +779,8 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url
+        a.handle, a.display_name, a.avatar_url,
+        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       INNER JOIN post_tags pt ON p.uri = pt.post_uri
       LEFT JOIN authors a ON p.author_did = a.did
@@ -892,7 +893,8 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url
+        a.handle, a.display_name, a.avatar_url,
+        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
@@ -956,7 +958,8 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at, p.external_url,
-        a.handle, a.display_name, a.avatar_url
+        a.handle, a.display_name, a.avatar_url,
+        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
@@ -1066,7 +1069,8 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url
+        a.handle, a.display_name, a.avatar_url,
+        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND ${visibilityFilter}
@@ -2315,7 +2319,14 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
 })
 
 // Format post from DB row to API response
+// Tags can be passed as an array, or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
 function formatPost(row: Record<string, unknown>, tags?: string[]) {
+  // If tags not provided as parameter, try to extract from row.tags (GROUP_CONCAT result)
+  let postTags = tags
+  if (!postTags && row.tags && typeof row.tags === 'string') {
+    postTags = row.tags.split(',').filter(t => t.length > 0)
+  }
+
   return {
     uri: row.uri,
     authorDid: row.author_did,
@@ -2332,7 +2343,7 @@ function formatPost(row: Record<string, unknown>, tags?: string[]) {
       displayName: row.display_name,
       avatar: row.avatar_url,
     } : undefined,
-    tags: tags?.length ? tags : undefined,
+    tags: postTags?.length ? postTags : undefined,
   }
 }
 
