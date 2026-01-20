@@ -99,9 +99,8 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
   function handleKeyDown(event: React.KeyboardEvent) {
     if (!isOpen) {
       if (event.key === 'Enter' && query.trim()) {
-        // If dropdown not open but query exists, navigate directly
-        const handle = query.trim().replace('@', '')
-        navigate(`/${handle}`)
+        // If dropdown not open but query exists, navigate to search page
+        navigate(`/search?q=${encodeURIComponent(query.trim())}`)
       }
       return
     }
@@ -120,11 +119,10 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
         if (selectedIndex >= 0 && results[selectedIndex]) {
           selectResult(results[selectedIndex])
         } else if (query.trim()) {
-          // No selection, navigate to handle directly
-          const handle = query.trim().replace('@', '')
+          // No selection, navigate to search page
           setIsOpen(false)
           setQuery('')
-          navigate(`/${handle}`)
+          navigate(`/search?q=${encodeURIComponent(query.trim())}`)
         }
         break
       case 'Escape':

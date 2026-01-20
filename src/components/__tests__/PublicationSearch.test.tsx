@@ -362,7 +362,7 @@ describe('PublicationSearch', () => {
       expect(screen.queryByText('Alice')).toBeNull()
     })
 
-    it('navigates directly to handle on Enter when dropdown closed', async () => {
+    it('navigates to search page on Enter when dropdown closed', async () => {
       render(<PublicationSearch />)
 
       const input = screen.getByRole('combobox')
@@ -370,17 +370,17 @@ describe('PublicationSearch', () => {
       fireEvent.change(input, { target: { value: 'someuser.bsky.social' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
-      expect(mockNavigate).toHaveBeenCalledWith('/someuser.bsky.social')
+      expect(mockNavigate).toHaveBeenCalledWith('/search?q=someuser.bsky.social')
     })
 
-    it('strips @ from handle on direct navigation', async () => {
+    it('preserves @ in search query', async () => {
       render(<PublicationSearch />)
 
       const input = screen.getByRole('combobox')
       fireEvent.change(input, { target: { value: '@user.bsky.social' } })
       fireEvent.keyDown(input, { key: 'Enter' })
 
-      expect(mockNavigate).toHaveBeenCalledWith('/user.bsky.social')
+      expect(mockNavigate).toHaveBeenCalledWith('/search?q=%40user.bsky.social')
     })
   })
 
