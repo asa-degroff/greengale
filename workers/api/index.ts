@@ -809,7 +809,7 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
 
     const response = {
       tag: normalizedTag,
-      posts: returnPosts.map(formatPost),
+      posts: returnPosts.map(p => formatPost(p)),
       cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
     }
 
@@ -930,7 +930,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
 
     const response = {
-      posts: returnPosts.map(formatPost),
+      posts: returnPosts.map(p => formatPost(p)),
       cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
     }
 
@@ -1104,7 +1104,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
 
     return c.json({
-      posts: returnPosts.map(formatPost),
+      posts: returnPosts.map(p => formatPost(p)),
       cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
     })
   } catch (error) {
@@ -2328,11 +2328,177 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
   }
 })
 
+// Backfill tags for existing posts by fetching from PDS
+// Usage: POST /xrpc/app.greengale.admin.backfillTags?limit=50
+app.post('/xrpc/app.greengale.admin.backfillTags', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+
+  try {
+    // Get posts that don't have any tags in post_tags table yet
+    // Focus on greengale posts (which support tags in the lexicon)
+    const posts = await c.env.DB.prepare(`
+      SELECT p.uri, p.author_did, p.rkey, a.pds_endpoint
+      FROM posts p
+      LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN post_tags pt ON p.uri = pt.post_uri
+      WHERE p.uri LIKE '%/app.greengale.document/%'
+        AND pt.post_uri IS NULL
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ success: true, message: 'No posts to backfill', checked: 0, updated: 0 })
+    }
+
+    let checked = 0
+    let updated = 0
+    const errors: string[] = []
+
+    for (const post of posts.results) {
+      checked++
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const rkey = post.rkey as string
+      let pdsEndpoint = post.pds_endpoint as string | null
+
+      // If no PDS endpoint cached, look it up
+      if (!pdsEndpoint) {
+        try {
+          const didDocResponse = await fetch(`https://plc.directory/${did}`)
+          if (didDocResponse.ok) {
+            const didDoc = await didDocResponse.json() as {
+              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+            }
+            const pdsService = didDoc.service?.find(
+              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+            )
+            pdsEndpoint = pdsService?.serviceEndpoint || null
+          }
+        } catch {
+          // Continue without PDS endpoint
+        }
+      }
+
+      if (!pdsEndpoint) {
+        errors.push(`${uri}: No PDS endpoint`)
+        continue
+      }
+
+      try {
+        // Fetch the record from PDS
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=app.greengale.document&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (!response.ok) {
+          errors.push(`${uri}: Failed to fetch record (${response.status})`)
+          continue
+        }
+
+        const data = await response.json() as {
+          value?: { tags?: string[] }
+        }
+
+        const rawTags = data.value?.tags
+        if (!rawTags || !Array.isArray(rawTags) || rawTags.length === 0) {
+          // No tags in this record - mark as checked by inserting a placeholder we can skip
+          // Actually, we'll just continue - not having tags is fine
+          continue
+        }
+
+        // Normalize tags: lowercase, trim, dedupe, limit to 100
+        const normalizedTags = rawTags
+          .filter((t): t is string => typeof t === 'string')
+          .map(t => t.toLowerCase().trim())
+          .filter(t => t.length > 0 && t.length <= 100)
+          .slice(0, 100)
+          .filter((t, i, arr) => arr.indexOf(t) === i)
+
+        if (normalizedTags.length === 0) {
+          continue
+        }
+
+        // Insert tags into post_tags table
+        const insertStatements = normalizedTags.map(tag =>
+          c.env.DB.prepare(
+            'INSERT OR IGNORE INTO post_tags (post_uri, tag) VALUES (?, ?)'
+          ).bind(uri, tag)
+        )
+
+        await c.env.DB.batch(insertStatements)
+        updated++
+
+        // Invalidate caches
+        await c.env.CACHE.delete(`popular_tags:20`)
+        await c.env.CACHE.delete(`popular_tags:50`)
+        await c.env.CACHE.delete(`popular_tags:100`)
+      } catch (e) {
+        errors.push(`${uri}: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      }
+    }
+
+    // Invalidate all feed caches since tags may have changed
+    // Clear common limit values for both feeds
+    const cacheKeysToDelete = [
+      'recent_posts:24:', 'recent_posts:50:', 'recent_posts:100:',
+      'network_posts:24:', 'network_posts:50:', 'network_posts:100:',
+    ]
+    await Promise.all(cacheKeysToDelete.map(key => c.env.CACHE.delete(key)))
+
+    return c.json({
+      success: true,
+      postsChecked: checked,
+      postsUpdated: updated,
+      cacheCleared: cacheKeysToDelete.length,
+      errors: errors.slice(0, 20),
+    })
+  } catch (error) {
+    console.error('Error backfilling tags:', error)
+    return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// Clear feed caches (useful after backfills or when debugging caching issues)
+// Usage: POST /xrpc/app.greengale.admin.clearFeedCache
+app.post('/xrpc/app.greengale.admin.clearFeedCache', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    // Clear all common feed cache entries
+    // Note: KV doesn't support prefix-based deletion, so we clear known keys
+    const cacheKeysToDelete = [
+      // Recent posts (GreenGale)
+      'recent_posts:24:', 'recent_posts:50:', 'recent_posts:100:',
+      // Network posts (standard.site)
+      'network_posts:24:', 'network_posts:50:', 'network_posts:100:',
+      // Popular tags
+      'popular_tags:10', 'popular_tags:20', 'popular_tags:50', 'popular_tags:100',
+    ]
+
+    await Promise.all(cacheKeysToDelete.map(key => c.env.CACHE.delete(key)))
+
+    return c.json({
+      success: true,
+      keysCleared: cacheKeysToDelete,
+    })
+  } catch (error) {
+    console.error('Error clearing feed cache:', error)
+    return c.json({ error: 'Failed to clear cache', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Format post from DB row to API response
-// Tags can be passed as an array, or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
-function formatPost(row: Record<string, unknown>, tags?: string[]) {
-  // If tags not provided as parameter, try to extract from row.tags (GROUP_CONCAT result)
-  let postTags = tags
+// Tags can be passed directly or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
+function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
+  // Use provided tags, or extract from row.tags (GROUP_CONCAT result)
+  let postTags: string[] | undefined = tagsOverride
   if (!postTags && row.tags && typeof row.tags === 'string') {
     postTags = row.tags.split(',').filter(t => t.length > 0)
   }
