@@ -8,6 +8,7 @@ import {
   float32ToWavBlob,
   detectCapabilities,
   shiftPitch,
+  isTTSModelCached,
   DEFAULT_VOICE,
   SAMPLE_RATE,
   MODEL_ID,
@@ -51,7 +52,7 @@ describe('TTS Module', () => {
     })
 
     it('has correct playback rates', () => {
-      expect(PLAYBACK_RATES).toEqual([0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+      expect(PLAYBACK_RATES).toEqual([0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0])
     })
 
     it('has correct pitch rates', () => {
@@ -1394,6 +1395,118 @@ https://bsky.app/profile/user2.bsky.social/post/def`
       // This is a compile-time check - if this code compiles, the types are correct
       const statuses: TTSStatus[] = ['idle', 'loading-model', 'generating', 'playing', 'paused', 'error']
       expect(statuses).toHaveLength(6)
+    })
+  })
+
+  describe('isTTSModelCached', () => {
+    const originalCaches = globalThis.caches
+
+    afterEach(() => {
+      if (originalCaches) {
+        globalThis.caches = originalCaches
+      } else {
+        // @ts-expect-error - restoring undefined state
+        delete globalThis.caches
+      }
+    })
+
+    it('returns false when Cache API is not available', async () => {
+      // @ts-expect-error - simulating missing Cache API
+      delete globalThis.caches
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(false)
+    })
+
+    it('returns false when cache is empty', async () => {
+      const mockCache = {
+        keys: vi.fn().mockResolvedValue([]),
+      }
+      globalThis.caches = {
+        open: vi.fn().mockResolvedValue(mockCache),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(false)
+      expect(globalThis.caches.open).toHaveBeenCalledWith('transformers-cache')
+    })
+
+    it('returns false when cache has no Kokoro model files', async () => {
+      const mockCache = {
+        keys: vi.fn().mockResolvedValue([
+          { url: 'https://example.com/some-other-model.onnx' },
+          { url: 'https://example.com/bert-model.bin' },
+        ]),
+      }
+      globalThis.caches = {
+        open: vi.fn().mockResolvedValue(mockCache),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(false)
+    })
+
+    it('returns true when cache has Kokoro .onnx file', async () => {
+      const mockCache = {
+        keys: vi.fn().mockResolvedValue([
+          { url: 'https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/model.onnx' },
+        ]),
+      }
+      globalThis.caches = {
+        open: vi.fn().mockResolvedValue(mockCache),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(true)
+    })
+
+    it('returns true when cache has kokoro model file (case insensitive)', async () => {
+      const mockCache = {
+        keys: vi.fn().mockResolvedValue([
+          { url: 'https://huggingface.co/ONNX-COMMUNITY/KOKORO-82M/model_q8.onnx' },
+        ]),
+      }
+      globalThis.caches = {
+        open: vi.fn().mockResolvedValue(mockCache),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(true)
+    })
+
+    it('returns true when URL contains kokoro and model (not .onnx)', async () => {
+      const mockCache = {
+        keys: vi.fn().mockResolvedValue([
+          { url: 'https://cdn.example.com/kokoro/model.json' },
+        ]),
+      }
+      globalThis.caches = {
+        open: vi.fn().mockResolvedValue(mockCache),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(true)
+    })
+
+    it('returns false on cache access error', async () => {
+      globalThis.caches = {
+        open: vi.fn().mockRejectedValue(new Error('Cache access denied')),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(false)
+    })
+
+    it('returns false when keys() throws an error', async () => {
+      const mockCache = {
+        keys: vi.fn().mockRejectedValue(new Error('Keys error')),
+      }
+      globalThis.caches = {
+        open: vi.fn().mockResolvedValue(mockCache),
+      } as unknown as CacheStorage
+
+      const result = await isTTSModelCached()
+      expect(result).toBe(false)
     })
   })
 })
