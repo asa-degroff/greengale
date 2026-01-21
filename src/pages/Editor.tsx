@@ -133,6 +133,7 @@ export function EditorPage() {
     savedDraft,
     lastSavedAt,
     saveDraft,
+    saveDraftNow,
     clearDraft,
     dismissDraftBanner,
     isBannerDismissed,
@@ -605,6 +606,36 @@ export function EditorPage() {
       !justSaved &&
       currentLocation.pathname !== nextLocation.pathname
   )
+
+  // Immediately save draft when navigation is blocked (bypass debounce)
+  useEffect(() => {
+    if (blocker.state === 'blocked' && hasUnsavedChanges) {
+      // Build blob metadata for draft storage
+      const uploadedBlobsMetadata: DraftBlobMetadata[] = uploadedBlobs.map((b) => ({
+        cid: b.cid,
+        mimeType: b.mimeType,
+        size: b.size,
+        name: b.name,
+        alt: b.alt,
+        labels: b.labels,
+      }))
+
+      saveDraftNow({
+        title,
+        subtitle,
+        content,
+        tags,
+        tagInput,
+        lexicon,
+        theme,
+        customColors,
+        visibility,
+        publishToSiteStandard,
+        uploadedBlobsMetadata,
+        viewMode,
+      })
+    }
+  }, [blocker.state, hasUnsavedChanges, title, subtitle, content, tags, tagInput, lexicon, theme, customColors, visibility, publishToSiteStandard, uploadedBlobs, viewMode, saveDraftNow])
 
   // Handle browser beforeunload event
   useEffect(() => {
@@ -2329,7 +2360,7 @@ export function EditorPage() {
         </div>
       </div>
 
-      {/* Unsaved Changes Confirmation Dialog */}
+      {/* Leave Editor Confirmation Dialog */}
       {blocker.state === 'blocked' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           {/* Backdrop */}
@@ -2340,10 +2371,10 @@ export function EditorPage() {
           {/* Dialog */}
           <div className="relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
             <h2 className="text-xl font-bold text-[var(--site-text)] mb-2">
-              Unsaved Changes
+              Leave Editor?
             </h2>
             <p className="text-[var(--site-text-secondary)] mb-6">
-              You have unsaved changes that will be lost if you leave this page.
+              Your draft has been saved locally and will be restored when you return. You can also publish it now to save it to your account.
             </p>
 
             {error && (
@@ -2357,7 +2388,7 @@ export function EditorPage() {
                 onClick={() => blocker.reset?.()}
                 className="w-full px-4 py-2.5 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors"
               >
-                Stay Here
+                Continue Editing
               </button>
               <button
                 onClick={handleSaveAsPrivateAndProceed}
@@ -2365,13 +2396,13 @@ export function EditorPage() {
                 className="w-full px-4 py-2.5 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title={hasContrastError ? 'Fix contrast issues before saving' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
               >
-                {publishing ? 'Saving...' : 'Save as Private & Exit'}
+                {publishing ? 'Publishing...' : 'Publish as Private & Exit'}
               </button>
               <button
                 onClick={() => blocker.proceed?.()}
-                className="w-full px-4 py-2.5 text-sm rounded-lg text-red-500 hover:bg-red-500/10 transition-colors"
+                className="w-full px-4 py-2.5 text-sm rounded-lg text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
               >
-                Discard & Exit
+                Exit
               </button>
             </div>
           </div>
