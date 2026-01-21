@@ -131,7 +131,6 @@ export function EditorPage() {
   const {
     hasDraft,
     savedDraft,
-    lastSavedAt,
     saveDraft,
     saveDraftNow,
     clearDraft,
