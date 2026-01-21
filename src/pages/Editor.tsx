@@ -26,6 +26,8 @@ import {
 } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
+import { useDraftAutoSave, type DraftBlobMetadata } from '@/lib/useDraftAutoSave'
+import { DraftRestorationBanner } from '@/components/DraftRestorationBanner'
 
 const VISIBILITY_OPTIONS = [
   { value: 'public', label: 'Public', description: 'Anyone can see this post' },
@@ -125,6 +127,34 @@ export function EditorPage() {
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
   const { isCollapsed: isToolbarCollapsed, toggleCollapsed: toggleToolbar } = useToolbarCollapsed()
 
+  // Draft auto-save
+  const {
+    hasDraft,
+    savedDraft,
+    lastSavedAt,
+    saveDraft,
+    clearDraft,
+    dismissDraftBanner,
+    isBannerDismissed,
+    isDraftLoaded,
+  } = useDraftAutoSave(session?.did ?? null, rkey)
+
+  // Track if a draft was auto-restored (for showing the "restored" banner)
+  const [draftWasRestored, setDraftWasRestored] = useState(false)
+  // Ref to track draft restoration status for async functions (avoids stale closure)
+  const draftWasRestoredRef = useRef(false)
+  // Store the timestamp of the restored draft (for display even after clearing)
+  const [restoredDraftSavedAt, setRestoredDraftSavedAt] = useState<Date | null>(null)
+  // Store default theme from publication for undo (new posts)
+  const defaultThemeRef = useRef<{ theme: ThemePreset; customColors: CustomColors } | null>(null)
+  // Store loaded post state for undo (editing)
+  const loadedPostStateRef = useRef<{
+    tags: string[]
+    uploadedBlobs: UploadedBlob[]
+  } | null>(null)
+  // Track rkey to detect navigation between posts
+  const prevRkeyRef = useRef<string | undefined>(rkey)
+
   // Image upload state
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -144,6 +174,62 @@ export function EditorPage() {
   useEffect(() => {
     setRecentPalettes(getRecentPalettes())
   }, [])
+
+  // Keep draftWasRestoredRef in sync with state (for async functions to check current value)
+  useEffect(() => {
+    draftWasRestoredRef.current = draftWasRestored
+  }, [draftWasRestored])
+
+  // Reset state when navigating between posts (rkey changes)
+  useEffect(() => {
+    if (prevRkeyRef.current === rkey) return
+    prevRkeyRef.current = rkey
+
+    // Reset draft restoration state
+    setDraftWasRestored(false)
+    draftWasRestoredRef.current = false
+    setRestoredDraftSavedAt(null)
+
+    // Clear refs
+    loadedPostStateRef.current = null
+    initialValues.current = null
+
+    // Reset form to defaults (loadPost will populate if editing)
+    setTitle('')
+    setSubtitle('')
+    setContent('')
+    setTags([])
+    setTagInput('')
+    setLexicon('greengale')
+    setVisibility('public')
+    setPublishToSiteStandard(true)
+    setViewMode('edit')
+    setUploadedBlobs([])
+    setError(null)
+    setPublishAttempted(false)
+    setOriginalCreatedAt(null)
+    setOriginalCollection(null)
+
+    // Reset theme to defaults (will be overwritten by publication theme or loaded post)
+    if (!rkey && defaultThemeRef.current) {
+      // New post: use publication theme
+      setTheme(defaultThemeRef.current.theme)
+      setCustomColors(defaultThemeRef.current.customColors)
+    } else {
+      // Editing: reset to default, loadPost will set the correct theme
+      setTheme('default')
+      setCustomColors({
+        background: '#ffffff',
+        text: '#24292f',
+        accent: '#0969da',
+        codeBackground: '',
+      })
+    }
+
+    // Clean up preview URLs
+    previewUrls.forEach((url) => URL.revokeObjectURL(url))
+    setPreviewUrls(new Map())
+  }, [rkey, previewUrls])
 
   // Cleanup object URLs on unmount
   const previewUrlsRef = useRef<Map<string, string>>(new Map())
@@ -206,11 +292,13 @@ export function EditorPage() {
   }, [session?.did])
 
   // Load existing post if editing
+  // Guards prevent re-loading: !loadingPost ensures we don't start a second load while one is in progress,
+  // !initialValues.current ensures we don't re-load after already loaded (prevents overwriting restored drafts)
   useEffect(() => {
-    if (isEditing && session && handle) {
+    if (isEditing && session && handle && !loadingPost && !initialValues.current) {
       loadPost()
     }
-  }, [isEditing, session, handle])
+  }, [isEditing, session, handle, loadingPost])
 
   // Apply theme dynamically while composing (only for GreenGale)
   useEffect(() => {
@@ -256,19 +344,30 @@ export function EditorPage() {
     if (!session?.did) return
 
     async function loadPublicationTheme() {
+      let loadedTheme: ThemePreset = 'default'
+      let loadedCustomColors: CustomColors = {
+        background: '#ffffff',
+        text: '#24292f',
+        accent: '#0969da',
+        codeBackground: '',
+      }
+
       try {
         const publication = await getPublication(session!.did)
         if (publication?.theme) {
           if (publication.theme.custom) {
-            setTheme('custom')
-            setCustomColors({
+            loadedTheme = 'custom'
+            loadedCustomColors = {
               background: publication.theme.custom.background || '#ffffff',
               text: publication.theme.custom.text || '#24292f',
               accent: publication.theme.custom.accent || '#0969da',
               codeBackground: publication.theme.custom.codeBackground || '',
-            })
+            }
+            setTheme('custom')
+            setCustomColors(loadedCustomColors)
           } else if (publication.theme.preset) {
-            setTheme(publication.theme.preset as ThemePreset)
+            loadedTheme = publication.theme.preset as ThemePreset
+            setTheme(loadedTheme)
           }
         }
         // Initialize site.standard publishing from publication setting (default to true)
@@ -277,6 +376,8 @@ export function EditorPage() {
         // Ignore errors - just use default theme
         console.warn('Failed to load publication theme:', err)
       } finally {
+        // Save defaults for undo functionality
+        defaultThemeRef.current = { theme: loadedTheme, customColors: loadedCustomColors }
         setPublicationThemeLoaded(true)
       }
     }
@@ -322,6 +423,181 @@ export function EditorPage() {
     setHasUnsavedChanges(hasChanges)
   }, [title, subtitle, content, lexicon, theme, customColors, visibility])
 
+  // Auto-save draft to localStorage
+  useEffect(() => {
+    // Skip while loading post data
+    if (loadingPost) return
+    // Skip for new posts until publication theme is loaded
+    if (!isEditing && !publicationThemeLoaded) return
+    // Skip if there's nothing to save
+    if (!title.trim() && !content.trim()) return
+    // Skip during publish/delete operations
+    if (publishing || deleting) return
+    // Skip if there's a draft pending restoration (don't overwrite it with PDS content)
+    if (isDraftLoaded && hasDraft && !draftWasRestored) return
+
+    // Build blob metadata for draft storage (without blobRef to keep it simple)
+    const uploadedBlobsMetadata: DraftBlobMetadata[] = uploadedBlobs.map((b) => ({
+      cid: b.cid,
+      mimeType: b.mimeType,
+      size: b.size,
+      name: b.name,
+      alt: b.alt,
+      labels: b.labels,
+    }))
+
+    saveDraft({
+      title,
+      subtitle,
+      content,
+      tags,
+      tagInput,
+      lexicon,
+      theme,
+      customColors,
+      visibility,
+      publishToSiteStandard,
+      uploadedBlobsMetadata,
+      viewMode,
+    })
+  }, [
+    title,
+    subtitle,
+    content,
+    tags,
+    tagInput,
+    lexicon,
+    theme,
+    customColors,
+    visibility,
+    publishToSiteStandard,
+    uploadedBlobs,
+    viewMode,
+    loadingPost,
+    isEditing,
+    publicationThemeLoaded,
+    publishing,
+    deleting,
+    saveDraft,
+    isDraftLoaded,
+    hasDraft,
+    draftWasRestored,
+  ])
+
+  // Auto-restore draft after post/theme is loaded
+  useEffect(() => {
+    // Wait for draft to be loaded for the current key (prevents restoring stale data)
+    if (!isDraftLoaded) return
+
+    // For new posts: wait for publication theme to load
+    // For editing: wait for post to finish loading
+    if (isEditing) {
+      if (loadingPost) return
+      // Wait for initial values to be set (post loaded from PDS)
+      if (!initialValues.current) return
+    } else {
+      if (!publicationThemeLoaded) return
+    }
+
+    // Only if there's a saved draft
+    if (!savedDraft) return
+    // Only restore once
+    if (draftWasRestored) return
+
+    // Restore draft content
+    setTitle(savedDraft.title)
+    setSubtitle(savedDraft.subtitle)
+    setContent(savedDraft.content)
+    setTags(savedDraft.tags)
+    setTagInput(savedDraft.tagInput)
+    setLexicon(savedDraft.lexicon)
+    setTheme(savedDraft.theme)
+    setCustomColors(savedDraft.customColors)
+    setVisibility(savedDraft.visibility)
+    setPublishToSiteStandard(savedDraft.publishToSiteStandard)
+    setViewMode(savedDraft.viewMode)
+
+    // Restore blob metadata - reconstruct full UploadedBlob objects
+    if (savedDraft.uploadedBlobsMetadata.length > 0) {
+      const restoredBlobs: UploadedBlob[] = savedDraft.uploadedBlobsMetadata.map((meta) => ({
+        cid: meta.cid,
+        mimeType: meta.mimeType,
+        size: meta.size,
+        name: meta.name,
+        alt: meta.alt,
+        labels: meta.labels,
+        blobRef: {
+          $type: 'blob' as const,
+          ref: { $link: meta.cid },
+          mimeType: meta.mimeType,
+          size: meta.size,
+        },
+      }))
+      setUploadedBlobs(restoredBlobs)
+    }
+
+    // Mark as restored and save the timestamp for the banner
+    setDraftWasRestored(true)
+    setRestoredDraftSavedAt(new Date(savedDraft.savedAt))
+  }, [isEditing, loadingPost, publicationThemeLoaded, savedDraft, draftWasRestored, isDraftLoaded])
+
+  // Undo draft restoration - reset to original state
+  const handleUndoDraft = useCallback(() => {
+    // Clear the draft from storage
+    clearDraft()
+
+    if (isEditing && initialValues.current) {
+      // Editing: restore to the PDS version that was loaded
+      setTitle(initialValues.current.title)
+      setSubtitle(initialValues.current.subtitle)
+      setContent(initialValues.current.content)
+      setLexicon(initialValues.current.lexicon)
+      setTheme(initialValues.current.theme)
+      setCustomColors(initialValues.current.customColors)
+      setVisibility(initialValues.current.visibility)
+      setTagInput('')
+      setViewMode('edit')
+
+      // Restore tags and blobs from the loaded post state
+      if (loadedPostStateRef.current) {
+        setTags(loadedPostStateRef.current.tags)
+        setUploadedBlobs(loadedPostStateRef.current.uploadedBlobs)
+      } else {
+        setTags([])
+        setUploadedBlobs([])
+      }
+    } else {
+      // New post: reset to empty with publication theme
+      setTitle('')
+      setSubtitle('')
+      setContent('')
+      setTags([])
+      setTagInput('')
+      setLexicon('greengale')
+      setVisibility('public')
+      setPublishToSiteStandard(true)
+      setViewMode('edit')
+      setUploadedBlobs([])
+
+      // Reset theme to publication defaults
+      if (defaultThemeRef.current) {
+        setTheme(defaultThemeRef.current.theme)
+        setCustomColors(defaultThemeRef.current.customColors)
+      } else {
+        setTheme('default')
+        setCustomColors({
+          background: '#ffffff',
+          text: '#24292f',
+          accent: '#0969da',
+          codeBackground: '',
+        })
+      }
+    }
+
+    // Hide the banner
+    dismissDraftBanner()
+  }, [clearDraft, dismissDraftBanner, isEditing])
+
   // Block navigation when there are unsaved changes
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
@@ -364,26 +640,11 @@ export function EditorPage() {
         return
       }
 
-      // Populate form with existing data
-      setTitle(entry.title || '')
-      setSubtitle(entry.subtitle || '')
-      setContent(entry.content)
-      // Network posts aren't editable in GreenGale, default to greengale
-      setLexicon(entry.source === 'whitewind' ? 'whitewind' : 'greengale')
-      setVisibility(entry.visibility || 'public')
-      setTags(entry.tags || [])
-      setOriginalCreatedAt(entry.createdAt || null)
+      // If draft was already restored while we were fetching, don't overwrite form fields
+      // but still set initialValues for change detection (draft content vs PDS content)
+      const skipFormUpdate = draftWasRestoredRef.current
 
-      // Determine original collection for V1→V2 migration
-      // V2 posts have url and path fields, V1 posts don't
-      if (entry.source === 'greengale') {
-        const isV2 = !!(entry.url && entry.path)
-        setOriginalCollection(isV2 ? GREENGALE_V2_COLLECTION : GREENGALE_V1_COLLECTION)
-      } else {
-        setOriginalCollection(WHITEWIND_COLLECTION)
-      }
-
-      // GreenGale-specific fields
+      // Default custom colors (needed for both form update and initialValues)
       const defaultCustomColors: CustomColors = {
         background: '#ffffff',
         text: '#24292f',
@@ -391,56 +652,77 @@ export function EditorPage() {
         codeBackground: '',
       }
 
-      if (entry.source === 'greengale') {
-        // Check if post has custom colors
-        if (entry.theme?.custom) {
-          setTheme('custom')
-          setCustomColors({
-            background: entry.theme.custom.background || '#ffffff',
-            text: entry.theme.custom.text || '#24292f',
-            accent: entry.theme.custom.accent || '#0969da',
-            codeBackground: entry.theme.custom.codeBackground || '',
-          })
+      // Populate form with existing data (unless draft was restored)
+      if (!skipFormUpdate) {
+        setTitle(entry.title || '')
+        setSubtitle(entry.subtitle || '')
+        setContent(entry.content)
+        // Network posts aren't editable in GreenGale, default to greengale
+        setLexicon(entry.source === 'whitewind' ? 'whitewind' : 'greengale')
+        setVisibility(entry.visibility || 'public')
+        setTags(entry.tags || [])
+        setOriginalCreatedAt(entry.createdAt || null)
+
+        // Determine original collection for V1→V2 migration
+        // V2 posts have url and path fields, V1 posts don't
+        if (entry.source === 'greengale') {
+          const isV2 = !!(entry.url && entry.path)
+          setOriginalCollection(isV2 ? GREENGALE_V2_COLLECTION : GREENGALE_V1_COLLECTION)
         } else {
-          setTheme(entry.theme?.preset || 'default')
+          setOriginalCollection(WHITEWIND_COLLECTION)
         }
 
-        // Restore uploaded blobs if present
-        if (entry.blobs && entry.blobs.length > 0) {
-          const restoredBlobs: UploadedBlob[] = []
-          for (const b of entry.blobs) {
-            // Extract CID using robust extraction (handles _CID class instances)
-            const cid = extractCidFromBlobref(b.blobref)
-            if (!cid) continue
+        if (entry.source === 'greengale') {
+          // Check if post has custom colors
+          if (entry.theme?.custom) {
+            setTheme('custom')
+            setCustomColors({
+              background: entry.theme.custom.background || '#ffffff',
+              text: entry.theme.custom.text || '#24292f',
+              accent: entry.theme.custom.accent || '#0969da',
+              codeBackground: entry.theme.custom.codeBackground || '',
+            })
+          } else {
+            setTheme(entry.theme?.preset || 'default')
+          }
 
-            // Extract mimeType and size from the blobref object
-            const blobref = b.blobref as Record<string, unknown>
-            const mimeType = (blobref.mimeType as string) || 'image/avif'
-            const size = (blobref.size as number) || 0
+          // Restore uploaded blobs if present
+          if (entry.blobs && entry.blobs.length > 0) {
+            const restoredBlobs: UploadedBlob[] = []
+            for (const b of entry.blobs) {
+              // Extract CID using robust extraction (handles _CID class instances)
+              const cid = extractCidFromBlobref(b.blobref)
+              if (!cid) continue
 
-            // Store the extracted primitive values - blobRef will be reconstructed at save time
-            // to ensure proper JSON serialization (SDK class instances may not serialize correctly)
-            restoredBlobs.push({
-              cid,
-              mimeType,
-              size,
-              name: b.name || 'image',
-              alt: b.alt,
-              labels: b.labels,
-              // Construct a fresh blobRef from primitives for any code that needs it
-              blobRef: {
-                $type: 'blob',
-                ref: { $link: cid },
+              // Extract mimeType and size from the blobref object
+              const blobref = b.blobref as Record<string, unknown>
+              const mimeType = (blobref.mimeType as string) || 'image/avif'
+              const size = (blobref.size as number) || 0
+
+              // Store the extracted primitive values - blobRef will be reconstructed at save time
+              // to ensure proper JSON serialization (SDK class instances may not serialize correctly)
+              restoredBlobs.push({
+                cid,
                 mimeType,
                 size,
-              },
-            })
+                name: b.name || 'image',
+                alt: b.alt,
+                labels: b.labels,
+                // Construct a fresh blobRef from primitives for any code that needs it
+                blobRef: {
+                  $type: 'blob',
+                  ref: { $link: cid },
+                  mimeType,
+                  size,
+                },
+              })
+            }
+            setUploadedBlobs(restoredBlobs)
           }
-          setUploadedBlobs(restoredBlobs)
         }
       }
 
-      // Set initial values for change detection
+      // Set initial values for change detection (always, even if form update was skipped)
       const loadedCustomColors = entry.source === 'greengale' && entry.theme?.custom
         ? {
             background: entry.theme.custom.background || '#ffffff',
@@ -460,6 +742,37 @@ export function EditorPage() {
           : 'default',
         customColors: loadedCustomColors,
         visibility: entry.visibility || 'public',
+      }
+
+      // Store loaded state for undo (tags and blobs not in initialValues)
+      // Get the current uploadedBlobs state that was just set
+      const loadedBlobs: UploadedBlob[] = []
+      if (entry.source === 'greengale' && entry.blobs && entry.blobs.length > 0) {
+        for (const b of entry.blobs) {
+          const cid = extractCidFromBlobref(b.blobref)
+          if (!cid) continue
+          const blobref = b.blobref as Record<string, unknown>
+          const mimeType = (blobref.mimeType as string) || 'image/avif'
+          const size = (blobref.size as number) || 0
+          loadedBlobs.push({
+            cid,
+            mimeType,
+            size,
+            name: b.name || 'image',
+            alt: b.alt,
+            labels: b.labels,
+            blobRef: {
+              $type: 'blob',
+              ref: { $link: cid },
+              mimeType,
+              size,
+            },
+          })
+        }
+      }
+      loadedPostStateRef.current = {
+        tags: entry.tags || [],
+        uploadedBlobs: loadedBlobs,
       }
     } catch (err) {
       console.error('Failed to load post:', err)
@@ -759,6 +1072,8 @@ export function EditorPage() {
     const resultRkey = await savePost()
 
     if (resultRkey) {
+      // Clear the draft since we successfully published
+      clearDraft()
       // Save custom palette to recent palettes if using custom theme
       if (theme === 'custom' && customColors.background && customColors.text && customColors.accent) {
         saveRecentPalette({
@@ -1212,6 +1527,15 @@ export function EditorPage() {
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600">
             {error}
           </div>
+        )}
+
+        {/* Draft restored banner - shows after auto-restore */}
+        {draftWasRestored && !isBannerDismissed && restoredDraftSavedAt && (
+          <DraftRestorationBanner
+            savedAt={restoredDraftSavedAt}
+            onUndo={handleUndoDraft}
+            onDismiss={dismissDraftBanner}
+          />
         )}
       </div>
 
