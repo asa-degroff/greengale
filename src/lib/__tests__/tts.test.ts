@@ -1173,6 +1173,7 @@ https://bsky.app/profile/user2.bsky.social/post/def`
         platform: 'MacIntel',
         userAgent: 'Mozilla/5.0 Mac Chrome',
         gpu: mockGpu,
+        maxTouchPoints: 0, // Mac desktop has no touch
       })
       vi.stubGlobal('WebAssembly', {})
       vi.stubGlobal('AudioContext', class {})
@@ -1182,6 +1183,53 @@ https://bsky.app/profile/user2.bsky.social/post/def`
       const caps = await detectCapabilities()
       expect(caps.webgpu).toBe(true)
       expect(caps.recommended.device).toBe('webgpu')
+    })
+
+    it('enables WebGPU for iPad (detected via userAgent)', async () => {
+      const mockDevice = { destroy: vi.fn() }
+      const mockAdapter = { requestDevice: vi.fn().mockResolvedValue(mockDevice) }
+      const mockGpu = { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) }
+
+      vi.stubGlobal('navigator', {
+        platform: 'iPad',
+        userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) Safari/605',
+        gpu: mockGpu,
+        maxTouchPoints: 5,
+      })
+      vi.stubGlobal('WebAssembly', {})
+      vi.stubGlobal('AudioContext', class {})
+      vi.stubGlobal('window', { indexedDB: {} })
+      vi.stubGlobal('localStorage', { getItem: () => null })
+
+      const caps = await detectCapabilities()
+      expect(caps.webgpu).toBe(true)
+      // iPad should use WebGPU by default (M-series chips have excellent WebGPU support)
+      expect(caps.recommended.device).toBe('webgpu')
+      expect(caps.recommended.dtype).toBe('fp32')
+    })
+
+    it('enables WebGPU for iPadOS 13+ (reports as Mac with touch)', async () => {
+      const mockDevice = { destroy: vi.fn() }
+      const mockAdapter = { requestDevice: vi.fn().mockResolvedValue(mockDevice) }
+      const mockGpu = { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) }
+
+      // iPadOS 13+ reports platform as MacIntel but has touch points
+      vi.stubGlobal('navigator', {
+        platform: 'MacIntel',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605',
+        gpu: mockGpu,
+        maxTouchPoints: 5, // This distinguishes iPad from Mac desktop
+      })
+      vi.stubGlobal('WebAssembly', {})
+      vi.stubGlobal('AudioContext', class {})
+      vi.stubGlobal('window', { indexedDB: {} })
+      vi.stubGlobal('localStorage', { getItem: () => null })
+
+      const caps = await detectCapabilities()
+      expect(caps.webgpu).toBe(true)
+      // iPadOS 13+ should use WebGPU by default
+      expect(caps.recommended.device).toBe('webgpu')
+      expect(caps.recommended.dtype).toBe('fp32')
     })
 
     it('handles WebGPU detection failure gracefully', async () => {

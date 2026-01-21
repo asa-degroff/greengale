@@ -122,6 +122,8 @@ export function useTTS(): UseTTSReturn {
     if (chunk.blobUrl && chunk.cachedPitch === pitchRef.current) {
       return chunk.blobUrl
     }
+    // Re-encoding is expected when user changes pitch during playback
+    console.log('[TTS] Re-encoding chunk', chunk.sentenceIndex, 'for pitch change:', chunk.cachedPitch, '->', pitchRef.current)
 
     // Revoke old blob URL if it exists
     if (chunk.blobUrl) {
@@ -202,7 +204,6 @@ export function useTTS(): UseTTSReturn {
     audio.src = blobUrl
     audio.playbackRate = playbackRateRef.current
     // preservesPitch is set during audio element creation
-
     // Wait for metadata to load and get actual duration
     // This is critical for pitch-shifted audio where the SOLA algorithm
     // may produce audio with a different actual duration than calculated
@@ -238,12 +239,27 @@ export function useTTS(): UseTTSReturn {
     // Use actualDuration (from audio element) instead of chunk.duration (calculated from original samples)
     const handleEnded = () => {
       audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('error', handleError)
+
       playedDurationRef.current += actualDuration
       currentChunkIndexRef.current = expectedIndex + 1
       isStartingChunkRef.current = false
       playNextChunk()
     }
+
+    // Handle audio errors gracefully
+    const handleError = (e: Event) => {
+      console.error('[TTS] Audio error on chunk', expectedIndex, ':', e)
+      audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('error', handleError)
+      isStartingChunkRef.current = false
+      // Try to continue with next chunk
+      currentChunkIndexRef.current = expectedIndex + 1
+      playNextChunk()
+    }
+
     audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('error', handleError)
 
     // Start playback
     audio.play().catch((e) => {
@@ -349,10 +365,23 @@ export function useTTS(): UseTTSReturn {
         case 'audio-chunk': {
           const duration = message.audio.length / SAMPLE_RATE_FOR_CALC
 
+          // Pre-create the blob URL now (during idle time) rather than during playback transitions
+          // This spreads out the WAV encoding work and prevents main thread blocking during playback
+          // IMPORTANT: Apply pitch shifting here at the current pitch setting to avoid re-encoding later
+          const currentPitch = pitchRef.current
+
+          // Apply pitch shifting if needed, then encode to WAV
+          let samples = message.audio
+          if (currentPitch !== 1.0) {
+            samples = shiftPitch(samples, currentPitch, SAMPLE_RATE)
+          }
+          const blob = float32ToWavBlob(samples, SAMPLE_RATE)
+          const blobUrl = URL.createObjectURL(blob)
+
           const chunk: AudioChunk = {
-            audio: message.audio,
-            blobUrl: null, // Will be created when needed (with pitch shifting if required)
-            cachedPitch: 1.0,
+            audio: message.audio, // Keep original audio for re-encoding if pitch changes later
+            blobUrl, // Pre-created for smooth playback
+            cachedPitch: currentPitch, // Track what pitch this blob was encoded at
             text: message.text,
             sentenceIndex: message.sentenceIndex,
             duration,
@@ -534,6 +563,16 @@ export function useTTS(): UseTTSReturn {
       }
       workerRef.current = new TTSWorker()
       workerRef.current.onmessage = handleWorkerMessage
+      workerRef.current.onerror = (event) => {
+        console.error('[TTS] Worker error:', event)
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: `TTS worker crashed: ${event.message || 'Unknown error'}`,
+        }))
+        isPlayingRef.current = false
+        setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
+      }
 
       // Create indexed sentences for the worker
       const indexedSentences: IndexedSentence[] = allSentencesRef.current.map((text, index) => ({
@@ -724,6 +763,16 @@ export function useTTS(): UseTTSReturn {
 
         workerRef.current = new TTSWorker()
         workerRef.current.onmessage = handleWorkerMessage
+        workerRef.current.onerror = (event) => {
+          console.error('[TTS] Worker error:', event)
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            error: `TTS worker crashed: ${event.message || 'Unknown error'}`,
+          }))
+          isPlayingRef.current = false
+          setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
+        }
 
         // Store pending generation with new voice
         pendingGenerationRef.current = { sentences: remainingSentences, voice }
@@ -954,6 +1003,16 @@ export function useTTS(): UseTTSReturn {
 
         workerRef.current = new TTSWorker()
         workerRef.current.onmessage = handleWorkerMessage
+        workerRef.current.onerror = (event) => {
+          console.error('[TTS] Worker error:', event)
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            error: `TTS worker crashed: ${event.message || 'Unknown error'}`,
+          }))
+          isPlayingRef.current = false
+          setPlaybackState((prev) => ({ ...prev, isPlaying: false }))
+        }
 
         // Store the pending generation with only missing sentences and current voice
         pendingGenerationRef.current = { sentences: missingSentences, voice: currentVoiceRef.current }

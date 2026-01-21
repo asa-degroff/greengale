@@ -207,14 +207,35 @@ export async function detectCapabilities(): Promise<BrowserCapabilities> {
   // macOS (Chrome & Safari 26+) works reliably with WebGPU, so we enable it by default there.
   // Other platforms can enable via localStorage: localStorage.setItem('tts-force-webgpu', 'true')
   const forceWebGPU = typeof localStorage !== 'undefined' && localStorage.getItem('tts-force-webgpu') === 'true'
-  const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
-  const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-  const useWebGPU = (forceWebGPU || isMac) && webgpu
+
+  // Detect platform - note that iPadOS 13+ reports as Mac in navigator.platform
+  const platform = typeof navigator !== 'undefined' ? navigator.platform : ''
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  const isMac = /Mac/.test(platform)
+  const isIPad = /iPad/.test(userAgent) ||
+    // iPadOS 13+ reports as Mac but has touch support
+    (isMac && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)
+  const isIPhone = /iPhone|iPod/.test(userAgent)
+  const isIOS = isIPad || isIPhone
+  const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent)
+
+  // For WebGPU: enable on macOS and iPad by default
+  // Modern iPads (M1/M2/M4 chips) have excellent WebGPU support
+  // Users can force specific backends via localStorage:
+  //   localStorage.setItem('tts-force-webgpu', 'true')  - Force WebGPU
+  //   localStorage.setItem('tts-force-wasm', 'true')    - Force WASM (for debugging)
+  const forceWASM = typeof localStorage !== 'undefined' && localStorage.getItem('tts-force-wasm') === 'true'
+  const isAppleDevice = isMac || isIPad
+  const useWebGPU = !forceWASM && (forceWebGPU || isAppleDevice) && webgpu
   const device: 'webgpu' | 'wasm' = useWebGPU ? 'webgpu' : 'wasm'
   const dtype: 'fp32' | 'q8' = device === 'webgpu' ? 'fp32' : 'q8'
   const modelSize = dtype === 'fp32' ? '~326 MB' : '~92 MB'
 
-  console.log('[TTS] Detected capabilities:', { webgpu, wasm, device, dtype, isMac, isSafari, forceWebGPU })
+  console.log('[TTS] Detected capabilities:', {
+    webgpu, wasm, device, dtype,
+    isMac, isIPad, isIOS, isSafari, isAppleDevice,
+    forceWebGPU, forceWASM
+  })
 
   return {
     webgpu,

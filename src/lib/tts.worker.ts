@@ -25,6 +25,28 @@ import type {
 } from './tts'
 import { MODEL_ID, DEFAULT_VOICE } from './tts'
 
+// Global error handlers to catch any uncaught errors in the worker
+// These help diagnose Safari crashes
+self.onerror = (event) => {
+  console.error('[TTS Worker] Uncaught error:', event)
+  self.postMessage({
+    type: 'error',
+    error: `Worker error: ${event instanceof ErrorEvent ? event.message : String(event)}`,
+    code: 'GENERATION_FAILED',
+    recoverable: false,
+  } satisfies ErrorMessage)
+}
+
+self.onunhandledrejection = (event) => {
+  console.error('[TTS Worker] Unhandled promise rejection:', event.reason)
+  self.postMessage({
+    type: 'error',
+    error: `Worker promise rejection: ${event.reason?.message || String(event.reason)}`,
+    code: 'GENERATION_FAILED',
+    recoverable: false,
+  } satisfies ErrorMessage)
+}
+
 let tts: KokoroTTS | null = null
 let currentVoice = DEFAULT_VOICE
 let isGenerating = false
