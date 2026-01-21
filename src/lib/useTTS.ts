@@ -122,8 +122,6 @@ export function useTTS(): UseTTSReturn {
     if (chunk.blobUrl && chunk.cachedPitch === pitchRef.current) {
       return chunk.blobUrl
     }
-    // Re-encoding is expected when user changes pitch during playback
-    console.log('[TTS] Re-encoding chunk', chunk.sentenceIndex, 'for pitch change:', chunk.cachedPitch, '->', pitchRef.current)
 
     // Revoke old blob URL if it exists
     if (chunk.blobUrl) {
@@ -143,6 +141,23 @@ export function useTTS(): UseTTSReturn {
 
     return chunk.blobUrl
   }, [])
+
+  // Pre-process upcoming chunks in the background to avoid processing during playback transitions
+  const preProcessNextChunks = useCallback((fromIndex: number, count: number = 2) => {
+    for (let i = 0; i < count; i++) {
+      const nextIndex = fromIndex + 1 + i
+      const nextChunk = allChunksRef.current.get(nextIndex)
+      if (nextChunk && (!nextChunk.blobUrl || nextChunk.cachedPitch !== pitchRef.current)) {
+        // Use setTimeout to defer processing and avoid blocking
+        setTimeout(() => {
+          // Double-check chunk still needs processing (might have been processed already)
+          if (nextChunk && (!nextChunk.blobUrl || nextChunk.cachedPitch !== pitchRef.current)) {
+            getChunkBlobUrl(nextChunk)
+          }
+        }, i * 50) // Stagger processing by 50ms each
+      }
+    }
+  }, [getChunkBlobUrl])
 
   // Play the next chunk in sequence using HTMLAudioElement
   const playNextChunk = useCallback(async () => {
@@ -267,7 +282,10 @@ export function useTTS(): UseTTSReturn {
       isStartingChunkRef.current = false
     })
     isStartingChunkRef.current = false
-  }, [getOrCreateAudioElement, getChunkBlobUrl])
+
+    // Pre-process upcoming chunks in the background while this one plays
+    preProcessNextChunks(expectedIndex, 3)
+  }, [getOrCreateAudioElement, getChunkBlobUrl, preProcessNextChunks])
 
   // Try to start playback when we have enough buffered audio
   const tryStartPlayback = useCallback(() => {
@@ -365,23 +383,12 @@ export function useTTS(): UseTTSReturn {
         case 'audio-chunk': {
           const duration = message.audio.length / SAMPLE_RATE_FOR_CALC
 
-          // Pre-create the blob URL now (during idle time) rather than during playback transitions
-          // This spreads out the WAV encoding work and prevents main thread blocking during playback
-          // IMPORTANT: Apply pitch shifting here at the current pitch setting to avoid re-encoding later
-          const currentPitch = pitchRef.current
-
-          // Apply pitch shifting if needed, then encode to WAV
-          let samples = message.audio
-          if (currentPitch !== 1.0) {
-            samples = shiftPitch(samples, currentPitch, SAMPLE_RATE)
-          }
-          const blob = float32ToWavBlob(samples, SAMPLE_RATE)
-          const blobUrl = URL.createObjectURL(blob)
-
+          // DON'T process chunks on arrival - this causes memory pressure that can crash Safari
+          // Instead, store raw audio and process lazily when needed for playback
           const chunk: AudioChunk = {
-            audio: message.audio, // Keep original audio for re-encoding if pitch changes later
-            blobUrl, // Pre-created for smooth playback
-            cachedPitch: currentPitch, // Track what pitch this blob was encoded at
+            audio: message.audio,
+            blobUrl: null, // Will be created when needed
+            cachedPitch: 1.0, // Will be updated when processed
             text: message.text,
             sentenceIndex: message.sentenceIndex,
             duration,
