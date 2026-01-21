@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { extractText, extractFirstImage } from '@/lib/markdown'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import { extractCidFromBlobUrl, getBlobLabelsMap } from '@/lib/image-labels'
@@ -12,6 +12,7 @@ interface BlogCardProps {
 }
 
 export function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
+  const navigate = useNavigate()
   const preview = extractText(entry.content, 160)
   const thumbnail = extractFirstImage(entry.content)
 
@@ -93,14 +94,26 @@ export function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
           {tags && tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mb-2">
               {tags.slice(0, 5).map((tag) => (
-                <Link
+                <span
                   key={tag}
-                  to={`/tag/${encodeURIComponent(tag)}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-block px-2 py-0.5 rounded-full text-xs bg-[var(--site-accent)]/10 text-[var(--site-accent)] hover:bg-[var(--site-accent)]/20 transition-colors"
+                  role="link"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    navigate(`/tag/${encodeURIComponent(tag)}`)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      navigate(`/tag/${encodeURIComponent(tag)}`)
+                    }
+                  }}
+                  className="inline-block px-2 py-0.5 rounded-full text-xs bg-[var(--site-accent)]/10 text-[var(--site-accent)] hover:bg-[var(--site-accent)]/20 transition-colors cursor-pointer"
                 >
                   {tag}
-                </Link>
+                </span>
               ))}
               {tags.length > 5 && (
                 <span className="inline-block px-2 py-0.5 text-xs text-[var(--site-text-secondary)]">
