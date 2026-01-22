@@ -1320,6 +1320,99 @@ export function EditorPage() {
     [session, pdsEndpoint, content, isWhiteWind, isImageFile]
   )
 
+  // Handle paste for image upload from clipboard
+  const handlePaste = useCallback(
+    async (e: React.ClipboardEvent) => {
+      // Check if clipboard contains files (images)
+      const items = e.clipboardData?.items
+      if (!items) return
+
+      // Extract image files from clipboard
+      const imageFiles: File[] = []
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile()
+          if (file) {
+            imageFiles.push(file)
+          }
+        }
+      }
+
+      // If no images, let the default paste behavior happen (text paste)
+      if (imageFiles.length === 0) return
+
+      // Prevent default paste behavior for images
+      e.preventDefault()
+
+      // WhiteWind format doesn't support image blobs
+      if (isWhiteWind) {
+        setUploadError('Image uploads are not supported in WhiteWind format. Switch to GreenGale format to attach images.')
+        return
+      }
+
+      if (!session || !pdsEndpoint) {
+        setUploadError('Not authenticated or PDS endpoint not available')
+        return
+      }
+
+      // Get cursor position from textarea
+      const textarea = textareaRef.current
+      let cursorPosition = textarea?.selectionStart ?? content.length
+
+      setUploadError(null)
+
+      // Process files with placeholder approach (same as drag-drop)
+      for (const file of imageFiles) {
+        // Generate unique placeholder ID
+        const placeholderId = `uploading-${crypto.randomUUID()}`
+        // Use a generic name for pasted images (they often don't have meaningful names)
+        const displayName = file.name || 'pasted-image'
+        const placeholderMarkdown = `![Uploading ${displayName}...](${placeholderId})`
+        const insertText = '\n' + placeholderMarkdown + '\n'
+
+        // Insert placeholder immediately at cursor position
+        setContent((currentContent) => {
+          const before = currentContent.slice(0, cursorPosition)
+          const after = currentContent.slice(cursorPosition)
+          return before + insertText + after
+        })
+
+        // Update cursor position for next image
+        cursorPosition += insertText.length
+
+        // Process upload asynchronously
+        processAndUploadImage(
+          file,
+          (url, init) => session.fetchHandler(url, init),
+          pdsEndpoint,
+          session.did,
+          setUploadProgress
+        )
+          .then((result) => {
+            // Track uploaded blob for record save
+            setUploadedBlobs((prev) => [...prev, result.uploadedBlob])
+
+            // Create local object URL for preview (avoids CORS issues with PDS)
+            const localPreviewUrl = URL.createObjectURL(file)
+            setPreviewUrls((prev) => new Map(prev).set(result.markdownUrl, localPreviewUrl))
+
+            // Replace placeholder with actual markdown
+            const finalMarkdown = generateMarkdownImage('', result.markdownUrl)
+            setContent((currentContent) => currentContent.replace(placeholderMarkdown, finalMarkdown))
+          })
+          .catch((err) => {
+            // Remove placeholder on failure
+            setContent((currentContent) => currentContent.replace('\n' + placeholderMarkdown + '\n', ''))
+            setUploadError(err instanceof Error ? err.message : 'Failed to upload image')
+          })
+          .finally(() => {
+            setUploadProgress(null)
+          })
+      }
+    },
+    [session, pdsEndpoint, content, isWhiteWind]
+  )
+
   // Handle file input selection (for mobile/button upload)
   const handleFileSelect = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1760,7 +1853,8 @@ export function EditorPage() {
                   onDragLeave={handleDragLeave}
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
-                  placeholder={isWhiteWind ? "Write your post in markdown..." : "Write your post in markdown... (drag and drop images to upload)"}
+                  onPaste={handlePaste}
+                  placeholder={isWhiteWind ? "Write your post in markdown..." : "Write your post in markdown... (drag, drop, or paste images to upload)"}
                   rows={40}
                   className={`w-full px-4 py-3 rounded-lg border bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] font-mono text-sm resize-y transition-colors ${
                     isDragging
