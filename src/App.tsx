@@ -1,4 +1,5 @@
-import { createBrowserRouter, RouterProvider, Outlet } from 'react-router-dom'
+import { useEffect } from 'react'
+import { createBrowserRouter, RouterProvider, Outlet, useLocation } from 'react-router-dom'
 import { AuthProvider } from '@/lib/auth'
 import { ThemePreferenceProvider } from '@/lib/useThemePreference'
 import { Sidebar } from '@/components/Sidebar'
@@ -12,11 +13,29 @@ import { SearchPage } from '@/pages/Search'
 import { TermsPage } from '@/pages/Terms'
 import { PrivacyPage } from '@/pages/Privacy'
 
+/**
+ * ScrollToTop - Scrolls to top on route changes
+ * Only scrolls when the pathname changes (not on hash changes)
+ * This ensures new page navigations start at the top
+ */
+function ScrollToTop() {
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    // Scroll to top when pathname changes
+    // Use instant scroll to avoid jarring smooth scroll on navigation
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+  }, [pathname])
+
+  return null
+}
+
 // Layout component that wraps all routes with providers and sidebar
 function RootLayout() {
   return (
     <AuthProvider>
       <ThemePreferenceProvider>
+        <ScrollToTop />
         <Sidebar>
           <Outlet />
         </Sidebar>
