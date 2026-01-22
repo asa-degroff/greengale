@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
+import { MasonryGrid } from '@/components/MasonryGrid'
 import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
 import { AuthorPageLoading } from '@/components/PageLoading'
 import { useAuth } from '@/lib/auth'
@@ -573,7 +574,7 @@ export function AuthorPage() {
             <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
               Blog Posts
             </h2>
-            <div className="grid md:grid-cols-2 gap-6">
+            <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
               {posts.map((post) => {
                 // Convert AppViewPost to minimal BlogEntry for BlogCard
                 const entry: BlogEntry = {
@@ -603,7 +604,7 @@ export function AuthorPage() {
                   />
                 )
               })}
-            </div>
+            </MasonryGrid>
             {/* Load More Button */}
             {hasMore && (
               <div className="flex justify-center mt-8">

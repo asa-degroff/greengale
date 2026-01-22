@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BlogCard } from '@/components/BlogCard'
+import { MasonryGrid } from '@/components/MasonryGrid'
 import { TextLogo } from '@/components/TextLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { LoadingCube } from '@/components/LoadingCube'
@@ -190,7 +191,7 @@ export function HomePage() {
               <>
                 {recentPosts.length > 0 ? (
                   <>
-                    <div className="grid md:grid-cols-2 gap-6">
+                    <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
                       {recentPosts.map((post) => (
                         <BlogCard
                           key={post.uri}
@@ -199,7 +200,7 @@ export function HomePage() {
                           tags={post.tags}
                         />
                       ))}
-                    </div>
+                    </MasonryGrid>
                     {cursor && loadCount < 12 && (
                       <div className="mt-8 text-center">
                         <button
@@ -232,7 +233,7 @@ export function HomePage() {
                   </div>
                 ) : networkPosts.length > 0 ? (
                   <>
-                    <div className="grid md:grid-cols-2 gap-6">
+                    <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
                       {networkPosts.map((post) => (
                         <BlogCard
                           key={post.uri}
@@ -242,7 +243,7 @@ export function HomePage() {
                           tags={post.tags}
                         />
                       ))}
-                    </div>
+                    </MasonryGrid>
                     {networkCursor && networkLoadCount < 12 && (
                       <div className="mt-8 text-center">
                         <button
