@@ -1994,4 +1994,71 @@ describe('formatPost', () => {
 
     expect(data.post.author).toBeUndefined()
   })
+
+  it('includes contentPreview and firstImageCid when present', async () => {
+    const env = createTestEnv()
+    const row = {
+      uri: 'at://did:plc:abc/collection/rkey',
+      author_did: 'did:plc:abc',
+      rkey: 'rkey',
+      title: 'Title',
+      visibility: 'public',
+      content_preview: 'This is a preview of the content...',
+      first_image_cid: 'bafkreiexamplecid123',
+      handle: 'test.bsky.social',
+    }
+
+    env.DB._statement.first.mockResolvedValueOnce(row)
+
+    const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=rkey')
+    const data = await res.json()
+
+    expect(data.post.contentPreview).toBe('This is a preview of the content...')
+    expect(data.post.firstImageCid).toBe('bafkreiexamplecid123')
+  })
+
+  it('includes pdsEndpoint in author object when present', async () => {
+    const env = createTestEnv()
+    const row = {
+      uri: 'at://did:plc:abc/collection/rkey',
+      author_did: 'did:plc:abc',
+      rkey: 'rkey',
+      title: 'Title',
+      visibility: 'public',
+      handle: 'test.bsky.social',
+      display_name: 'Test User',
+      avatar_url: 'https://avatar.url',
+      pds_endpoint: 'https://bsky.social',
+    }
+
+    env.DB._statement.first.mockResolvedValueOnce(row)
+
+    const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=rkey')
+    const data = await res.json()
+
+    expect(data.post.author).toBeDefined()
+    expect(data.post.author?.pdsEndpoint).toBe('https://bsky.social')
+  })
+
+  it('handles null contentPreview and firstImageCid', async () => {
+    const env = createTestEnv()
+    const row = {
+      uri: 'at://did:plc:abc/collection/rkey',
+      author_did: 'did:plc:abc',
+      rkey: 'rkey',
+      title: 'Title',
+      visibility: 'public',
+      content_preview: null,
+      first_image_cid: null,
+      handle: 'test.bsky.social',
+    }
+
+    env.DB._statement.first.mockResolvedValueOnce(row)
+
+    const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=rkey')
+    const data = await res.json()
+
+    expect(data.post.contentPreview).toBeNull()
+    expect(data.post.firstImageCid).toBeNull()
+  })
 })
