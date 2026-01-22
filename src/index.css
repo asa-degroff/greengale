@@ -1469,3 +1469,157 @@ html {
   }
 }
 
+/* ============================================
+   Loading Cube Animations
+   ============================================ */
+
+/* Main cube rotation - complex 3D tumbling */
+@keyframes cube-rotate {
+  0% {
+    transform: rotateX(-20deg) rotateY(0deg);
+  }
+  25% {
+    transform: rotateX(20deg) rotateY(90deg);
+  }
+  50% {
+    transform: rotateX(-20deg) rotateY(180deg);
+  }
+  75% {
+    transform: rotateX(20deg) rotateY(270deg);
+  }
+  100% {
+    transform: rotateX(-20deg) rotateY(360deg);
+  }
+}
+
+.animate-cube-rotate {
+  animation: cube-rotate 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Face pulsing glow effect */
+@keyframes cube-face-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.9;
+    filter: brightness(1.2);
+  }
+}
+
+.animate-cube-face-pulse {
+  animation: cube-face-pulse 2s ease-in-out infinite;
+}
+
+/* Corner point glowing */
+@keyframes cube-corner-glow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1) translate3d(var(--tx, 0), var(--ty, 0), var(--tz, 0));
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.5) translate3d(var(--tx, 0), var(--ty, 0), var(--tz, 0));
+  }
+}
+
+.animate-cube-corner-glow {
+  animation: cube-corner-glow 1.5s ease-in-out infinite;
+}
+
+/* Shadow pulsing beneath cube */
+@keyframes cube-shadow {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scaleX(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scaleX(1.2);
+  }
+}
+
+.animate-cube-shadow {
+  animation: cube-shadow 1.5s ease-in-out infinite;
+}
+
+/* Floating particles orbiting the cube */
+@keyframes cube-particle {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--particle-angle, 0deg)) translateX(0) translateY(0);
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(calc(var(--particle-angle, 0deg) + 360deg)) translateX(var(--particle-distance, 40px)) translateY(-30px);
+  }
+}
+
+.animate-cube-particle {
+  animation: cube-particle 3s ease-out infinite;
+}
+
+/* Inline cube bounce animation */
+@keyframes cube-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  40% {
+    transform: translateY(-6px) scale(1.1);
+  }
+}
+
+.animate-cube-bounce {
+  animation: cube-bounce 1.4s ease-in-out infinite;
+}
+
+/* Alternative: Morphing cube animation */
+@keyframes cube-morph {
+  0%, 100% {
+    border-radius: 0;
+    transform: rotate(0deg);
+  }
+  25% {
+    border-radius: 25%;
+    transform: rotate(45deg);
+  }
+  50% {
+    border-radius: 50%;
+    transform: rotate(90deg);
+  }
+  75% {
+    border-radius: 25%;
+    transform: rotate(135deg);
+  }
+}
+
+/* Skeleton loading with cube shimmer */
+@keyframes cube-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-cube-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--site-border) 0%,
+    var(--site-bg-secondary) 20%,
+    var(--site-accent-muted, var(--site-border)) 40%,
+    var(--site-bg-secondary) 60%,
+    var(--site-border) 100%
+  );
+  background-size: 200% 100%;
+  animation: cube-shimmer 2s ease-in-out infinite;
+}
+

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { BlogCard } from '@/components/BlogCard'
 import { TextLogo } from '@/components/TextLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
+import { LoadingCube } from '@/components/LoadingCube'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import {
@@ -223,10 +224,11 @@ export function HomePage() {
             {activeTab === 'network' && (
               <>
                 {networkLoading ? (
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg animate-pulse" />
-                    ))}
+                  <div className="flex flex-col items-center py-12">
+                    <LoadingCube size="md" />
+                    <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+                      Loading network posts...
+                    </p>
                   </div>
                 ) : networkPosts.length > 0 ? (
                   <>
@@ -267,17 +269,18 @@ export function HomePage() {
           <div className="mb-12">
             <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
               <div className="px-4 py-2 font-medium text-[var(--site-accent)] relative">
-                GreenGale
+                Recents
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
               </div>
               <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
-                From the Network
+                From the Network (Beta)
               </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-6">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg animate-pulse" />
-              ))}
+            <div className="flex flex-col items-center py-12">
+              <LoadingCube size="lg" />
+              <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+                Loading recent posts...
+              </p>
             </div>
           </div>
         )}

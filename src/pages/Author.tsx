@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
+import { AuthorPageLoading } from '@/components/PageLoading'
 import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
@@ -474,26 +475,7 @@ export function AuthorPage() {
   }
 
   if (loading) {
-    return (
-      <div className="min-h-screen">
-        <div className="max-w-4xl mx-auto px-4 py-12">
-          <div className="animate-pulse">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-16 h-16 rounded-full bg-[var(--site-border)]"></div>
-              <div>
-                <div className="h-6 bg-[var(--site-border)] rounded w-48 mb-2"></div>
-                <div className="h-4 bg-[var(--site-border)] rounded w-32"></div>
-              </div>
-            </div>
-            <div className="grid md:grid-cols-2 gap-6">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-48 bg-[var(--site-border)] rounded-lg"></div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    )
+    return <AuthorPageLoading />
   }
 
   if (error) {

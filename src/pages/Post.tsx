@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogViewer } from '@/components/BlogViewer'
+import { LoadingCube } from '@/components/LoadingCube'
 import { useAuth } from '@/lib/auth'
 import {
   getBlogEntry,
@@ -202,15 +203,21 @@ export function PostPage() {
     return (
       <div className="min-h-screen">
         <div className="max-w-3xl mx-auto px-4 py-12">
-          <div className="animate-pulse">
-            <div className="h-10 bg-[var(--site-border)] rounded w-3/4 mb-4"></div>
-            <div className="h-6 bg-[var(--site-border)] rounded w-1/2 mb-8"></div>
-            <div className="space-y-4">
-              <div className="h-4 bg-[var(--site-border)] rounded w-full"></div>
-              <div className="h-4 bg-[var(--site-border)] rounded w-full"></div>
-              <div className="h-4 bg-[var(--site-border)] rounded w-5/6"></div>
-              <div className="h-4 bg-[var(--site-border)] rounded w-full"></div>
-              <div className="h-4 bg-[var(--site-border)] rounded w-4/5"></div>
+          {/* Centered cube */}
+          <div className="flex flex-col items-center justify-center py-16">
+            <LoadingCube size="lg" />
+            <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+              Loading post...
+            </p>
+          </div>
+          {/* Skeleton content */}
+          <div className="space-y-4 opacity-30">
+            <div className="h-10 bg-[var(--site-border)] rounded w-3/4 animate-cube-shimmer"></div>
+            <div className="h-6 bg-[var(--site-border)] rounded w-1/2 animate-cube-shimmer" style={{ animationDelay: '0.1s' }}></div>
+            <div className="space-y-3 mt-8">
+              <div className="h-4 bg-[var(--site-border)] rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.2s' }}></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.3s' }}></div>
+              <div className="h-4 bg-[var(--site-border)] rounded w-5/6 animate-cube-shimmer" style={{ animationDelay: '0.4s' }}></div>
             </div>
           </div>
         </div>
