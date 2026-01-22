@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, memo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { extractText, extractFirstImage } from '@/lib/markdown'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
@@ -11,7 +11,7 @@ interface BlogCardProps {
   tags?: string[]
 }
 
-export function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
+export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
   const navigate = useNavigate()
   const preview = extractText(entry.content, 160)
   const thumbnail = extractFirstImage(entry.content)
@@ -212,4 +212,4 @@ export function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
       )}
     </article>
   )
-}
+})

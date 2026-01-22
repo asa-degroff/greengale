@@ -10,7 +10,18 @@
 // See: https://github.com/hexgrad/kokoro/pull/242
 import '@sec-ant/readable-stream/polyfill/asyncIterator'
 
+import { env } from '@huggingface/transformers'
 import { KokoroTTS } from 'kokoro-js'
+
+// Apply Safari/iOS workarounds for ONNX Runtime issues
+// See: https://github.com/microsoft/onnxruntime/issues/26827
+const isSafariInWorker = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+const isIOSInWorker = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (/Mac/.test(navigator.userAgent) && navigator.maxTouchPoints > 0)
+if (isSafariInWorker || isIOSInWorker) {
+  console.log('[TTS Worker] Safari/iOS detected, disabling WASM multi-threading')
+  env.backends.onnx.wasm.numThreads = 1
+}
 import type {
   WorkerRequest,
   WorkerMessage,

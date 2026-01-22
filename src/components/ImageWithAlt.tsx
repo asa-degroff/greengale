@@ -28,20 +28,27 @@ export function ImageWithAlt({
   useEffect(() => {
     if (!showAltText) return
 
+    // Track whether listener was added to ensure proper cleanup
+    let listenerAdded = false
+
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setShowAltText(false)
       }
     }
 
-    // Delay adding listener to avoid immediate trigger from the opening click
-    const timeoutId = setTimeout(() => {
+    // Use requestAnimationFrame to defer to next frame, avoiding immediate trigger
+    // from the opening click while ensuring deterministic cleanup
+    const rafId = requestAnimationFrame(() => {
       document.addEventListener('click', handleClickOutside)
-    }, 0)
+      listenerAdded = true
+    })
 
     return () => {
-      clearTimeout(timeoutId)
-      document.removeEventListener('click', handleClickOutside)
+      cancelAnimationFrame(rafId)
+      if (listenerAdded) {
+        document.removeEventListener('click', handleClickOutside)
+      }
     }
   }, [showAltText])
 

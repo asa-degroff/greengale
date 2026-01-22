@@ -338,21 +338,32 @@ export function AuthorPage() {
       const listData = await listResponse.json()
       const siteStandardRecords = listData.records || []
 
-      // Check each one for a corresponding app.greengale.document
+      // Check each one for a corresponding app.greengale.document (in parallel batches)
+      const BATCH_SIZE = 10
       const orphans: Array<{ rkey: string; title: string }> = []
 
-      for (const record of siteStandardRecords) {
-        const rkey = record.uri.split('/').pop()
-        const title = record.value?.title || 'Untitled'
+      // Process in batches to avoid overwhelming the server
+      for (let i = 0; i < siteStandardRecords.length; i += BATCH_SIZE) {
+        const batch = siteStandardRecords.slice(i, i + BATCH_SIZE)
 
-        // Check if greengale document exists
-        const checkResponse = await fetch(
-          `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${session.did}&collection=app.greengale.document&rkey=${rkey}`
+        const results = await Promise.all(
+          batch.map(async (record: { uri: string; value?: { title?: string } }) => {
+            const rkey = record.uri.split('/').pop()
+            const title = record.value?.title || 'Untitled'
+
+            const checkResponse = await fetch(
+              `https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${session.did}&collection=app.greengale.document&rkey=${rkey}`
+            )
+
+            return { rkey, title, isOrphan: !checkResponse.ok }
+          })
         )
 
-        if (!checkResponse.ok) {
-          // Record not found - this is an orphan
-          orphans.push({ rkey, title })
+        // Collect orphans from this batch
+        for (const result of results) {
+          if (result.isOrphan) {
+            orphans.push({ rkey: result.rkey!, title: result.title })
+          }
         }
       }
 
@@ -373,17 +384,20 @@ export function AuthorPage() {
     setDeletingOrphans(true)
 
     try {
-      for (const orphan of orphanedRecords) {
-        await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            repo: session.did,
-            collection: 'site.standard.document',
-            rkey: orphan.rkey,
-          }),
-        })
-      }
+      // Delete all orphans in parallel
+      await Promise.all(
+        orphanedRecords.map((orphan) =>
+          session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              repo: session.did,
+              collection: 'site.standard.document',
+              rkey: orphan.rkey,
+            }),
+          })
+        )
+      )
 
       setOrphanedRecords([])
       setOrphanScanComplete(false)

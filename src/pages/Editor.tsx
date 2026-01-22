@@ -243,11 +243,11 @@ export function EditorPage() {
   // Compute preview content with local URLs substituted for PDS URLs
   const previewContent = useMemo(() => {
     if (previewUrls.size === 0) return content
-    let result = content
-    previewUrls.forEach((localUrl, pdsUrl) => {
-      result = result.split(pdsUrl).join(localUrl)
-    })
-    return result
+    // Build a single regex pattern from all PDS URLs for O(n) replacement
+    const pdsUrls = Array.from(previewUrls.keys())
+    const escapedUrls = pdsUrls.map((url) => url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    const pattern = new RegExp(escapedUrls.join('|'), 'g')
+    return content.replace(pattern, (match) => previewUrls.get(match) || match)
   }, [content, previewUrls])
 
   // Track initial values to detect changes
