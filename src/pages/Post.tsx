@@ -211,13 +211,13 @@ export function PostPage() {
             </p>
           </div>
           {/* Skeleton content */}
-          <div className="space-y-4 opacity-30">
-            <div className="h-10 bg-[var(--site-border)] rounded w-3/4 animate-cube-shimmer"></div>
-            <div className="h-6 bg-[var(--site-border)] rounded w-1/2 animate-cube-shimmer" style={{ animationDelay: '0.1s' }}></div>
+          <div className="space-y-4 opacity-40">
+            <div className="h-10 rounded w-3/4 animate-cube-shimmer"></div>
+            <div className="h-6 rounded w-1/2 animate-cube-shimmer" style={{ animationDelay: '0.1s' }}></div>
             <div className="space-y-3 mt-8">
-              <div className="h-4 bg-[var(--site-border)] rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.2s' }}></div>
-              <div className="h-4 bg-[var(--site-border)] rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.3s' }}></div>
-              <div className="h-4 bg-[var(--site-border)] rounded w-5/6 animate-cube-shimmer" style={{ animationDelay: '0.4s' }}></div>
+              <div className="h-4 rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.2s' }}></div>
+              <div className="h-4 rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.3s' }}></div>
+              <div className="h-4 rounded w-5/6 animate-cube-shimmer" style={{ animationDelay: '0.4s' }}></div>
             </div>
           </div>
         </div>

@@ -1614,12 +1614,13 @@ html {
   background: linear-gradient(
     90deg,
     var(--site-border) 0%,
-    var(--site-bg-secondary) 20%,
-    var(--site-accent-muted, var(--site-border)) 40%,
-    var(--site-bg-secondary) 60%,
+    color-mix(in srgb, var(--site-border) 70%, var(--site-bg-secondary) 30%) 25%,
+    color-mix(in srgb, var(--site-border) 50%, var(--site-bg-secondary) 50%) 50%,
+    color-mix(in srgb, var(--site-border) 70%, var(--site-bg-secondary) 30%) 75%,
     var(--site-border) 100%
   );
   background-size: 200% 100%;
-  animation: cube-shimmer 2s ease-in-out infinite;
+  animation: cube-shimmer 2.5s ease-in-out infinite;
+  opacity: 0.6;
 }
 

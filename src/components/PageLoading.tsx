@@ -57,11 +57,11 @@ export const PageLoading = memo(function PageLoading({
 const SkeletonCard = memo(function SkeletonCard({ index }: { index: number }) {
   return (
     <div
-      className="border border-[var(--site-border)] rounded-lg overflow-hidden bg-[var(--site-bg)]"
+      className="border border-[var(--site-border)]/50 rounded-lg overflow-hidden bg-[var(--site-bg)]"
       style={{ animationDelay: `${index * 0.1}s` }}
     >
       {/* Thumbnail skeleton */}
-      <div className="aspect-video bg-[var(--site-border)] animate-cube-shimmer" />
+      <div className="aspect-video animate-cube-shimmer" />
 
       {/* Content skeleton */}
       <div className="p-4 space-y-3">
@@ -159,7 +159,7 @@ export const AuthorPageLoading = memo(function AuthorPageLoading() {
     <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-4 py-12">
         {/* Author header skeleton */}
-        <div className="flex items-center gap-4 mb-8">
+        <div className="flex items-center gap-4 mb-8 opacity-50">
           <div className="w-16 h-16 rounded-full animate-cube-shimmer" />
           <div className="flex-1">
             <div className="h-6 w-48 rounded animate-cube-shimmer mb-2" />
@@ -176,7 +176,7 @@ export const AuthorPageLoading = memo(function AuthorPageLoading() {
         </div>
 
         {/* Post grid skeleton */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 gap-6 opacity-40">
           {[...Array(4)].map((_, i) => (
             <SkeletonCard key={i} index={i} />
           ))}
