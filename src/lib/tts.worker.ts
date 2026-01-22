@@ -20,7 +20,9 @@ const isIOSInWorker = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (/Mac/.test(navigator.userAgent) && navigator.maxTouchPoints > 0)
 if (isSafariInWorker || isIOSInWorker) {
   console.log('[TTS Worker] Safari/iOS detected, disabling WASM multi-threading')
-  env.backends.onnx.wasm.numThreads = 1
+  if (env.backends.onnx?.wasm) {
+    env.backends.onnx.wasm.numThreads = 1
+  }
 }
 import type {
   WorkerRequest,

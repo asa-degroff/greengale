@@ -22,6 +22,27 @@ app.use('/*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }))
 
+// =============================================================================
+// Cache Control Headers
+// =============================================================================
+// Add browser caching for feed endpoints to reduce redundant requests.
+// Uses stale-while-revalidate for better UX during back/forward navigation.
+
+// Cache TTLs (in seconds)
+const FEED_CACHE_MAX_AGE = 60 // 1 minute fresh
+const FEED_CACHE_SWR = 300 // 5 minutes stale-while-revalidate
+const PROFILE_CACHE_MAX_AGE = 120 // 2 minutes fresh
+const PROFILE_CACHE_SWR = 600 // 10 minutes stale-while-revalidate
+
+/**
+ * Create a JSON response with cache headers
+ */
+function jsonWithCache<T>(c: { json: (data: T, status?: number) => Response }, data: T, maxAge: number, swr: number): Response {
+  const response = c.json(data)
+  response.headers.set('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=${swr}`)
+  return response
+}
+
 // Health check
 app.get('/xrpc/_health', (c) => {
   return c.json({ status: 'ok', version: '0.1.0' })
@@ -885,7 +906,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     // Check cache first
     const cached = await c.env.CACHE.get(cacheKey, 'json')
     if (cached) {
-      return c.json(cached)
+      return jsonWithCache(c, cached, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
     }
 
     // Cache miss - query database
@@ -939,7 +960,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
       expirationTtl: RECENT_POSTS_CACHE_TTL,
     })
 
-    return c.json(response)
+    return jsonWithCache(c, response, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
   } catch (error) {
     console.error('Error fetching recent posts:', error)
     return c.json({ error: 'Failed to fetch posts' }, 500)
@@ -958,7 +979,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     // Check cache first
     const cached = await c.env.CACHE.get(cacheKey, 'json')
     if (cached) {
-      return c.json(cached)
+      return jsonWithCache(c, cached, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
     }
 
     // Cache miss - query database
@@ -1031,7 +1052,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
       expirationTtl: RECENT_POSTS_CACHE_TTL,
     })
 
-    return c.json(response)
+    return jsonWithCache(c, response, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
   } catch (error) {
     console.error('Error fetching network posts:', error)
     return c.json({ error: 'Failed to fetch network posts' }, 500)
@@ -1103,10 +1124,16 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
     const hasMore = posts.length > limit
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
 
-    return c.json({
+    const response = {
       posts: returnPosts.map(p => formatPost(p)),
       cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
-    })
+    }
+
+    // Only cache for public views (not when author is viewing their own profile)
+    if (!isOwnProfile) {
+      return jsonWithCache(c, response, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+    }
+    return c.json(response)
   } catch (error) {
     console.error('Error fetching author posts:', error)
     return c.json({ error: 'Failed to fetch posts' }, 500)
@@ -1169,7 +1196,13 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
     ).bind(post.uri).all()
     const tags = (tagsResult.results || []).map(r => r.tag as string)
 
-    return c.json({ post: formatPost(post, tags) })
+    const response = { post: formatPost(post, tags) }
+
+    // Only cache for public views (not when author is viewing their own post)
+    if (!isAuthor) {
+      return jsonWithCache(c, response, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+    }
+    return c.json(response)
   } catch (error) {
     console.error('Error fetching post:', error)
     return c.json({ error: 'Failed to fetch post' }, 500)
@@ -1222,7 +1255,7 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
       url: authorRow.pub_url,
     } : undefined
 
-    return c.json({
+    const response = {
       did: authorRow.did,
       handle: authorRow.handle,
       displayName: authorRow.display_name,
@@ -1230,7 +1263,9 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
       description: authorRow.description,
       postsCount: authorRow.posts_count || 0,
       publication,
-    })
+    }
+
+    return jsonWithCache(c, response, PROFILE_CACHE_MAX_AGE, PROFILE_CACHE_SWR)
   } catch (error) {
     console.error('Error fetching author:', error)
     return c.json({ error: 'Failed to fetch author' }, 500)

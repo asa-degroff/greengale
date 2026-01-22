@@ -20,6 +20,61 @@ const production = {
   jsxs: prod.jsxs,
 }
 
+// =============================================================================
+// Markdown Render Cache
+// =============================================================================
+// Caches rendered markdown to avoid re-processing identical content.
+// Uses a simple LRU cache with a maximum of 50 entries.
+
+interface CacheEntry {
+  result: ReactNode
+  timestamp: number
+}
+
+const MARKDOWN_CACHE_MAX_SIZE = 50
+const markdownCache = new Map<string, CacheEntry>()
+
+/**
+ * Generate a cache key for markdown content and options
+ */
+function getCacheKey(content: string, options: RenderOptions): string {
+  // Use a simple hash of content + options
+  // Don't cache when custom components are provided (they can change identity)
+  if (options.components) {
+    return '' // Empty key means no caching
+  }
+  return `${options.enableLatex ? 'L' : ''}${options.enableSvg !== false ? 'S' : ''}:${content}`
+}
+
+/**
+ * Clear the markdown render cache
+ */
+export function clearMarkdownCache(): void {
+  markdownCache.clear()
+}
+
+/**
+ * Evict oldest entries if cache is too large
+ */
+function evictOldest(): void {
+  if (markdownCache.size < MARKDOWN_CACHE_MAX_SIZE) return
+
+  // Find and remove the oldest entry
+  let oldestKey = ''
+  let oldestTime = Infinity
+
+  for (const [key, entry] of markdownCache) {
+    if (entry.timestamp < oldestTime) {
+      oldestTime = entry.timestamp
+      oldestKey = key
+    }
+  }
+
+  if (oldestKey) {
+    markdownCache.delete(oldestKey)
+  }
+}
+
 // Extended sanitization schema to allow KaTeX, code highlighting, and inline SVGs
 const sanitizeSchema = {
   ...defaultSchema,
@@ -197,12 +252,25 @@ export interface RenderOptions {
 
 /**
  * Render markdown content to React elements
+ * Results are cached in memory to avoid re-processing identical content.
+ * Cache is bypassed when custom components are provided.
  */
 export async function renderMarkdown(
   content: string,
   options: RenderOptions = {}
 ): Promise<ReactNode> {
   const { enableLatex = false, enableSvg = true, components } = options
+
+  // Check cache first (only when no custom components)
+  const cacheKey = getCacheKey(content, options)
+  if (cacheKey) {
+    const cached = markdownCache.get(cacheKey)
+    if (cached) {
+      // Update timestamp for LRU
+      cached.timestamp = Date.now()
+      return cached.result
+    }
+  }
 
   // Build the processor pipeline
   let processor = unified()
@@ -244,7 +312,18 @@ export async function renderMarkdown(
     .use(rehypeReact, components ? { ...production, components } : production)
 
   const file = await processor.process(content)
-  return file.result as ReactNode
+  const result = file.result as ReactNode
+
+  // Cache result (only when no custom components)
+  if (cacheKey) {
+    evictOldest()
+    markdownCache.set(cacheKey, {
+      result,
+      timestamp: Date.now(),
+    })
+  }
+
+  return result
 }
 
 /**

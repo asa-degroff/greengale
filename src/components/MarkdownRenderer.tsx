@@ -1,17 +1,109 @@
-import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode, type ComponentType } from 'react'
 import { renderMarkdown } from '@/lib/markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ContentWarningImage } from './ContentWarningImage'
 import { ImageWithAlt } from './ImageWithAlt'
 import { BlueskyEmbed } from './BlueskyEmbed'
 import type { BlogEntry } from '@/lib/atproto'
-import type { ContentLabelValue } from '@/lib/image-upload'
+import type { ContentLabelValue, SelfLabels } from '@/lib/image-upload'
 import {
   extractCidFromBlobUrl,
   getBlobLabelsMap,
   getBlobAltMap,
   getLabelValues,
 } from '@/lib/image-labels'
+
+// =============================================================================
+// Stable Component Wrapper
+// =============================================================================
+// Custom components need stable identity to prevent markdown re-processing.
+// We use refs to store callbacks and a stable wrapper component that reads
+// the latest callback from the ref.
+
+// Global refs for callbacks (updated on each render, read by stable components)
+const imageCallbacksRef: {
+  openLightbox: ((src: string, alt: string) => void) | null
+  markImageRevealed: ((src: string) => void) | null
+  labelsMap: Map<string, SelfLabels> | null
+  altMap: Map<string, string> | null
+} = {
+  openLightbox: null,
+  markImageRevealed: null,
+  labelsMap: null,
+  altMap: null,
+}
+
+// Stable image component that reads callbacks from refs
+function StableCustomImage(props: Record<string, unknown>): ReactNode {
+  const { src, alt } = props
+  const srcStr = typeof src === 'string' ? src : ''
+  const altStr = typeof alt === 'string' ? alt : ''
+
+  if (!srcStr) return null
+
+  const { labelsMap, altMap, openLightbox, markImageRevealed } = imageCallbacksRef
+
+  const cid = extractCidFromBlobUrl(srcStr)
+  const blobAlt = cid && altMap ? altMap.get(cid) : undefined
+  const finalAlt = blobAlt || altStr
+  const imageLabels = cid && labelsMap ? labelsMap.get(cid) : undefined
+  const labelValues = imageLabels ? getLabelValues(imageLabels) : []
+
+  if (labelValues.length > 0) {
+    return (
+      <ContentWarningImage
+        src={srcStr}
+        alt={finalAlt}
+        labels={labelValues}
+        onClick={() => openLightbox?.(srcStr, finalAlt)}
+        onReveal={() => markImageRevealed?.(srcStr)}
+      />
+    )
+  }
+
+  return (
+    <ImageWithAlt
+      src={srcStr}
+      alt={finalAlt}
+      onClick={() => openLightbox?.(srcStr, finalAlt)}
+    />
+  )
+}
+
+// Stable span component (no callbacks needed)
+function StableCustomSpan(props: Record<string, unknown>): ReactNode {
+  const { children, className, ...restProps } = props
+  const classStr = typeof className === 'string' ? className : ''
+
+  if (classStr.includes('bluesky-embed')) {
+    const classes = classStr.split(' ')
+    const handleClass = classes.find(c => c.startsWith('bsky-h-'))
+    const rkeyClass = classes.find(c => c.startsWith('bsky-r-'))
+
+    if (handleClass && rkeyClass) {
+      const encodedHandle = handleClass.replace('bsky-h-', '')
+      const rkey = rkeyClass.replace('bsky-r-', '')
+
+      try {
+        const base64 = encodedHandle.replace(/-/g, '+').replace(/_/g, '/')
+        const padding = (4 - (base64.length % 4)) % 4
+        const paddedBase64 = base64 + '='.repeat(padding)
+        const handle = atob(paddedBase64)
+        return <BlueskyEmbed handle={handle} rkey={rkey} />
+      } catch {
+        // Fall through to default span
+      }
+    }
+  }
+
+  return <span className={classStr} {...(restProps as React.HTMLAttributes<HTMLSpanElement>)}>{children as ReactNode}</span>
+}
+
+// Stable components object (never changes identity)
+const stableComponents: Record<string, ComponentType<Record<string, unknown>>> = {
+  img: StableCustomImage,
+  span: StableCustomSpan,
+}
 
 interface MarkdownRendererProps {
   content: string
@@ -131,6 +223,14 @@ export function MarkdownRenderer({
     revealedImagesRef.current.add(src)
   }, [])
 
+  // Update stable component refs with latest callbacks and data
+  // This allows stable components to access current values without
+  // triggering markdown re-processing
+  imageCallbacksRef.openLightbox = openLightbox
+  imageCallbacksRef.markImageRevealed = markImageRevealed
+  imageCallbacksRef.labelsMap = labelsMap
+  imageCallbacksRef.altMap = altMap
+
   // Handle clicks on images to open lightbox and text blocks for TTS seek
   const handleContentClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -161,93 +261,18 @@ export function MarkdownRenderer({
     [disableLightbox, openLightbox, onSentenceClick]
   )
 
-  // Create custom img component that wraps labeled images
-  const CustomImage = useMemo(() => {
-    return function CustomImg(props: Record<string, unknown>) {
-      const { src, alt } = props
-      const srcStr = typeof src === 'string' ? src : ''
-      const altStr = typeof alt === 'string' ? alt : ''
-
-      if (!srcStr) return null
-
-      const cid = extractCidFromBlobUrl(srcStr)
-      // Get alt text from blob metadata if available, fall back to markdown alt
-      const blobAlt = cid ? altMap.get(cid) : undefined
-      const finalAlt = blobAlt || altStr
-      // Check for content labels
-      const imageLabels = cid ? labelsMap.get(cid) : undefined
-      const labelValues = imageLabels ? getLabelValues(imageLabels) : []
-
-      if (labelValues.length > 0) {
-        return (
-          <ContentWarningImage
-            src={srcStr}
-            alt={finalAlt}
-            labels={labelValues}
-            onClick={() => openLightbox(srcStr, finalAlt)}
-            onReveal={() => markImageRevealed(srcStr)}
-          />
-        )
-      }
-
-      // Use ImageWithAlt for accessible alt text display
-      return (
-        <ImageWithAlt
-          src={srcStr}
-          alt={finalAlt}
-          onClick={() => openLightbox(srcStr, finalAlt)}
-        />
-      )
-    }
-  }, [labelsMap, altMap, openLightbox, markImageRevealed])
-
-  // Create custom span component that handles Bluesky embeds
-  const CustomSpan = useMemo(() => {
-    return function CustomSpanComponent(props: Record<string, unknown>) {
-      const { children, className, ...restProps } = props
-      const classStr = typeof className === 'string' ? className : ''
-
-      // Check if this is a Bluesky embed placeholder
-      // Format: bluesky-embed bsky-h-{base64url(handle)} bsky-r-{rkey}
-      if (classStr.includes('bluesky-embed')) {
-        const classes = classStr.split(' ')
-        const handleClass = classes.find(c => c.startsWith('bsky-h-'))
-        const rkeyClass = classes.find(c => c.startsWith('bsky-r-'))
-
-        if (handleClass && rkeyClass) {
-          // Decode the base64url-encoded handle
-          const encodedHandle = handleClass.replace('bsky-h-', '')
-          const rkey = rkeyClass.replace('bsky-r-', '')
-
-          try {
-            // Restore base64 padding and decode
-            const base64 = encodedHandle.replace(/-/g, '+').replace(/_/g, '/')
-            const padding = (4 - (base64.length % 4)) % 4
-            const paddedBase64 = base64 + '='.repeat(padding)
-            const handle = atob(paddedBase64)
-
-            console.log('[CustomSpan] Bluesky embed decoded:', { handle, rkey })
-            return <BlueskyEmbed handle={handle} rkey={rkey} />
-          } catch (e) {
-            console.error('[CustomSpan] Failed to decode Bluesky embed:', e)
-          }
-        }
-      }
-
-      // Default: render as a normal span
-      return <span className={classStr} {...(restProps as React.HTMLAttributes<HTMLSpanElement>)}>{children as ReactNode}</span>
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
 
     async function render() {
       try {
+        // Use stable components to prevent unnecessary re-processing
+        // Callbacks and data are accessed via refs inside the stable components
         const result = await renderMarkdown(content, {
           enableLatex,
           enableSvg,
-          components: { img: CustomImage, span: CustomSpan },
+          components: stableComponents,
         })
         if (!cancelled) {
           setRendered(result)
@@ -265,7 +290,9 @@ export function MarkdownRenderer({
     return () => {
       cancelled = true
     }
-  }, [content, enableLatex, enableSvg, blobs, CustomImage, CustomSpan])
+    // Note: stableComponents has stable identity, so it doesn't trigger re-renders
+    // Callbacks and blob data are accessed via refs inside the components
+  }, [content, enableLatex, enableSvg])
 
   // Handle initial hash navigation after content renders
   useEffect(() => {

@@ -8,6 +8,50 @@ function isValidDid(did: string): boolean {
   return did.startsWith('did:plc:') || did.startsWith('did:web:')
 }
 
+// =============================================================================
+// Identity Resolution Cache
+// =============================================================================
+// Caches DID resolution (handle → DID) and PDS endpoint lookups to avoid
+// repeated network requests when loading a post page (which needs profile,
+// publication, and blog entry - all requiring identity resolution).
+
+interface CacheEntry<T> {
+  value: T
+  expiresAt: number
+}
+
+// Cache TTL: 5 minutes for identity data (handles can change, but rarely)
+const IDENTITY_CACHE_TTL = 5 * 60 * 1000
+
+// In-memory caches
+const didCache = new Map<string, CacheEntry<string>>()
+const pdsCache = new Map<string, CacheEntry<string>>()
+
+function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+  const entry = cache.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key)
+    return null
+  }
+  return entry.value
+}
+
+function setCache<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T): void {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + IDENTITY_CACHE_TTL,
+  })
+}
+
+/**
+ * Clear identity caches (useful for testing or forced refresh)
+ */
+export function clearIdentityCache(): void {
+  didCache.clear()
+  pdsCache.clear()
+}
+
 // TID (Timestamp Identifier) generation for AT Protocol records
 // TID format: 13 base32-sortable characters encoding microsecond timestamp + clock ID
 const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz'
@@ -262,6 +306,7 @@ export interface SiteStandardDocument {
 
 /**
  * Resolve a handle or DID to a DID
+ * Results are cached in memory for 5 minutes to avoid repeated lookups
  */
 export async function resolveIdentity(identifier: string): Promise<string> {
   if (isValidDid(identifier)) {
@@ -272,16 +317,34 @@ export async function resolveIdentity(identifier: string): Promise<string> {
     throw new Error(`Invalid identifier: ${identifier}`)
   }
 
+  // Check cache first
+  const cached = getCached(didCache, identifier)
+  if (cached) {
+    return cached
+  }
+
   // Use Bluesky's public API to resolve handle
   const agent = new AtpAgent({ service: 'https://public.api.bsky.app' })
   const response = await agent.resolveHandle({ handle: identifier })
-  return response.data.did
+  const did = response.data.did
+
+  // Cache the result
+  setCache(didCache, identifier, did)
+
+  return did
 }
 
 /**
  * Get the PDS endpoint for a DID
+ * Results are cached in memory for 5 minutes to avoid repeated lookups
  */
 export async function getPdsEndpoint(did: string): Promise<string> {
+  // Check cache first
+  const cached = getCached(pdsCache, did)
+  if (cached) {
+    return cached
+  }
+
   // Fetch DID document
   let didDoc: { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
 
@@ -311,7 +374,12 @@ export async function getPdsEndpoint(did: string): Promise<string> {
     throw new Error(`No PDS service found for DID: ${did}`)
   }
 
-  return pdsService.serviceEndpoint
+  const endpoint = pdsService.serviceEndpoint
+
+  // Cache the result
+  setCache(pdsCache, did, endpoint)
+
+  return endpoint
 }
 
 /**
@@ -359,65 +427,73 @@ export async function getBlogEntry(
 
   const agent = new AtpAgent({ service: pdsEndpoint })
 
-  // Try V2 document first, then V1 GreenGale, then WhiteWind
-  for (const collection of [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION]) {
-    try {
-      const response = await agent.com.atproto.repo.getRecord({
+  // Query all collections in parallel for faster loading
+  // Priority order: V2 document > V1 GreenGale > WhiteWind
+  const collections = [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION] as const
+
+  const results = await Promise.allSettled(
+    collections.map(collection =>
+      agent.com.atproto.repo.getRecord({
         repo: did,
         collection,
         rkey,
-      })
+      }).then(response => ({ collection, response }))
+    )
+  )
 
-      const record = response.data.value as Record<string, unknown>
-      const visibility = (record.visibility as string | undefined) || 'public'
+  // Find the first successful result (in priority order)
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status !== 'fulfilled') continue
 
-      // Check visibility permissions
-      const isAuthor = viewerDid && viewerDid === did
+    const { collection, response } = result.value
+    const record = response.data.value as Record<string, unknown>
+    const visibility = (record.visibility as string | undefined) || 'public'
 
-      if (visibility === 'author' && !isAuthor) {
-        // Private post - only the author can view
-        return null
-      }
-      // 'url' visibility allows anyone with the link, 'public' is open to all
+    // Check visibility permissions
+    const isAuthor = viewerDid && viewerDid === did
 
-      // V2 documents use publishedAt, V1/WhiteWind use createdAt
-      const isV2 = collection === DOCUMENT_COLLECTION
-      const createdAt = isV2
-        ? (record.publishedAt as string | undefined)
-        : (record.createdAt as string | undefined)
+    if (visibility === 'author' && !isAuthor) {
+      // Private post - only the author can view
+      return null
+    }
+    // 'url' visibility allows anyone with the link, 'public' is open to all
 
-      // Extract tags (normalize: lowercase, trim, dedupe)
-      const rawTags = record.tags as string[] | undefined
-      const tags = rawTags
-        ? [...new Set(
-            rawTags
-              .filter(t => typeof t === 'string')
-              .map(t => t.toLowerCase().trim())
-              .filter(t => t.length > 0)
-          )]
-        : undefined
+    // V2 documents use publishedAt, V1/WhiteWind use createdAt
+    const isV2 = collection === DOCUMENT_COLLECTION
+    const createdAt = isV2
+      ? (record.publishedAt as string | undefined)
+      : (record.createdAt as string | undefined)
 
-      return {
-        uri: response.data.uri,
-        cid: response.data.cid || '',
-        authorDid: did,
-        rkey,
-        source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
-        content: (record.content as string) || '',
-        title: record.title as string | undefined,
-        subtitle: record.subtitle as string | undefined,
-        createdAt,
-        theme: parseTheme(record.theme),
-        visibility: visibility as BlogEntry['visibility'],
-        latex: record.latex as boolean | undefined,
-        blobs: record.blobs as BlogEntry['blobs'],
-        // V2 fields
-        url: isV2 ? (record.url as string | undefined) : undefined,
-        path: isV2 ? (record.path as string | undefined) : undefined,
-        tags,
-      }
-    } catch {
-      // Continue to next collection
+    // Extract tags (normalize: lowercase, trim, dedupe)
+    const rawTags = record.tags as string[] | undefined
+    const tags = rawTags
+      ? [...new Set(
+          rawTags
+            .filter(t => typeof t === 'string')
+            .map(t => t.toLowerCase().trim())
+            .filter(t => t.length > 0)
+        )]
+      : undefined
+
+    return {
+      uri: response.data.uri,
+      cid: response.data.cid || '',
+      authorDid: did,
+      rkey,
+      source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
+      content: (record.content as string) || '',
+      title: record.title as string | undefined,
+      subtitle: record.subtitle as string | undefined,
+      createdAt,
+      theme: parseTheme(record.theme),
+      visibility: visibility as BlogEntry['visibility'],
+      latex: record.latex as boolean | undefined,
+      blobs: record.blobs as BlogEntry['blobs'],
+      // V2 fields
+      url: isV2 ? (record.url as string | undefined) : undefined,
+      path: isV2 ? (record.path as string | undefined) : undefined,
+      tags,
     }
   }
 
