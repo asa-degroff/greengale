@@ -14,6 +14,7 @@ export function AuthorCard({ author, showLink = true }: AuthorCardProps) {
           src={author.avatar}
           alt={author.displayName || author.handle}
           className="w-10 h-10 rounded-full object-cover"
+          loading="lazy"
         />
       ) : (
         <div className="w-10 h-10 rounded-full bg-[var(--theme-accent)] flex items-center justify-center text-white font-medium">

@@ -143,6 +143,7 @@ export function BlueskyEmbed({ handle, rkey }: BlueskyEmbedProps) {
               src={post.author.avatar}
               alt={post.author.displayName || post.author.handle}
               className="w-full h-full object-cover"
+              loading="lazy"
             />
           ) : (
             <div className="w-full h-full bg-[var(--theme-accent)] flex items-center justify-center text-white font-medium">

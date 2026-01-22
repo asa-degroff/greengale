@@ -234,6 +234,7 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
                   src={result.avatarUrl}
                   alt=""
                   className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                  loading="lazy"
                 />
               ) : (
                 <div className="w-10 h-10 rounded-full bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">

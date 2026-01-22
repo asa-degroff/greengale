@@ -193,6 +193,7 @@ export function SearchPage() {
                   src={result.avatarUrl}
                   alt=""
                   className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                  loading="lazy"
                 />
               ) : (
                 <div className="w-12 h-12 rounded-full bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">
