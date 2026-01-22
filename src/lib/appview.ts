@@ -20,11 +20,14 @@ export interface AppViewPost {
   createdAt: string | null
   indexedAt: string
   externalUrl?: string | null
+  contentPreview?: string | null
+  firstImageCid?: string | null
   author?: {
     did: string
     handle: string
     displayName: string | null
     avatar: string | null
+    pdsEndpoint?: string | null
   }
   tags?: string[]
 }

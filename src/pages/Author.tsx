@@ -5,7 +5,6 @@ import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
 import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
-  listBlogEntries,
   getPublication,
   savePublication,
   fixSiteStandardUrls,
@@ -13,6 +12,7 @@ import {
   type AuthorProfile,
   type Publication,
 } from '@/lib/atproto'
+import { getAuthorPosts, type AppViewPost } from '@/lib/appview'
 import type { PitchRate, PlaybackRate } from '@/lib/tts'
 import { DEFAULT_VOICE } from '@/lib/tts'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
@@ -76,9 +76,13 @@ export function AuthorPage() {
   const navigate = useNavigate()
   const { session } = useAuth()
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
-  const [entries, setEntries] = useState<BlogEntry[]>([])
+  const [posts, setPosts] = useState<AppViewPost[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Pagination state
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const { addRecentAuthor } = useRecentAuthors()
 
   // Publication state
@@ -144,11 +148,18 @@ export function AuthorPage() {
       setError(null)
 
       try {
-        const [profileResult, entriesResult, publicationResult] = await Promise.all([
+        const INITIAL_LIMIT = 24
+        const [profileResult, postsResult, publicationResult] = await Promise.all([
           getAuthorProfile(handle!),
-          listBlogEntries(handle!, { viewerDid: session?.did }),
+          getAuthorPosts(handle!, INITIAL_LIMIT, undefined, session?.did),
           getPublication(handle!).catch(() => null),
         ])
+
+        // Handle author not found
+        if (!profileResult) {
+          setError('Author not found')
+          return
+        }
 
         // Check if handle has changed - redirect to canonical URL
         if (profileResult.handle.toLowerCase() !== handle!.toLowerCase()) {
@@ -157,7 +168,9 @@ export function AuthorPage() {
         }
 
         setAuthor(profileResult)
-        setEntries(entriesResult.entries)
+        setPosts(postsResult.posts)
+        setCursor(postsResult.cursor)
+        setHasMore(!!postsResult.cursor)
         setPublication(publicationResult)
 
         // Apply publication theme if it exists
@@ -187,12 +200,30 @@ export function AuthorPage() {
 
     load()
 
-    // Reset theme when leaving the page
+    // Reset theme and pagination when leaving the page
     return () => {
       setActivePostTheme(null)
       setActiveCustomColors(null)
     }
   }, [handle, session?.did, addRecentAuthor, navigate, setActivePostTheme, setActiveCustomColors])
+
+  // Load more posts
+  const loadMore = useCallback(async () => {
+    if (!handle || !cursor || loadingMore) return
+
+    setLoadingMore(true)
+    try {
+      const BATCH_SIZE = 24
+      const result = await getAuthorPosts(handle, BATCH_SIZE, cursor, session?.did)
+      setPosts(prev => [...prev, ...result.posts])
+      setCursor(result.cursor)
+      setHasMore(!!result.cursor)
+    } catch (err) {
+      console.error('Error loading more posts:', err)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [handle, cursor, loadingMore, session?.did])
 
   // Open publication editor with current values
   const openPublicationEditor = useCallback(() => {
@@ -549,7 +580,7 @@ export function AuthorPage() {
         )}
 
         {/* Blog Entries */}
-        {entries.length === 0 ? (
+        {posts.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-[var(--site-text-secondary)]">
               No blog posts found for this author.
@@ -558,13 +589,51 @@ export function AuthorPage() {
         ) : (
           <>
             <h2 className="text-xl font-bold mb-6 text-[var(--site-text)]">
-              Blog Posts ({entries.length})
+              Blog Posts
             </h2>
             <div className="grid md:grid-cols-2 gap-6">
-              {entries.map((entry) => (
-                <BlogCard key={entry.uri} entry={entry} author={author || undefined} externalUrl={entry.externalUrl} tags={entry.tags} />
-              ))}
+              {posts.map((post) => {
+                // Convert AppViewPost to minimal BlogEntry for BlogCard
+                const entry: BlogEntry = {
+                  uri: post.uri,
+                  cid: '', // Not available from indexed data, but not used by BlogCard
+                  authorDid: post.authorDid,
+                  rkey: post.rkey,
+                  title: post.title || 'Untitled',
+                  subtitle: post.subtitle || undefined,
+                  content: '', // Empty - we use indexed preview instead
+                  createdAt: post.createdAt || undefined,
+                  source: post.source === 'network' ? 'greengale' : post.source,
+                  visibility: post.visibility as 'public' | 'url' | 'author',
+                  externalUrl: post.externalUrl || undefined,
+                  tags: post.tags,
+                }
+                return (
+                  <BlogCard
+                    key={post.uri}
+                    entry={entry}
+                    author={author || undefined}
+                    externalUrl={post.externalUrl}
+                    tags={post.tags}
+                    contentPreview={post.contentPreview}
+                    firstImageCid={post.firstImageCid}
+                    pdsEndpoint={post.author?.pdsEndpoint}
+                  />
+                )
+              })}
             </div>
+            {/* Load More Button */}
+            {hasMore && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2 text-sm border border-[var(--site-border)] rounded-md hover:bg-[var(--site-bg-secondary)] text-[var(--site-text)] disabled:opacity-50 transition-colors"
+                >
+                  {loadingMore ? 'Loading...' : 'More'}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

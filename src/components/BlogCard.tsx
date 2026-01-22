@@ -9,12 +9,23 @@ interface BlogCardProps {
   author?: AuthorProfile
   externalUrl?: string | null
   tags?: string[]
+  // Indexed preview data (avoids extracting from content)
+  contentPreview?: string | null
+  firstImageCid?: string | null
+  pdsEndpoint?: string | null
 }
 
-export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags }: BlogCardProps) {
+export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags, contentPreview, firstImageCid, pdsEndpoint }: BlogCardProps) {
   const navigate = useNavigate()
-  const preview = extractText(entry.content, 160)
-  const thumbnail = extractFirstImage(entry.content)
+  // Use indexed preview if available, otherwise extract from content
+  const preview = contentPreview ?? extractText(entry.content, 160)
+  // Use indexed thumbnail if available (construct URL from CID and PDS endpoint)
+  const thumbnail = useMemo(() => {
+    if (firstImageCid && pdsEndpoint) {
+      return `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${entry.authorDid}&cid=${firstImageCid}`
+    }
+    return extractFirstImage(entry.content)
+  }, [firstImageCid, pdsEndpoint, entry.authorDid, entry.content])
 
   // Check if thumbnail has content labels
   const thumbnailHasLabels = useMemo(() => {

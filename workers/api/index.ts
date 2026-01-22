@@ -1100,7 +1100,8 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url,
+        p.content_preview, p.first_image_cid,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
@@ -2580,11 +2581,14 @@ function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
     visibility: row.visibility,
     createdAt: row.created_at,
     indexedAt: row.indexed_at,
+    contentPreview: row.content_preview,
+    firstImageCid: row.first_image_cid,
     author: row.handle ? {
       did: row.author_did,
       handle: row.handle,
       displayName: row.display_name,
       avatar: row.avatar_url,
+      pdsEndpoint: row.pds_endpoint,
     } : undefined,
     tags: postTags?.length ? postTags : undefined,
   }
