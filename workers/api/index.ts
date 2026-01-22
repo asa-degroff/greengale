@@ -602,6 +602,8 @@ app.get('/xrpc/app.greengale.feed.getBlueskyPost', async (c) => {
     // Extract images from the resolved embed view (has CDN URLs)
     const extractImages = (embed: BlueskyPostView['embed']): BlueskyEmbedImage[] | null => {
       if (!embed) return null
+
+      // Direct images embed
       if (embed.$type === 'app.bsky.embed.images#view' && embed.images) {
         return embed.images.map(img => ({
           alt: img.alt || '',
@@ -610,6 +612,30 @@ app.get('/xrpc/app.greengale.feed.getBlueskyPost', async (c) => {
           aspectRatio: img.aspectRatio,
         }))
       }
+
+      // Record with media (quote post + images/video)
+      if (embed.$type === 'app.bsky.embed.recordWithMedia#view' && embed.media) {
+        // Check if media contains images
+        if (embed.media.$type === 'app.bsky.embed.images#view' && embed.media.images) {
+          return embed.media.images.map(img => ({
+            alt: img.alt || '',
+            thumb: img.thumb,
+            fullsize: img.fullsize,
+            aspectRatio: img.aspectRatio,
+          }))
+        }
+      }
+
+      // External link with thumbnail
+      if (embed.$type === 'app.bsky.embed.external#view' && embed.external?.thumb) {
+        return [{
+          alt: embed.external.title || embed.external.description || '',
+          thumb: embed.external.thumb,
+          fullsize: embed.external.thumb, // External embeds only have thumb
+          aspectRatio: undefined,
+        }]
+      }
+
       return null
     }
 
@@ -680,12 +706,30 @@ interface BlueskyPostView {
   // Resolved embed from the view (has CDN URLs for images)
   embed?: {
     $type: string
+    // app.bsky.embed.images#view
     images?: Array<{
       alt: string
       thumb: string
       fullsize: string
       aspectRatio?: { width: number; height: number }
     }>
+    // app.bsky.embed.recordWithMedia#view
+    media?: {
+      $type: string
+      images?: Array<{
+        alt: string
+        thumb: string
+        fullsize: string
+        aspectRatio?: { width: number; height: number }
+      }>
+    }
+    // app.bsky.embed.external#view
+    external?: {
+      uri: string
+      title?: string
+      description?: string
+      thumb?: string
+    }
   }
   indexedAt: string
   likeCount?: number

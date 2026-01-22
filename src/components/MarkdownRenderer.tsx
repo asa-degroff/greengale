@@ -70,39 +70,20 @@ function StableCustomImage(props: Record<string, unknown>): ReactNode {
   )
 }
 
-// Stable span component (no callbacks needed)
-function StableCustomSpan(props: Record<string, unknown>): ReactNode {
-  const { children, className, ...restProps } = props
-  const classStr = typeof className === 'string' ? className : ''
+// Stable Bluesky embed component
+function StableBlueskyEmbed(props: Record<string, unknown>): ReactNode {
+  const handle = typeof props.handle === 'string' ? props.handle : ''
+  const rkey = typeof props.rkey === 'string' ? props.rkey : ''
 
-  if (classStr.includes('bluesky-embed')) {
-    const classes = classStr.split(' ')
-    const handleClass = classes.find(c => c.startsWith('bsky-h-'))
-    const rkeyClass = classes.find(c => c.startsWith('bsky-r-'))
+  if (!handle || !rkey) return null
 
-    if (handleClass && rkeyClass) {
-      const encodedHandle = handleClass.replace('bsky-h-', '')
-      const rkey = rkeyClass.replace('bsky-r-', '')
-
-      try {
-        const base64 = encodedHandle.replace(/-/g, '+').replace(/_/g, '/')
-        const padding = (4 - (base64.length % 4)) % 4
-        const paddedBase64 = base64 + '='.repeat(padding)
-        const handle = atob(paddedBase64)
-        return <BlueskyEmbed handle={handle} rkey={rkey} />
-      } catch {
-        // Fall through to default span
-      }
-    }
-  }
-
-  return <span className={classStr} {...(restProps as React.HTMLAttributes<HTMLSpanElement>)}>{children as ReactNode}</span>
+  return <BlueskyEmbed handle={handle} rkey={rkey} />
 }
 
 // Stable components object (never changes identity)
 const stableComponents: Record<string, ComponentType<Record<string, unknown>>> = {
   img: StableCustomImage,
-  span: StableCustomSpan,
+  'bsky-embed': StableBlueskyEmbed,
 }
 
 interface MarkdownRendererProps {

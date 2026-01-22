@@ -11,6 +11,7 @@ import * as prod from 'react/jsx-runtime'
 import { type ReactNode } from 'react'
 import { remarkSvg } from './remark-svg'
 import { remarkBlueskyEmbed } from './remark-bluesky-embed'
+import { rehypeBlueskyEmbed } from './rehype-bluesky-embed'
 import { rehypeHeadingIds } from './rehype-heading-ids'
 
 // Production JSX runtime for rehype-react v8+
@@ -80,7 +81,9 @@ const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [
     ...(defaultSchema.tagNames || []),
-    // Ensure div is allowed (for Bluesky embeds and SVG containers)
+    // Custom element for Bluesky embeds (rendered by MarkdownRenderer)
+    'bsky-embed',
+    // Ensure div is allowed (for SVG containers)
     'div',
     // KaTeX HTML elements
     'span',
@@ -154,7 +157,9 @@ const sanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     '*': ['className', 'style', 'transform'],
-    span: ['className', 'style', 'aria-hidden', 'data-*', 'data-handle', 'data-rkey'],
+    // Bluesky embed custom element attributes
+    'bsky-embed': ['handle', 'rkey'],
+    span: ['className', 'style', 'aria-hidden'],
     code: ['className'],
     pre: ['className'],
     div: ['className', 'style', 'data-*'],
@@ -298,6 +303,11 @@ export async function renderMarkdown(
   // This must come before sanitization so the HTML can be properly analyzed
   // Required for both SVG blocks and Bluesky embed placeholders
   processor = processor.use(rehypeRaw)
+
+  // Transform Bluesky embed blockquotes (from WhiteWind/standard embeds) into
+  // our BlueskyEmbed placeholder spans. Must run after rehypeRaw (to parse HTML)
+  // but before rehypeSanitize (to read data-bluesky-uri attribute).
+  processor = processor.use(rehypeBlueskyEmbed)
 
   // Add KaTeX rendering if math is enabled
   if (enableLatex) {

@@ -24,9 +24,10 @@ import type { Plugin } from 'unified'
 /**
  * Regex to match Bluesky post URLs
  * Captures: [1] = handle or DID, [2] = rkey
+ * Allows optional query parameters (e.g., ?ref_src=embed from WhiteWind embeds)
  */
 const BLUESKY_POST_URL_REGEX =
-  /^https?:\/\/bsky\.app\/profile\/([^/]+)\/post\/([a-zA-Z0-9]+)$/
+  /^https?:\/\/bsky\.app\/profile\/([^/]+)\/post\/([a-zA-Z0-9]+)(?:\?[^#]*)?$/
 
 export interface RemarkBlueskyEmbedOptions {
   /**
@@ -106,26 +107,18 @@ export const remarkBlueskyEmbed: Plugin<[RemarkBlueskyEmbedOptions?], Root> = (
         return
       }
 
-      // Debug: log detected standalone links
-      console.log('[remarkBlueskyEmbed] Found standalone URL:', url)
-
       // Check if the link is a Bluesky post URL
       const parsed = parseBlueskyUrl(url)
       if (!parsed) {
-        console.log('[remarkBlueskyEmbed] URL did not match Bluesky pattern')
         return
       }
 
-      console.log('[remarkBlueskyEmbed] Transforming to embed:', parsed)
-
-      // Create an HTML placeholder node for the embed
-      // The MarkdownRenderer will replace this with the BlueskyEmbed component
-      // Encode handle and rkey in class names since data attributes get stripped by sanitization
-      // Format: bluesky-embed bsky-h-{base64url(handle)} bsky-r-{rkey}
-      const encodedHandle = btoa(parsed.handle).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+      // Create an HTML placeholder node using a custom element
+      // This survives sanitization (added to allowlist in markdown.ts)
+      // and gets rendered as BlueskyEmbed component in MarkdownRenderer
       const htmlNode: Html = {
         type: 'html',
-        value: `<span class="bluesky-embed bsky-h-${encodedHandle} bsky-r-${parsed.rkey}"></span>`,
+        value: `<bsky-embed handle="${parsed.handle}" rkey="${parsed.rkey}"></bsky-embed>`,
       }
 
       // Replace the paragraph with the HTML node

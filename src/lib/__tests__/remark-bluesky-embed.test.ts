@@ -1,10 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
-import remarkStringify from 'remark-stringify'
 import { remarkBlueskyEmbed } from '../remark-bluesky-embed'
-import type { Root, Paragraph, Link, Text, Html } from 'mdast'
+import type { Root, Paragraph, Html } from 'mdast'
 
 // Helper to process markdown with the plugin
 async function processMarkdown(markdown: string, options = {}): Promise<Root> {
@@ -59,15 +58,6 @@ function findParagraphs(tree: Root): Paragraph[] {
 }
 
 describe('Remark Bluesky Embed Plugin', () => {
-  // Suppress console.log from the plugin during tests
-  beforeEach(() => {
-    vi.spyOn(console, 'log').mockImplementation(() => {})
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   describe('standalone Bluesky URLs', () => {
     it('transforms standalone Bluesky URL to embed placeholder', async () => {
       const markdown = `Check this out:
@@ -80,8 +70,9 @@ Pretty cool!`
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(1)
-      expect(htmlNodes[0].value).toContain('bluesky-embed')
-      expect(htmlNodes[0].value).toContain('bsky-r-abc123')
+      expect(htmlNodes[0].value).toContain('<bsky-embed')
+      expect(htmlNodes[0].value).toContain('handle="user.bsky.social"')
+      expect(htmlNodes[0].value).toContain('rkey="abc123"')
     })
 
     it('transforms Bluesky URL with DID', async () => {
@@ -91,18 +82,18 @@ Pretty cool!`
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(1)
-      expect(htmlNodes[0].value).toContain('bsky-r-rkey456')
+      expect(htmlNodes[0].value).toContain('handle="did:plc:abc123xyz"')
+      expect(htmlNodes[0].value).toContain('rkey="rkey456"')
     })
 
-    it('encodes handle in base64url format', async () => {
+    it('includes handle attribute', async () => {
       const markdown = `https://bsky.app/profile/user.bsky.social/post/abc123`
 
       const tree = await processMarkdown(markdown)
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(1)
-      // user.bsky.social in base64url = dXNlci5ic2t5LnNvY2lhbA
-      expect(htmlNodes[0].value).toContain('bsky-h-')
+      expect(htmlNodes[0].value).toContain('handle="user.bsky.social"')
     })
 
     it('handles URL with HTTPS scheme', async () => {
@@ -130,7 +121,7 @@ Pretty cool!`
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(1)
-      expect(htmlNodes[0].value).toContain('bsky-r-3kp7abcXYZ789')
+      expect(htmlNodes[0].value).toContain('rkey="3kp7abcXYZ789"')
     })
   })
 
@@ -217,8 +208,8 @@ https://bsky.app/profile/user2.bsky.social/post/post2`
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(2)
-      expect(htmlNodes[0].value).toContain('bsky-r-post1')
-      expect(htmlNodes[1].value).toContain('bsky-r-post2')
+      expect(htmlNodes[0].value).toContain('rkey="post1"')
+      expect(htmlNodes[1].value).toContain('rkey="post2"')
     })
 
     it('transforms only standalone URLs when mixed with inline', async () => {
@@ -230,7 +221,7 @@ https://bsky.app/profile/standalone/post/standalone1`
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(1)
-      expect(htmlNodes[0].value).toContain('bsky-r-standalone1')
+      expect(htmlNodes[0].value).toContain('rkey="standalone1"')
     })
   })
 
@@ -242,7 +233,7 @@ https://bsky.app/profile/standalone/post/standalone1`
       const htmlNodes = findHtmlNodes(tree)
 
       expect(htmlNodes).toHaveLength(1)
-      expect(htmlNodes[0].value).toContain('bsky-r-abc123')
+      expect(htmlNodes[0].value).toContain('rkey="abc123"')
     })
 
     it('does not transform markdown link with text around it', async () => {
@@ -309,7 +300,7 @@ https://bsky.app/profile/standalone/post/standalone1`
   })
 
   describe('embed placeholder format', () => {
-    it('creates span element with correct class structure', async () => {
+    it('creates bsky-embed element with handle and rkey attributes', async () => {
       const markdown = `https://bsky.app/profile/test.bsky.social/post/xyz789`
 
       const tree = await processMarkdown(markdown)
@@ -319,31 +310,21 @@ https://bsky.app/profile/standalone/post/standalone1`
       const value = htmlNodes[0].value
 
       // Check structure
-      expect(value).toMatch(/^<span class="/)
-      expect(value).toMatch(/"><\/span>$/)
-      expect(value).toContain('bluesky-embed')
-      expect(value).toMatch(/bsky-h-[A-Za-z0-9_-]+/)
-      expect(value).toMatch(/bsky-r-[A-Za-z0-9]+/)
+      expect(value).toMatch(/^<bsky-embed/)
+      expect(value).toMatch(/><\/bsky-embed>$/)
+      expect(value).toContain('handle="test.bsky.social"')
+      expect(value).toContain('rkey="xyz789"')
     })
 
-    it('uses base64url encoding (no +, /, =)', async () => {
-      // Handle that would produce +, /, or = in base64
-      const markdown = `https://bsky.app/profile/some+user/with/special.handle/post/abc123`
+    it('preserves handle exactly as provided', async () => {
+      const markdown = `https://bsky.app/profile/test/post/abc123`
 
-      // This won't match the pattern because of the path structure
-      // Let's use a handle that produces problematic base64
-      const markdown2 = `https://bsky.app/profile/test/post/abc123`
-
-      const tree = await processMarkdown(markdown2)
+      const tree = await processMarkdown(markdown)
       const htmlNodes = findHtmlNodes(tree)
 
-      if (htmlNodes.length > 0) {
-        const value = htmlNodes[0].value
-        // Should not contain base64 special chars
-        expect(value).not.toContain('+')
-        expect(value).not.toMatch(/bsky-h-[^"]*\//)
-        expect(value).not.toMatch(/bsky-h-[^"]*=/)
-      }
+      expect(htmlNodes).toHaveLength(1)
+      expect(htmlNodes[0].value).toContain('handle="test"')
+      expect(htmlNodes[0].value).toContain('rkey="abc123"')
     })
   })
 
@@ -394,6 +375,48 @@ https://bsky.app/profile/user.bsky.social/post/abc123
 
       // Blockquote paragraph should be transformed
       expect(htmlNodes).toHaveLength(1)
+    })
+  })
+
+  describe('URLs with query parameters', () => {
+    it('transforms URL with ref_src=embed query param (WhiteWind embeds)', async () => {
+      const markdown = `https://bsky.app/profile/did:plc:fzkpgpjj7nki7r5rhtmgzrez/post/3kp5ye4rai22d?ref_src=embed`
+
+      const tree = await processMarkdown(markdown)
+      const htmlNodes = findHtmlNodes(tree)
+
+      expect(htmlNodes).toHaveLength(1)
+      expect(htmlNodes[0].value).toContain('rkey="3kp5ye4rai22d"')
+    })
+
+    it('transforms markdown link with query param (WhiteWind embed pattern)', async () => {
+      const markdown = `[image or embed](https://bsky.app/profile/did:plc:xxx/post/abc123?ref_src=embed)`
+
+      const tree = await processMarkdown(markdown)
+      const htmlNodes = findHtmlNodes(tree)
+
+      expect(htmlNodes).toHaveLength(1)
+      expect(htmlNodes[0].value).toContain('rkey="abc123"')
+    })
+
+    it('transforms URL with multiple query params', async () => {
+      const markdown = `https://bsky.app/profile/user.bsky.social/post/xyz789?ref_src=embed&foo=bar`
+
+      const tree = await processMarkdown(markdown)
+      const htmlNodes = findHtmlNodes(tree)
+
+      expect(htmlNodes).toHaveLength(1)
+      expect(htmlNodes[0].value).toContain('rkey="xyz789"')
+    })
+
+    it('still works without query params', async () => {
+      const markdown = `https://bsky.app/profile/user.bsky.social/post/abc123`
+
+      const tree = await processMarkdown(markdown)
+      const htmlNodes = findHtmlNodes(tree)
+
+      expect(htmlNodes).toHaveLength(1)
+      expect(htmlNodes[0].value).toContain('rkey="abc123"')
     })
   })
 })
