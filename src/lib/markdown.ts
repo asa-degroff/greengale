@@ -11,6 +11,7 @@ import * as prod from 'react/jsx-runtime'
 import { type ReactNode } from 'react'
 import { remarkSvg } from './remark-svg'
 import { remarkBlueskyEmbed } from './remark-bluesky-embed'
+import { remarkMention } from './remark-mention'
 import { rehypeBlueskyEmbed } from './rehype-bluesky-embed'
 import { rehypeHeadingIds } from './rehype-heading-ids'
 
@@ -281,6 +282,8 @@ export async function renderMarkdown(
   let processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
+    // Transform @mentions into profile links
+    .use(remarkMention)
     // Transform standalone Bluesky URLs into embed placeholders
     .use(remarkBlueskyEmbed)
 
