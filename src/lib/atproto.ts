@@ -52,6 +52,39 @@ export function clearIdentityCache(): void {
   pdsCache.clear()
 }
 
+// =============================================================================
+// Retry Logic for Transient Failures
+// =============================================================================
+// Some self-hosted PDS servers return HTTP 425 "Too Early" on initial requests
+// when using TLS 1.3 Early Data (0-RTT). These requests fail without CORS headers,
+// causing the browser to block them. A simple retry usually succeeds.
+
+/**
+ * Retry a promise-returning function with exponential backoff
+ * @param fn The async function to retry
+ * @param maxRetries Maximum number of retry attempts (default: 2)
+ * @param baseDelayMs Base delay between retries in milliseconds (default: 100)
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 2,
+  baseDelayMs = 100
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (attempt < maxRetries) {
+        // Exponential backoff: 100ms, 200ms, 400ms, etc.
+        await new Promise(resolve => setTimeout(resolve, baseDelayMs * Math.pow(2, attempt)))
+      }
+    }
+  }
+  throw lastError
+}
+
 // TID (Timestamp Identifier) generation for AT Protocol records
 // TID format: 13 base32-sortable characters encoding microsecond timestamp + clock ID
 const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz'
@@ -429,15 +462,18 @@ export async function getBlogEntry(
 
   // Query all collections in parallel for faster loading
   // Priority order: V2 document > V1 GreenGale > WhiteWind
+  // Uses retry logic to handle transient failures (e.g., HTTP 425 "Too Early" from some PDS)
   const collections = [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION] as const
 
   const results = await Promise.allSettled(
     collections.map(collection =>
-      agent.com.atproto.repo.getRecord({
-        repo: did,
-        collection,
-        rkey,
-      }).then(response => ({ collection, response }))
+      withRetry(() =>
+        agent.com.atproto.repo.getRecord({
+          repo: did,
+          collection,
+          rkey,
+        }).then(response => ({ collection, response }))
+      )
     )
   )
 
@@ -748,11 +784,14 @@ export async function getPublication(identifier: string): Promise<Publication | 
   const agent = new AtpAgent({ service: pdsEndpoint })
 
   try {
-    const response = await agent.com.atproto.repo.getRecord({
-      repo: did,
-      collection: PUBLICATION_COLLECTION,
-      rkey: 'self',
-    })
+    // Use retry logic to handle transient failures (e.g., HTTP 425 "Too Early" from some PDS)
+    const response = await withRetry(() =>
+      agent.com.atproto.repo.getRecord({
+        repo: did,
+        collection: PUBLICATION_COLLECTION,
+        rkey: 'self',
+      })
+    )
 
     const record = response.data.value as Record<string, unknown>
 
