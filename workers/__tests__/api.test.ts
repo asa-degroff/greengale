@@ -468,6 +468,81 @@ describe('API Endpoints', () => {
       const prepareCall = env.DB.prepare.mock.calls[0][0]
       expect(prepareCall).toContain("p.visibility = 'public'")
     })
+
+    it('includes standalone site.standard.document posts', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [
+          {
+            uri: 'at://did:plc:abc/app.greengale.document/post1',
+            author_did: 'did:plc:abc',
+            rkey: 'post1',
+            title: 'GreenGale Post',
+            source: 'greengale',
+            external_url: null,
+            handle: 'test.bsky.social',
+          },
+          {
+            uri: 'at://did:plc:abc/site.standard.document/post2',
+            author_did: 'did:plc:abc',
+            rkey: 'post2',
+            title: 'Standard Post',
+            source: 'network',
+            external_url: 'https://example.com/post2',
+            handle: 'test.bsky.social',
+          },
+        ],
+      })
+
+      const res = await makeRequest(
+        env,
+        '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc'
+      )
+      const data = await res.json()
+
+      expect(data.posts).toHaveLength(2)
+      expect(data.posts[1].externalUrl).toBe('https://example.com/post2')
+    })
+
+    it('deduplicates dual-published site.standard.document posts', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(
+        env,
+        '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc'
+      )
+
+      const query = env.DB.prepare.mock.calls[0][0]
+      // Should NOT use the simple exclusion
+      expect(query).not.toContain("p.uri NOT LIKE '%/site.standard.document/%'")
+      // Should use deduplication: exclude site.standard.document posts that have a primary version
+      expect(query).toContain("p.uri LIKE '%/site.standard.document/%'")
+      expect(query).toContain("gg.uri LIKE '%/app.greengale.document/%'")
+      expect(query).toContain("gg.uri LIKE '%/app.greengale.blog.entry/%'")
+      expect(query).toContain("gg.uri LIKE '%/com.whtwnd.blog.entry/%'")
+    })
+
+    it('includes externalUrl in response', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [
+          {
+            uri: 'at://did:plc:abc/app.greengale.document/post1',
+            author_did: 'did:plc:abc',
+            rkey: 'post1',
+            title: 'No External URL',
+            external_url: null,
+            handle: 'test.bsky.social',
+          },
+        ],
+      })
+
+      const res = await makeRequest(
+        env,
+        '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc'
+      )
+      const data = await res.json()
+
+      expect(data.posts[0].externalUrl).toBeNull()
+    })
   })
 
   describe('getPost', () => {

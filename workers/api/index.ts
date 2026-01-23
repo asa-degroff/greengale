@@ -1144,13 +1144,23 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        p.content_preview, p.first_image_cid,
+        p.content_preview, p.first_image_cid, p.external_url,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND ${visibilityFilter}
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND NOT (
+          p.uri LIKE '%/site.standard.document/%'
+          AND EXISTS (
+            SELECT 1 FROM posts gg
+            WHERE gg.author_did = p.author_did
+              AND gg.rkey = p.rkey
+              AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                OR gg.uri LIKE '%/app.greengale.document/%'
+                OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+          )
+        )
     `
 
     const params: (string | number)[] = [authorDid]
@@ -2627,6 +2637,7 @@ function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
     indexedAt: row.indexed_at,
     contentPreview: row.content_preview,
     firstImageCid: row.first_image_cid,
+    externalUrl: row.external_url || null,
     author: row.handle ? {
       did: row.author_did,
       handle: row.handle,
