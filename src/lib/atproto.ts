@@ -65,7 +65,7 @@ export function clearIdentityCache(): void {
  * @param maxRetries Maximum number of retry attempts (default: 2)
  * @param baseDelayMs Base delay between retries in milliseconds (default: 100)
  */
-async function withRetry<T>(
+export async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries = 2,
   baseDelayMs = 100
