@@ -1152,13 +1152,16 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       WHERE p.author_did = ? AND ${visibilityFilter}
         AND NOT (
           p.uri LIKE '%/site.standard.document/%'
-          AND EXISTS (
-            SELECT 1 FROM posts gg
-            WHERE gg.author_did = p.author_did
-              AND gg.rkey = p.rkey
-              AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                OR gg.uri LIKE '%/app.greengale.document/%'
-                OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+          AND (
+            p.external_url IS NULL
+            OR EXISTS (
+              SELECT 1 FROM posts gg
+              WHERE gg.author_did = p.author_did
+                AND gg.rkey = p.rkey
+                AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                  OR gg.uri LIKE '%/app.greengale.document/%'
+                  OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+            )
           )
         )
     `

@@ -519,6 +519,8 @@ describe('API Endpoints', () => {
       expect(query).toContain("gg.uri LIKE '%/app.greengale.document/%'")
       expect(query).toContain("gg.uri LIKE '%/app.greengale.blog.entry/%'")
       expect(query).toContain("gg.uri LIKE '%/com.whtwnd.blog.entry/%'")
+      // Should exclude site.standard posts without an external URL
+      expect(query).toContain("p.external_url IS NULL")
     })
 
     it('includes externalUrl in response', async () => {
