@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "A publication record for cross-platform blog discovery and verification.",
+      "description": "A publication record representing a blog, website, or content platform. Publications serve as containers for documents and define the overall branding and settings.",
       "key": "tid",
       "record": {
         "type": "object",
@@ -13,35 +13,35 @@
           "url": {
             "type": "string",
             "format": "uri",
-            "description": "Required base publication URL (e.g., https://standard.site). The canonical document URL is formed by combining this value with the document path."
+            "description": "Base publication url (ex: https://standard.site). The canonical document URL is formed by combining this value with the document path."
           },
           "name": {
             "type": "string",
-            "maxLength": 1280,
-            "maxGraphemes": 128,
-            "description": "Required name of the publication"
+            "maxLength": 5000,
+            "maxGraphemes": 500,
+            "description": "Name of the publication."
           },
           "description": {
             "type": "string",
-            "maxLength": 3000,
-            "maxGraphemes": 300,
-            "description": "Optional brief description of the publication"
+            "maxLength": 30000,
+            "maxGraphemes": 3000,
+            "description": "Brief description of the publication."
           },
           "icon": {
             "type": "blob",
             "accept": ["image/*"],
             "maxSize": 1000000,
-            "description": "Optional square image to identify the publication. Should be at least 256x256."
+            "description": "Square image to identify the publication. Should be at least 256x256."
           },
           "basicTheme": {
             "type": "ref",
             "ref": "site.standard.theme.basic",
-            "description": "Optional simplified publication theme for tools and apps to utilize when displaying content"
+            "description": "Simplified publication theme for tools and apps to utilize when displaying content."
           },
           "preferences": {
             "type": "ref",
             "ref": "#preferences",
-            "description": "Optional object containing platform-specific preferences"
+            "description": "Object containing platform specific preferences (with a few shared properties)."
           }
         }
       }
@@ -53,7 +53,7 @@
         "showInDiscover": {
           "type": "boolean",
           "default": true,
-          "description": "Boolean which decides whether the publication should appear in discovery feeds"
+          "description": "Boolean which decides whether the publication should appear in discovery feeds."
         }
       }
     }
