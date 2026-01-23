@@ -365,6 +365,7 @@ export function Sidebar({ children }: SidebarProps) {
   const externalLinks = [
     { href: 'https://bsky.app/profile/greengale.app', label: '@greengale.app', icon: BlueskyIcon },
     { href: 'https://github.com/asa-degroff/greengale', label: 'GitHub', icon: GitHubIcon },
+    { href: 'https://greengale.app/greengale.app/3md4qenz7b72o', label: 'Lexicon Docs', icon: BookIcon },
     { href: 'https://atproto.com', label: 'AT Protocol', icon: ExternalLinkIcon },
     { href: 'https://buymeacoffee.com/asadegroff', label: 'Donate', icon: CoffeeIcon },
   ]
