@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
-import { TextLogo } from '@/components/TextLogo'
+import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { LoadingCube } from '@/components/LoadingCube'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
@@ -136,7 +136,7 @@ export function HomePage() {
     <div className="min-h-screen">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
-          <TextLogo className="h-8 md:h-10 mx-auto mb-4 text-[var(--site-text)]" />
+          <CubeLogo className="h-8 md:h-10 mx-auto mb-4" />
           <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle with WhiteWind support and Standard Site indexing.</a>

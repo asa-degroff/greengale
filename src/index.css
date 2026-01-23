@@ -1624,3 +1624,9 @@ html {
   opacity: 0.6;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .cube-logo-inner {
+    transition: none !important;
+    transform: rotateX(0deg) rotateY(0deg) !important;
+  }
+}
