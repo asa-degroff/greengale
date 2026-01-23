@@ -506,6 +506,45 @@ Cross-platform publication metadata from the standard.site specification.
 
 GreenGale converts its theme format to `site.standard.theme.basic` (which uses `primaryColor`, `backgroundColor`, and `accentColor`). The full GreenGale theme is preserved in `preferences.greengale` for round-tripping.
 
+## Mathematical Expressions
+
+GreenGale posts support [KaTeX](https://katex.org/) math rendering via `remark-math` and `rehype-katex`. LaTeX is always enabled for all GreenGale posts.
+
+**Inline math** — wrap expressions with single dollar signs:
+
+```markdown
+The quadratic formula is $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$ for any quadratic equation.
+```
+
+**Display math** — wrap expressions with double dollar signs on their own lines:
+
+```markdown
+$$
+\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+$$
+```
+
+To render a literal dollar sign without triggering math mode, escape it with a backslash: `\$`.
+
+See the [KaTeX supported functions](https://katex.org/docs/supported) for a full reference of available commands.
+
+## Inline SVG
+
+Posts support inline SVG diagrams via fenced code blocks. Use the `svg`, `xml`, or `html` language tag, and the content must start with `<svg`:
+
+````markdown
+```svg
+<svg viewBox="0 0 200 100" width="200" height="100">
+  <rect width="200" height="100" fill="#1e293b" rx="8"/>
+  <text x="100" y="55" text-anchor="middle" fill="white" font-size="16">Hello, SVG!</text>
+</svg>
+```
+````
+
+**Supported elements:** Basic shapes (`circle`, `rect`, `path`, `line`, `polygon`, `polyline`, `ellipse`), text (`text`, `tspan`, `textPath`), gradients (`linearGradient`, `radialGradient`, `stop`), `pattern`, `filter`, `clipPath`, `mask`, `marker`, `defs`, `g`, `use`, `symbol`, and `style` (with CSS sanitization).
+
+**Security restrictions:** Script tags, event handlers (e.g. `onclick`), and external references are blocked. Only internal `#id` hrefs are allowed. Maximum size is 100KB.
+
 ## Visibility Levels
 
 Both `app.greengale.document` and the legacy `app.greengale.blog.entry` support three visibility levels:
