@@ -67,6 +67,8 @@ export function PostPage() {
   useEffect(() => {
     if (!handle || !rkey) return
 
+    let cancelled = false
+
     async function load() {
       setLoading(true)
       setError(null)
@@ -77,6 +79,8 @@ export function PostPage() {
           getAuthorProfile(handle!),
           getPublication(handle!).catch(() => null),
         ])
+
+        if (cancelled) return
 
         if (!entryResult) {
           setError('Blog post not found')
@@ -116,15 +120,19 @@ export function PostPage() {
           setActiveCustomColors(null)
         }
       } catch (err) {
+        if (cancelled) return
         setError(err instanceof Error ? err.message : 'Failed to load post')
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     load()
 
     return () => {
+      cancelled = true
       setActivePostTheme(null) // Reset theme when leaving post
       setActiveCustomColors(null)
     }
