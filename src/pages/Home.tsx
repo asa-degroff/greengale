@@ -139,7 +139,7 @@ export function HomePage() {
           <TextLogo className="h-8 md:h-10 mx-auto mb-4 text-[var(--site-text)]" />
           <h2><i>Beta</i></h2>
           <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
-            Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle. WhiteWind support and Standard Site indexing.</a>
+            Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle with WhiteWind support and Standard Site indexing.</a>
           </p>
         </div>
 
@@ -148,7 +148,7 @@ export function HomePage() {
             Find a Blog
           </h2>
           <p className="text-[var(--site-text-secondary)] mb-4">
-            Search by handle, display name, publication name, title, or URL:
+            Search by handle, display name, publication name, title, tag, or URL:
           </p>
           <PublicationSearch className="w-full" />
         </div>
