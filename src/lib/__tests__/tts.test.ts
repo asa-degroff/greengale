@@ -1232,6 +1232,54 @@ https://bsky.app/profile/user2.bsky.social/post/def`
       expect(caps.recommended.dtype).toBe('fp32')
     })
 
+    it('respects force-wasm localStorage setting on Mac', async () => {
+      const mockDevice = { destroy: vi.fn() }
+      const mockAdapter = { requestDevice: vi.fn().mockResolvedValue(mockDevice) }
+      const mockGpu = { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) }
+
+      vi.stubGlobal('navigator', {
+        platform: 'MacIntel',
+        userAgent: 'Mozilla/5.0 (Macintosh) Chrome/120',
+        gpu: mockGpu,
+        maxTouchPoints: 0,
+      })
+      vi.stubGlobal('WebAssembly', {})
+      vi.stubGlobal('AudioContext', class {})
+      vi.stubGlobal('window', { indexedDB: {} })
+      vi.stubGlobal('localStorage', { getItem: (key: string) => (key === 'tts-force-wasm' ? 'true' : null) })
+
+      const caps = await detectCapabilities()
+
+      // forceWASM should override the Mac default of WebGPU
+      expect(caps.recommended.device).toBe('wasm')
+      expect(caps.recommended.dtype).toBe('q8')
+    })
+
+    it('force-wasm takes precedence over force-webgpu', async () => {
+      const mockDevice = { destroy: vi.fn() }
+      const mockAdapter = { requestDevice: vi.fn().mockResolvedValue(mockDevice) }
+      const mockGpu = { requestAdapter: vi.fn().mockResolvedValue(mockAdapter) }
+
+      vi.stubGlobal('navigator', {
+        platform: 'Linux',
+        userAgent: 'Mozilla/5.0 Linux Chrome',
+        gpu: mockGpu,
+      })
+      vi.stubGlobal('WebAssembly', {})
+      vi.stubGlobal('AudioContext', class {})
+      vi.stubGlobal('window', { indexedDB: {} })
+      // Both flags set - forceWASM should win
+      vi.stubGlobal('localStorage', { getItem: (key: string) => {
+        if (key === 'tts-force-wasm') return 'true'
+        if (key === 'tts-force-webgpu') return 'true'
+        return null
+      }})
+
+      const caps = await detectCapabilities()
+      expect(caps.recommended.device).toBe('wasm')
+      expect(caps.recommended.dtype).toBe('q8')
+    })
+
     it('handles WebGPU detection failure gracefully', async () => {
       const mockGpu = { requestAdapter: vi.fn().mockResolvedValue(null) }
 
