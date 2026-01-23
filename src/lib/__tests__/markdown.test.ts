@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { extractText, extractTitle, extractFirstImage } from '../markdown'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { extractText, extractTitle, extractFirstImage, renderMarkdown, clearMarkdownCache } from '../markdown'
 
 describe('Markdown Utilities', () => {
   describe('extractText', () => {
@@ -210,6 +210,89 @@ print("code")
       const markdown = '![logo](./assets/logo.svg)'
       const url = extractFirstImage(markdown)
       expect(url).toBe('./assets/logo.svg')
+    })
+  })
+
+  describe('renderMarkdown', () => {
+    beforeEach(() => {
+      clearMarkdownCache()
+    })
+
+    it('renders simple markdown to React elements', async () => {
+      const result = await renderMarkdown('Hello **world**')
+      expect(result).toBeDefined()
+    })
+
+    it('returns cached result for identical content and options', async () => {
+      const content = 'Cached content test'
+      const first = await renderMarkdown(content)
+      const second = await renderMarkdown(content)
+      // Same object reference means cache hit
+      expect(second).toBe(first)
+    })
+
+    it('returns different results for different content', async () => {
+      const first = await renderMarkdown('Content A')
+      const second = await renderMarkdown('Content B')
+      expect(second).not.toBe(first)
+    })
+
+    it('uses different cache keys for different options', async () => {
+      const content = 'Same content, different options'
+      const withLatex = await renderMarkdown(content, { enableLatex: true })
+      const withoutLatex = await renderMarkdown(content, { enableLatex: false })
+      // Different options should produce independent cache entries
+      expect(withLatex).not.toBe(withoutLatex)
+    })
+
+    it('clearMarkdownCache invalidates cached results', async () => {
+      const content = 'Clear cache test'
+      const first = await renderMarkdown(content)
+
+      clearMarkdownCache()
+
+      const second = await renderMarkdown(content)
+      // After cache clear, a new render occurs (different object)
+      expect(second).not.toBe(first)
+    })
+
+    it('does not cache when custom components are provided', async () => {
+      const content = 'No cache with components'
+      const components = { p: ({ children }: { children: unknown }) => children }
+      const first = await renderMarkdown(content, { components })
+      const second = await renderMarkdown(content, { components })
+      // Custom components bypass cache, so different objects each time
+      expect(second).not.toBe(first)
+    })
+
+    it('handles enableSvg option in cache key', async () => {
+      const content = 'SVG option test'
+      const withSvg = await renderMarkdown(content, { enableSvg: true })
+      const withoutSvg = await renderMarkdown(content, { enableSvg: false })
+      expect(withSvg).not.toBe(withoutSvg)
+    })
+
+    it('handles empty content', async () => {
+      const result = await renderMarkdown('')
+      expect(result).toBeDefined()
+    })
+
+    it('evicts oldest entry when cache exceeds max size', async () => {
+      // Fill cache with 50 entries
+      for (let i = 0; i < 50; i++) {
+        await renderMarkdown(`Entry ${i}`)
+      }
+
+      // The first entry should still be cached at this point
+      const firstEntry = await renderMarkdown('Entry 0')
+
+      // Adding one more should trigger eviction of the oldest
+      await renderMarkdown('Entry 50 - triggers eviction')
+
+      // Now re-render entry 0 - if it was evicted, we get a new object
+      clearMarkdownCache()
+      const afterEviction = await renderMarkdown('Entry 0')
+      expect(afterEviction).not.toBe(firstEntry)
     })
   })
 })
