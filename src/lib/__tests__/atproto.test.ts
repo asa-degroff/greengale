@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme, parseVoiceTheme, voiceThemeToRecord } from '../atproto'
+import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme, parseVoiceTheme, voiceThemeToRecord, generateTid, resolveIdentity, getPdsEndpoint, clearIdentityCache, withRetry } from '../atproto'
 import type { BlogEntry, SiteStandardColor, SiteStandardDocument } from '../atproto'
 import type { Theme } from '../themes'
 
@@ -1607,6 +1607,307 @@ Third.`
       })).toEqual({
         pitch: 75,
       })
+    })
+  })
+
+  describe('generateTid', () => {
+    it('produces a 13-character string', () => {
+      const tid = generateTid()
+      expect(tid).toHaveLength(13)
+    })
+
+    it('uses only base32-sortable characters', () => {
+      for (let i = 0; i < 20; i++) {
+        const tid = generateTid()
+        expect(tid).toMatch(/^[234567a-z]{13}$/)
+      }
+    })
+
+    it('generates unique values on successive calls', () => {
+      const tids = new Set<string>()
+      for (let i = 0; i < 50; i++) {
+        tids.add(generateTid())
+      }
+      // Random clock ID (2 chars = 1024 combos) ensures most are unique
+      // even within same millisecond. Allow small collision margin.
+      expect(tids.size).toBeGreaterThan(40)
+    })
+
+    it('encodes timestamp in first 11 characters (sortable portion)', () => {
+      // Generate two TIDs and verify the timestamp portion (first 11 chars)
+      // is consistent with base32-sortable encoding of the current time
+      const tid = generateTid()
+      const timestampPart = tid.slice(0, 11)
+      const clockPart = tid.slice(11)
+
+      expect(timestampPart).toHaveLength(11)
+      expect(clockPart).toHaveLength(2)
+      // Both parts should use base32 charset
+      expect(timestampPart).toMatch(/^[234567a-z]+$/)
+      expect(clockPart).toMatch(/^[234567a-z]+$/)
+    })
+  })
+
+  describe('resolveIdentity', () => {
+    beforeEach(() => {
+      clearIdentityCache()
+      vi.stubGlobal('fetch', mockFetch)
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      mockFetch.mockReset()
+    })
+
+    it('returns DID directly if input is already a did:plc', async () => {
+      const did = 'did:plc:abc123def456'
+      const result = await resolveIdentity(did)
+      expect(result).toBe(did)
+    })
+
+    it('returns DID directly if input is a did:web', async () => {
+      const did = 'did:web:example.com'
+      const result = await resolveIdentity(did)
+      expect(result).toBe(did)
+    })
+
+    it('throws for invalid identifier', async () => {
+      await expect(resolveIdentity('not valid!!')).rejects.toThrow('Invalid identifier')
+    })
+
+    it('throws for empty string', async () => {
+      await expect(resolveIdentity('')).rejects.toThrow('Invalid identifier')
+    })
+  })
+
+  describe('getPdsEndpoint', () => {
+    beforeEach(() => {
+      clearIdentityCache()
+      vi.stubGlobal('fetch', mockFetch)
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      mockFetch.mockReset()
+    })
+
+    it('resolves did:plc via plc.directory', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        service: [
+          { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }
+        ]
+      }))
+
+      const result = await getPdsEndpoint('did:plc:abc123')
+      expect(result).toBe('https://pds.example.com')
+      expect(mockFetch).toHaveBeenCalledWith('https://plc.directory/did:plc:abc123')
+    })
+
+    it('resolves did:web via .well-known/did.json', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        service: [
+          { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.web.com' }
+        ]
+      }))
+
+      const result = await getPdsEndpoint('did:web:example.com')
+      expect(result).toBe('https://pds.web.com')
+      expect(mockFetch).toHaveBeenCalledWith('https://example.com/.well-known/did.json')
+    })
+
+    it('throws for unsupported DID method', async () => {
+      await expect(getPdsEndpoint('did:key:abc')).rejects.toThrow('Unsupported DID method')
+    })
+
+    it('throws when DID document fetch fails', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({}, { ok: false }))
+      await expect(getPdsEndpoint('did:plc:fail123')).rejects.toThrow('Failed to resolve DID')
+    })
+
+    it('throws when no PDS service in DID document', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        service: [
+          { id: '#other', type: 'OtherService', serviceEndpoint: 'https://other.com' }
+        ]
+      }))
+      await expect(getPdsEndpoint('did:plc:nopds')).rejects.toThrow('No PDS service found')
+    })
+
+    it('caches results and avoids repeated fetches', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        service: [
+          { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.cached.com' }
+        ]
+      }))
+
+      const first = await getPdsEndpoint('did:plc:cacheme')
+      const second = await getPdsEndpoint('did:plc:cacheme')
+
+      expect(first).toBe('https://pds.cached.com')
+      expect(second).toBe('https://pds.cached.com')
+      // Only one fetch should have been made
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('clearIdentityCache forces re-fetch', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.old.com' }
+          ]
+        }))
+        .mockResolvedValueOnce(mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.new.com' }
+          ]
+        }))
+
+      const first = await getPdsEndpoint('did:plc:clearme')
+      expect(first).toBe('https://pds.old.com')
+
+      clearIdentityCache()
+
+      const second = await getPdsEndpoint('did:plc:clearme')
+      expect(second).toBe('https://pds.new.com')
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('cache expires after TTL', async () => {
+      vi.useFakeTimers()
+      mockFetch
+        .mockResolvedValueOnce(mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.ttl.com' }
+          ]
+        }))
+        .mockResolvedValueOnce(mockResponse({
+          service: [
+            { id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.ttl2.com' }
+          ]
+        }))
+
+      const first = await getPdsEndpoint('did:plc:ttltest')
+      expect(first).toBe('https://pds.ttl.com')
+
+      // Advance past TTL (5 minutes)
+      vi.advanceTimersByTime(5 * 60 * 1000 + 1)
+
+      const second = await getPdsEndpoint('did:plc:ttltest')
+      expect(second).toBe('https://pds.ttl2.com')
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+
+      vi.useRealTimers()
+    })
+
+    it('finds PDS service by type field', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({
+        service: [
+          { id: '#other', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.bytype.com' }
+        ]
+      }))
+
+      const result = await getPdsEndpoint('did:plc:bytype')
+      expect(result).toBe('https://pds.bytype.com')
+    })
+  })
+
+  describe('withRetry', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('returns result on first successful attempt', async () => {
+      const fn = vi.fn().mockResolvedValue('success')
+      const result = await withRetry(fn)
+      expect(result).toBe('success')
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries on failure and returns on eventual success', async () => {
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new Error('fail 1'))
+        .mockResolvedValueOnce('recovered')
+
+      const promise = withRetry(fn)
+      await vi.advanceTimersByTimeAsync(100) // first backoff delay
+      const result = await promise
+
+      expect(result).toBe('recovered')
+      expect(fn).toHaveBeenCalledTimes(2)
+    })
+
+    it('throws last error after all retries exhausted', async () => {
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new Error('fail 1'))
+        .mockRejectedValueOnce(new Error('fail 2'))
+        .mockRejectedValueOnce(new Error('fail 3'))
+
+      // Attach catch handler immediately to avoid unhandled rejection
+      let caughtError: Error | undefined
+      const promise = withRetry(fn).catch((e: Error) => { caughtError = e })
+
+      await vi.advanceTimersByTimeAsync(100) // 1st backoff
+      await vi.advanceTimersByTimeAsync(200) // 2nd backoff
+      await promise
+
+      expect(caughtError?.message).toBe('fail 3')
+      expect(fn).toHaveBeenCalledTimes(3)
+    })
+
+    it('uses exponential backoff delays', async () => {
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new Error('fail'))
+        .mockRejectedValueOnce(new Error('fail'))
+        .mockResolvedValueOnce('ok')
+
+      const promise = withRetry(fn, 2, 100)
+
+      // After 99ms, second attempt hasn't happened yet
+      await vi.advanceTimersByTimeAsync(99)
+      expect(fn).toHaveBeenCalledTimes(1)
+
+      // At 100ms (baseDelay * 2^0), second attempt fires
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fn).toHaveBeenCalledTimes(2)
+
+      // After 199ms more (total 300ms), third attempt hasn't happened
+      await vi.advanceTimersByTimeAsync(199)
+      expect(fn).toHaveBeenCalledTimes(2)
+
+      // At 200ms (baseDelay * 2^1), third attempt fires
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await promise
+      expect(result).toBe('ok')
+      expect(fn).toHaveBeenCalledTimes(3)
+    })
+
+    it('respects custom maxRetries parameter', async () => {
+      const fn = vi.fn().mockRejectedValue(new Error('always fails'))
+
+      const promise = withRetry(fn, 0) // No retries
+
+      await expect(promise).rejects.toThrow('always fails')
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
+
+    it('respects custom baseDelayMs parameter', async () => {
+      const fn = vi.fn()
+        .mockRejectedValueOnce(new Error('fail'))
+        .mockResolvedValueOnce('ok')
+
+      const promise = withRetry(fn, 1, 500)
+
+      await vi.advanceTimersByTimeAsync(499)
+      expect(fn).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await promise
+      expect(result).toBe('ok')
+      expect(fn).toHaveBeenCalledTimes(2)
     })
   })
 })
