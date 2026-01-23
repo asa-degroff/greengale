@@ -6,6 +6,7 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
+import { LoadingCubeInline } from '@/components/LoadingCube'
 import { TextLogo } from '@/components/TextLogo'
 import { checkWebGPUSupport, type RGB } from '@/lib/webgpu-grid'
 import logoImage from '/grey-logo.avif?url'
@@ -516,7 +517,7 @@ export function Sidebar({ children }: SidebarProps) {
       <div className="p-4 border-t border-[var(--sidebar-border)] space-y-2">
         {isLoading ? (
           <div className="flex items-center gap-3 px-3 py-2 text-[var(--site-text-secondary)]">
-            <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+            <LoadingCubeInline />
             <span>Loading...</span>
           </div>
         ) : isAuthenticated ? (

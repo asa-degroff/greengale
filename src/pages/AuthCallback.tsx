@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { LoadingCube } from '@/components/LoadingCube'
 
 export function AuthCallbackPage() {
   const navigate = useNavigate()
@@ -47,7 +48,7 @@ export function AuthCallbackPage() {
   return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="text-center">
-        <div className="animate-spin w-8 h-8 border-4 border-[var(--site-accent)] border-t-transparent rounded-full mx-auto mb-4" />
+        <LoadingCube size="sm" className="mb-4" />
         <p className="text-[var(--site-text-secondary)]">Completing login...</p>
       </div>
     </div>
