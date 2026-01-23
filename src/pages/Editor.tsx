@@ -143,6 +143,9 @@ export function EditorPage() {
   const [draftWasRestored, setDraftWasRestored] = useState(false)
   // Ref to track draft restoration status for async functions (avoids stale closure)
   const draftWasRestoredRef = useRef(false)
+  // Track whether the initial draft restoration check has been performed (prevents
+  // auto-saved drafts from triggering the "restored" banner during the same session)
+  const initialDraftCheckDone = useRef(false)
   // Store the timestamp of the restored draft (for display even after clearing)
   const [restoredDraftSavedAt, setRestoredDraftSavedAt] = useState<Date | null>(null)
   // Store default theme from publication for undo (new posts)
@@ -188,6 +191,7 @@ export function EditorPage() {
     // Reset draft restoration state
     setDraftWasRestored(false)
     draftWasRestoredRef.current = false
+    initialDraftCheckDone.current = false
     setRestoredDraftSavedAt(null)
 
     // Clear refs
@@ -499,10 +503,13 @@ export function EditorPage() {
       if (!publicationThemeLoaded) return
     }
 
+    // Only attempt restoration once per editor session. This prevents drafts
+    // created by auto-save during the current session from triggering the banner.
+    if (initialDraftCheckDone.current) return
+    initialDraftCheckDone.current = true
+
     // Only if there's a saved draft
     if (!savedDraft) return
-    // Only restore once
-    if (draftWasRestored) return
 
     // Restore draft content
     setTitle(savedDraft.title)
@@ -539,7 +546,7 @@ export function EditorPage() {
     // Mark as restored and save the timestamp for the banner
     setDraftWasRestored(true)
     setRestoredDraftSavedAt(new Date(savedDraft.savedAt))
-  }, [isEditing, loadingPost, publicationThemeLoaded, savedDraft, draftWasRestored, isDraftLoaded])
+  }, [isEditing, loadingPost, publicationThemeLoaded, savedDraft, isDraftLoaded])
 
   // Undo draft restoration - reset to original state
   const handleUndoDraft = useCallback(() => {
