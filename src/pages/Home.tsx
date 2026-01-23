@@ -63,7 +63,7 @@ export function HomePage() {
   useDocumentMeta({
     title: 'GreenGale',
     canonical: buildHomeCanonical(),
-    description: 'Markdown blog platform powered by your internet handle. WhiteWind support and Standard Site indexing.',
+    description: 'Markdown blog platform powered by your internet handle.',
     ogImage: buildHomeOgImage(),
   })
 
@@ -138,7 +138,7 @@ export function HomePage() {
         <div className="text-center mb-12">
           <CubeLogo className="h-8 md:h-10 mx-auto mb-4" />
           <h2><i>Beta</i></h2>
-          <p className="text-xl text-[var(--site-text-secondary)] max-w-2xl mx-auto">
+          <p className="text-lg text-[var(--site-text-secondary)] max-w-2xl mx-auto">
             Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle</a>
           </p>
         </div>
