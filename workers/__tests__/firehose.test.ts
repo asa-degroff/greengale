@@ -1250,6 +1250,48 @@ describe('Firehose Indexer', () => {
     })
   })
 
+  describe('DID Document Resolution', () => {
+    // Extracted from firehose/index.ts - inline DID resolution logic
+    function resolveDidDocUrl(did: string): string {
+      if (did.startsWith('did:web:')) {
+        const parts = did.slice('did:web:'.length).split(':')
+        const host = decodeURIComponent(parts[0])
+        const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
+        return `https://${host}${path}/did.json`
+      }
+      return `https://plc.directory/${did}`
+    }
+
+    it('resolves did:plc to plc.directory', () => {
+      expect(resolveDidDocUrl('did:plc:abc123')).toBe('https://plc.directory/did:plc:abc123')
+    })
+
+    it('resolves did:web with simple domain', () => {
+      expect(resolveDidDocUrl('did:web:example.com')).toBe('https://example.com/.well-known/did.json')
+    })
+
+    it('resolves did:web with path segments', () => {
+      expect(resolveDidDocUrl('did:web:example.com:user:alice')).toBe('https://example.com/user/alice/did.json')
+    })
+
+    it('resolves did:web with single path segment', () => {
+      expect(resolveDidDocUrl('did:web:example.com:users')).toBe('https://example.com/users/did.json')
+    })
+
+    it('handles URL-encoded components in did:web', () => {
+      expect(resolveDidDocUrl('did:web:example.com:path%20with%20spaces'))
+        .toBe('https://example.com/path with spaces/did.json')
+    })
+
+    it('resolves did:web with port in domain', () => {
+      expect(resolveDidDocUrl('did:web:localhost%3A8080')).toBe('https://localhost:8080/.well-known/did.json')
+    })
+
+    it('resolves did:web with subdomain', () => {
+      expect(resolveDidDocUrl('did:web:blog.example.com')).toBe('https://blog.example.com/.well-known/did.json')
+    })
+  })
+
   describe('External URL Resolution', () => {
     it('constructs URL from publication URL and document path', () => {
       const pubUrl = 'https://myblog.com'

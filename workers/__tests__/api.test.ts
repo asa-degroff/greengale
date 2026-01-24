@@ -271,6 +271,71 @@ describe('API Endpoints', () => {
       // Should return the GreenGale publication, not the other one
       expect(text).toBe('at://did:plc:user123/site.standard.publication/3greengalepub')
     })
+
+    it('resolves did:web DID documents correctly', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:web:example.com' })
+
+      // Mock DID document response - did:web resolves via /.well-known/did.json
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // Mock listRecords response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:web:example.com/site.standard.publication/3abcdefghijkl',
+            value: { preferences: { greengale: {} } },
+          }],
+        }),
+      })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=webuser.example.com')
+      expect(res.status).toBe(200)
+
+      // Verify the DID document was fetched from the correct did:web URL
+      expect(mockFetch).toHaveBeenCalledWith('https://example.com/.well-known/did.json')
+    })
+
+    it('resolves did:web with path segments correctly', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:web:example.com:user:alice' })
+
+      // did:web:example.com:user:alice → https://example.com/user/alice/did.json
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:web:example.com:user:alice/site.standard.publication/3abcdefghijkl',
+            value: { preferences: { greengale: {} } },
+          }],
+        }),
+      })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=alice.example.com')
+      expect(res.status).toBe(200)
+
+      // Verify the correct path-based did:web URL
+      expect(mockFetch).toHaveBeenCalledWith('https://example.com/user/alice/did.json')
+    })
+
+    it('returns 404 when did:web resolution fails', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:web:offline.example.com' })
+
+      // DID document fetch fails
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404 })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=webuser.example.com')
+      expect(res.status).toBe(404)
+    })
   })
 
   describe('getRecentPosts', () => {
@@ -404,14 +469,193 @@ describe('API Endpoints', () => {
       expect(data.error).toBe('Missing author parameter')
     })
 
-    it('returns empty posts for unknown author', async () => {
+    it('returns empty posts for unknown author when discovery fails', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
       env.DB._statement.first.mockResolvedValueOnce(null)
+      // discoverAndIndexAuthor calls Bluesky API which returns 404
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404 })
 
       const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=unknown.bsky.social')
       expect(res.status).toBe(200)
 
       const data = await res.json()
       expect(data.posts).toEqual([])
+
+      vi.unstubAllGlobals()
+    })
+
+    it('discovers and indexes unknown author on first visit', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      // Handle resolution returns null (author not in DB)
+      env.DB._statement.first.mockResolvedValueOnce(null)
+
+      // discoverAndIndexAuthor: Bluesky profile lookup succeeds
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          did: 'did:plc:discovered',
+          handle: 'discovered.bsky.social',
+          displayName: 'Discovered User',
+          avatar: 'https://example.com/avatar.jpg',
+          description: 'A discovered user',
+        }),
+      })
+      // fetchPdsEndpoint: DID document resolution
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // indexPostsFromPds: KV cache check already handled by mock (returns null)
+      // indexPostsFromPds: DB lookup for pds_endpoint (use the second first() call)
+      env.DB._statement.first.mockResolvedValueOnce(null)
+      // indexPostsFromPds: fetchPdsEndpoint for the discovered DID
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // indexPostsFromPds: fetch site.standard.publication records
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+      // indexPostsFromPds: fetch app.greengale.document records
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:plc:discovered/app.greengale.document/post1',
+            value: { title: 'First Post', content: 'Hello world', publishedAt: '2024-01-01T00:00:00Z' },
+          }],
+        }),
+      })
+      // indexPostsFromPds: fetch app.greengale.blog.entry records
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+      // indexPostsFromPds: fetch com.whtwnd.blog.entry records
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+      // indexPostsFromPds: fetch site.standard.document records
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+
+      // After indexing, the re-query returns posts
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [{
+          uri: 'at://did:plc:discovered/app.greengale.document/post1',
+          author_did: 'did:plc:discovered',
+          rkey: 'post1',
+          title: 'First Post',
+          handle: 'discovered.bsky.social',
+        }],
+      })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=discovered.bsky.social')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toHaveLength(1)
+      expect(data.posts[0].title).toBe('First Post')
+
+      // Verify Bluesky API was called with the handle
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('app.bsky.actor.getProfile?actor=discovered.bsky.social')
+      )
+
+      vi.unstubAllGlobals()
+    })
+
+    it('uses negative cache to skip repeated discovery attempts', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      env.DB._statement.first.mockResolvedValueOnce(null)
+      // Negative cache hit
+      await env.CACHE.put('discover-fail:unknown.bsky.social', '1')
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=unknown.bsky.social')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toEqual([])
+
+      // Should not call Bluesky API
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      vi.unstubAllGlobals()
+    })
+
+    it('calls indexPostsFromPds on first page load (no cursor)', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      // Author exists in DB
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      // indexPostsFromPds: KV cache miss, DB lookup for pds_endpoint
+      env.DB._statement.first.mockResolvedValueOnce({ pds_endpoint: 'https://pds.example.com' })
+      // indexPostsFromPds: fetch publications
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+      // indexPostsFromPds: fetch each collection (4 collections)
+      for (let i = 0; i < 4; i++) {
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ records: [] }),
+        })
+      }
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc')
+
+      // Verify PDS was contacted (publications + 4 collections = 5 fetch calls)
+      expect(mockFetch).toHaveBeenCalledTimes(5)
+
+      vi.unstubAllGlobals()
+    })
+
+    it('skips indexPostsFromPds when KV cache exists', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+      // Pre-populate KV cache
+      await env.CACHE.put('posts-indexed:v2:did:plc:cached', '1')
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:cached')
+
+      // Should not make any fetch calls since cache is populated
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      vi.unstubAllGlobals()
+    })
+
+    it('skips indexPostsFromPds when cursor is provided', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc&cursor=2024-01-01T00:00:00Z')
+
+      // Should not call indexPostsFromPds since cursor is present
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      vi.unstubAllGlobals()
     })
 
     it('resolves handle to DID before querying', async () => {
@@ -667,14 +911,102 @@ describe('API Endpoints', () => {
       expect(data.error).toBe('Missing author parameter')
     })
 
-    it('returns 404 when author not found', async () => {
+    it('returns 404 when author not found and discovery fails', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
       env.DB._statement.first.mockResolvedValueOnce(null)
+      // discoverAndIndexAuthor: Bluesky API returns 404
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404 })
 
       const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=unknown')
       expect(res.status).toBe(404)
 
       const data = await res.json()
       expect(data.error).toBe('Author not found')
+
+      vi.unstubAllGlobals()
+    })
+
+    it('discovers and returns profile for unknown author', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      env.DB._statement.first.mockResolvedValueOnce(null)
+
+      // discoverAndIndexAuthor: Bluesky profile lookup
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          did: 'did:plc:newuser',
+          handle: 'newuser.bsky.social',
+          displayName: 'New User',
+          avatar: 'https://example.com/avatar.jpg',
+          description: 'A new user',
+        }),
+      })
+      // fetchPdsEndpoint: DID document
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // indexPostsFromPds: DB lookup for pds_endpoint
+      env.DB._statement.first.mockResolvedValueOnce(null)
+      // indexPostsFromPds: fetchPdsEndpoint
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // indexPostsFromPds: fetch publications
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ records: [] }),
+      })
+      // indexPostsFromPds: fetch app.greengale.document (has 1 post)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:plc:newuser/app.greengale.document/post1',
+            value: { title: 'Hello', content: 'World', publishedAt: '2024-01-01T00:00:00Z' },
+          }],
+        }),
+      })
+      // indexPostsFromPds: remaining collections empty
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ records: [] }) })
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ records: [] }) })
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ records: [] }) })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=newuser.bsky.social')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.did).toBe('did:plc:newuser')
+      expect(data.handle).toBe('newuser.bsky.social')
+      expect(data.displayName).toBe('New User')
+      expect(data.postsCount).toBe(1) // 1 post indexed from app.greengale.document
+
+      vi.unstubAllGlobals()
+    })
+
+    it('uses negative cache for repeated profile discovery failures', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      env.DB._statement.first.mockResolvedValueOnce(null)
+      await env.CACHE.put('discover-fail:cached-unknown', '1')
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=cached-unknown')
+      expect(res.status).toBe(404)
+
+      // Should not call Bluesky API
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      vi.unstubAllGlobals()
     })
 
     it('returns author profile', async () => {
