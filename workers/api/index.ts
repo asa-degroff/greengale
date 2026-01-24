@@ -1185,8 +1185,9 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
     let result = await c.env.DB.prepare(query).bind(...params).all()
     let posts = result.results || []
 
-    // If no posts found on the first page, try indexing from PDS
-    if (posts.length === 0 && !cursor) {
+    // On first page load, try indexing any missing posts from PDS
+    // (KV cache makes this a single fast GET for already-indexed authors)
+    if (!cursor) {
       const indexed = await indexPostsFromPds(authorDid, c.env)
       if (indexed > 0) {
         // Re-query now that posts are indexed
@@ -2013,7 +2014,8 @@ async function indexPostsFromPds(
   env: { DB: D1Database; CACHE: KVNamespace }
 ): Promise<number> {
   // Check if we've already indexed this author's posts recently
-  const cacheKey = `posts-indexed:${did}`
+  // Version the key so adding new collections invalidates old cache entries
+  const cacheKey = `posts-indexed:v2:${did}`
   const cached = await env.CACHE.get(cacheKey)
   if (cached) return 0
 
@@ -2033,10 +2035,18 @@ async function indexPostsFromPds(
   if (!pdsEndpoint) return 0
 
   const collections = [
-    { name: 'app.greengale.document', source: 'greengale', isV2: true },
-    { name: 'app.greengale.blog.entry', source: 'greengale', isV2: false },
-    { name: 'com.whtwnd.blog.entry', source: 'whitewind', isV2: false },
+    { name: 'app.greengale.document', source: 'greengale' as const, isV2: true, isSiteStandard: false },
+    { name: 'app.greengale.blog.entry', source: 'greengale' as const, isV2: false, isSiteStandard: false },
+    { name: 'com.whtwnd.blog.entry', source: 'whitewind' as const, isV2: false, isSiteStandard: false },
+    { name: 'site.standard.document', source: 'greengale' as const, isV2: false, isSiteStandard: true },
   ]
+
+  // For site.standard.document, look up the publication URL to compute external_url
+  let publicationUrl: string | null = null
+  const pubRow = await env.DB.prepare('SELECT url FROM publications WHERE author_did = ?').bind(did).first()
+  if (pubRow?.url) {
+    publicationUrl = (pubRow.url as string).replace(/\/$/, '')
+  }
 
   let totalPosts = 0
 
@@ -2057,14 +2067,29 @@ async function indexPostsFromPds(
         const value = record.value
 
         const title = (value.title as string) || null
-        const subtitle = (value.subtitle as string) || null
-        const content = (value.content as string) || ''
+        // site.standard uses 'description' instead of 'subtitle'
+        const subtitle = col.isSiteStandard
+          ? (value.description as string) || null
+          : (value.subtitle as string) || null
+        // site.standard uses 'textContent' for plaintext
+        const content = col.isSiteStandard
+          ? (value.textContent as string) || ''
+          : (value.content as string) || ''
         const visibility = (value.visibility as string) || 'public'
-        const createdAt = col.isV2
+        // V2 and site.standard use publishedAt, V1/WhiteWind uses createdAt
+        const createdAt = (col.isV2 || col.isSiteStandard)
           ? (value.publishedAt as string) || null
           : (value.createdAt as string) || null
-        const hasLatex = col.source === 'greengale' && value.latex === true
-        const documentPath = col.isV2 ? (value.path as string) || null : null
+        const hasLatex = col.source === 'greengale' && !col.isSiteStandard && value.latex === true
+        const documentPath = (col.isV2 || col.isSiteStandard) ? (value.path as string) || null : null
+
+        // site.standard fields
+        const siteUri = col.isSiteStandard ? (value.site as string) || null : null
+        let externalUrl: string | null = null
+        if (col.isSiteStandard && publicationUrl && documentPath) {
+          const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
+          externalUrl = `${publicationUrl}${normalizedPath}`
+        }
 
         // Theme
         let themePreset: string | null = null
@@ -2077,23 +2102,25 @@ async function indexPostsFromPds(
           }
         }
 
-        // First image CID
+        // First image CID (not for site.standard)
         let firstImageCid: string | null = null
-        const blobs = value.blobs as Array<Record<string, unknown>> | undefined
-        if (blobs?.length) {
-          for (const blob of blobs) {
-            // Skip blobs with sensitive labels
-            const labels = blob.labels as { values?: Array<{ val: string }> } | undefined
-            if (labels?.values?.some(l =>
-              ['nudity', 'sexual', 'porn', 'graphic-media'].includes(l.val)
-            )) continue
+        if (!col.isSiteStandard) {
+          const blobs = value.blobs as Array<Record<string, unknown>> | undefined
+          if (blobs?.length) {
+            for (const blob of blobs) {
+              // Skip blobs with sensitive labels
+              const labels = blob.labels as { values?: Array<{ val: string }> } | undefined
+              if (labels?.values?.some(l =>
+                ['nudity', 'sexual', 'porn', 'graphic-media'].includes(l.val)
+              )) continue
 
-            const blobref = blob.blobref as Record<string, unknown> | undefined
-            if (blobref?.ref) {
-              const ref = blobref.ref as Record<string, unknown>
-              if (typeof ref.$link === 'string') {
-                firstImageCid = ref.$link
-                break
+              const blobref = blob.blobref as Record<string, unknown> | undefined
+              if (blobref?.ref) {
+                const ref = blobref.ref as Record<string, unknown>
+                if (typeof ref.$link === 'string') {
+                  firstImageCid = ref.$link
+                  break
+                }
               }
             }
           }
@@ -2111,12 +2138,13 @@ async function indexPostsFromPds(
           : null
 
         await env.DB.prepare(`
-          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path, site_uri, external_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(uri) DO NOTHING
         `).bind(
           uri, did, rkey, title, subtitle, slug, col.source, visibility,
-          createdAt, createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid, documentPath
+          createdAt, createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid, documentPath,
+          siteUri, externalUrl
         ).run()
 
         totalPosts++

@@ -429,7 +429,7 @@ describe('API Endpoints', () => {
     it('uses DID directly when provided', async () => {
       env.DB._statement.all.mockResolvedValueOnce({ results: [] })
       // Pre-populate KV cache so indexPostsFromPds skips PDS lookup
-      await env.CACHE.put('posts-indexed:did:plc:abc123', '1')
+      await env.CACHE.put('posts-indexed:v2:did:plc:abc123', '1')
 
       await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc123')
 
