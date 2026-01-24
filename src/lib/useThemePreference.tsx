@@ -29,18 +29,25 @@ const DEFAULT_DARK_BG = '#0a0a0a'
 const DEFAULT_LIGHT_BG = '#f0fff4'
 
 function updateThemeColor(theme: ThemePreset, customBg?: string) {
-  const meta = document.querySelector('meta[name="theme-color"]')
-  if (!meta) return
-
+  let color: string
   if (theme === 'custom' && customBg) {
-    meta.setAttribute('content', customBg)
+    color = customBg
   } else if (theme === 'default') {
-    // Check if site is in dark mode
     const isDark = document.documentElement.getAttribute('data-site-theme') === 'dark'
-    meta.setAttribute('content', isDark ? DEFAULT_DARK_BG : DEFAULT_LIGHT_BG)
+    color = isDark ? DEFAULT_DARK_BG : DEFAULT_LIGHT_BG
   } else {
-    meta.setAttribute('content', THEME_BG_COLORS[theme])
+    color = THEME_BG_COLORS[theme]
   }
+
+  // Replace the meta element entirely instead of just updating the attribute.
+  // iOS WebKit sometimes ignores attribute changes on existing meta tags and
+  // doesn't repaint the status bar. Removing and reinserting forces a re-evaluation.
+  const existing = document.querySelector('meta[name="theme-color"]')
+  if (existing) existing.remove()
+  const meta = document.createElement('meta')
+  meta.name = 'theme-color'
+  meta.content = color
+  document.head.appendChild(meta)
 }
 
 interface ThemePreferenceState {
