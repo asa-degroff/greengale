@@ -63,20 +63,12 @@ function isValidTid(rkey: string): boolean {
  */
 async function getSiteStandardPublicationRkey(did: string): Promise<string | null> {
   try {
-    // Resolve DID to find PDS endpoint
-    const didDocRes = await fetch(`https://plc.directory/${did}`)
-    if (!didDocRes.ok) return null
-    const didDoc = await didDocRes.json() as {
-      service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-    }
-
-    const pdsService = didDoc.service?.find(
-      (s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-    )
-    if (!pdsService?.serviceEndpoint) return null
+    // Resolve DID to find PDS endpoint (supports did:plc and did:web)
+    const pdsEndpoint = await fetchPdsEndpoint(did)
+    if (!pdsEndpoint) return null
 
     // List site.standard.publication records
-    const listUrl = `${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=50`
+    const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=50`
     const listRes = await fetch(listUrl)
     if (!listRes.ok) return null
 
@@ -1713,22 +1705,8 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
             banner?: string
           }
 
-          // Also fetch PDS endpoint from DID document
-          let pdsEndpoint: string | null = null
-          try {
-            const didDocResponse = await fetch(`https://plc.directory/${did}`)
-            if (didDocResponse.ok) {
-              const didDoc = await didDocResponse.json() as {
-                service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-              }
-              const pdsService = didDoc.service?.find(
-                s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-              )
-              pdsEndpoint = pdsService?.serviceEndpoint || null
-            }
-          } catch {
-            // PDS lookup failed, continue without it
-          }
+          // Also fetch PDS endpoint from DID document (supports did:plc and did:web)
+          const pdsEndpoint = await fetchPdsEndpoint(did)
 
           await c.env.DB.prepare(`
             UPDATE authors SET
@@ -1989,20 +1967,37 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
 })
 
 // Helper function to fetch PDS endpoint from DID document
-async function fetchPdsEndpoint(did: string): Promise<string | null> {
+// Resolve a DID document for both did:plc and did:web methods
+async function resolveDidDocument(did: string): Promise<{ service?: Array<{ id: string; type: string; serviceEndpoint: string }> } | null> {
   try {
-    const didDocResponse = await fetch(`https://plc.directory/${did}`)
-    if (didDocResponse.ok) {
-      const didDoc = await didDocResponse.json() as {
-        service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-      }
-      const pdsService = didDoc.service?.find(
-        s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-      )
-      return pdsService?.serviceEndpoint || null
+    let url: string
+    if (did.startsWith('did:web:')) {
+      // did:web:example.com → https://example.com/.well-known/did.json
+      // did:web:example.com:path:to → https://example.com/path/to/did.json
+      const parts = did.slice('did:web:'.length).split(':')
+      const host = decodeURIComponent(parts[0])
+      const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
+      url = `https://${host}${path}/did.json`
+    } else {
+      url = `https://plc.directory/${did}`
+    }
+    const response = await fetch(url)
+    if (response.ok) {
+      return await response.json() as { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
     }
   } catch {
-    // PDS lookup failed
+    // DID resolution failed
+  }
+  return null
+}
+
+async function fetchPdsEndpoint(did: string): Promise<string | null> {
+  const didDoc = await resolveDidDocument(did)
+  if (didDoc) {
+    const pdsService = didDoc.service?.find(
+      s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+    )
+    return pdsService?.serviceEndpoint || null
   }
   return null
 }
@@ -2041,11 +2036,28 @@ async function indexPostsFromPds(
     { name: 'site.standard.document', source: 'greengale' as const, isV2: false, isSiteStandard: true },
   ]
 
-  // For site.standard.document, look up the publication URL to compute external_url
-  let publicationUrl: string | null = null
-  const pubRow = await env.DB.prepare('SELECT url FROM publications WHERE author_did = ?').bind(did).first()
-  if (pubRow?.url) {
-    publicationUrl = (pubRow.url as string).replace(/\/$/, '')
+  // For site.standard.document, fetch all publication records from the user's PDS
+  // to build a map of publication AT-URI → base URL.
+  // Users can have multiple publications (e.g., GreenGale + external sites).
+  const publicationUrlMap = new Map<string, string>()
+  try {
+    const pubListUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=100`
+    const pubResponse = await fetch(pubListUrl)
+    if (pubResponse.ok) {
+      const pubData = await pubResponse.json() as {
+        records?: Array<{ uri: string; value: { url?: string } }>
+      }
+      if (pubData.records) {
+        for (const rec of pubData.records) {
+          const url = rec.value?.url
+          if (url) {
+            publicationUrlMap.set(rec.uri, url.replace(/\/$/, ''))
+          }
+        }
+      }
+    }
+  } catch {
+    // Continue without publication URLs - external_url will be null
   }
 
   let totalPosts = 0
@@ -2086,9 +2098,12 @@ async function indexPostsFromPds(
         // site.standard fields
         const siteUri = col.isSiteStandard ? (value.site as string) || null : null
         let externalUrl: string | null = null
-        if (col.isSiteStandard && publicationUrl && documentPath) {
-          const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
-          externalUrl = `${publicationUrl}${normalizedPath}`
+        if (col.isSiteStandard && siteUri && documentPath) {
+          const pubBaseUrl = publicationUrlMap.get(siteUri)
+          if (pubBaseUrl) {
+            const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
+            externalUrl = `${pubBaseUrl}${normalizedPath}`
+          }
         }
 
         // Theme
@@ -2412,22 +2427,9 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
       const handle = author.handle as string
       let pdsEndpoint = author.pds_endpoint as string | null
 
-      // If no PDS endpoint cached, look it up
+      // If no PDS endpoint cached, resolve it (supports did:plc and did:web)
       if (!pdsEndpoint) {
-        try {
-          const didDocResponse = await fetch(`https://plc.directory/${did}`)
-          if (didDocResponse.ok) {
-            const didDoc = await didDocResponse.json() as {
-              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-            }
-            const pdsService = didDoc.service?.find(
-              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-            )
-            pdsEndpoint = pdsService?.serviceEndpoint || null
-          }
-        } catch {
-          // Continue without PDS endpoint
-        }
+        pdsEndpoint = await fetchPdsEndpoint(did)
       }
 
       if (!pdsEndpoint) {
@@ -2589,27 +2591,12 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
       const path = post.path as string
 
       try {
-        // Resolve the PDS endpoint from DID document
-        const didDocResponse = await fetch(`https://plc.directory/${did}`)
-        if (!didDocResponse.ok) {
+        // Resolve the PDS endpoint from DID document (supports did:plc and did:web)
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
           errors.push(`${uri}: Failed to resolve DID`)
           continue
         }
-
-        const didDoc = await didDocResponse.json() as {
-          service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-        }
-
-        const pdsService = didDoc.service?.find(
-          s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-        )
-
-        if (!pdsService?.serviceEndpoint) {
-          errors.push(`${uri}: No PDS endpoint`)
-          continue
-        }
-
-        const pdsEndpoint = pdsService.serviceEndpoint
 
         // Fetch the site.standard.document record to get the site AT-URI
         const docRkey = uri.split('/').pop()
@@ -2641,20 +2628,12 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
 
         const [, pubDid, collection, pubRkey] = match
 
-        // Resolve the publication's PDS (may be different DID)
+        // Resolve the publication's PDS (may be different DID, supports did:web)
         let pubPdsEndpoint = pdsEndpoint
         if (pubDid !== did) {
-          const pubDidDocResponse = await fetch(`https://plc.directory/${pubDid}`)
-          if (pubDidDocResponse.ok) {
-            const pubDidDoc = await pubDidDocResponse.json() as {
-              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-            }
-            const pubPdsService = pubDidDoc.service?.find(
-              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-            )
-            if (pubPdsService?.serviceEndpoint) {
-              pubPdsEndpoint = pubPdsService.serviceEndpoint
-            }
+          const resolved = await fetchPdsEndpoint(pubDid)
+          if (resolved) {
+            pubPdsEndpoint = resolved
           }
         }
 
@@ -2751,22 +2730,9 @@ app.post('/xrpc/app.greengale.admin.backfillTags', async (c) => {
       const rkey = post.rkey as string
       let pdsEndpoint = post.pds_endpoint as string | null
 
-      // If no PDS endpoint cached, look it up
+      // If no PDS endpoint cached, resolve it (supports did:plc and did:web)
       if (!pdsEndpoint) {
-        try {
-          const didDocResponse = await fetch(`https://plc.directory/${did}`)
-          if (didDocResponse.ok) {
-            const didDoc = await didDocResponse.json() as {
-              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-            }
-            const pdsService = didDoc.service?.find(
-              s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-            )
-            pdsEndpoint = pdsService?.serviceEndpoint || null
-          }
-        } catch {
-          // Continue without PDS endpoint
-        }
+        pdsEndpoint = await fetchPdsEndpoint(did)
       }
 
       if (!pdsEndpoint) {

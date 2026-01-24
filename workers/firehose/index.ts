@@ -669,11 +669,18 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       const [, pubDid, collection, rkey] = match
 
-      // Always fetch the publication record from the network
-      // Don't use our cached publications table since users can have multiple publications
-      // with different rkeys (e.g., GreenGale "self" + pckt.blog with different rkey)
-      // Try to resolve the DID to find the PDS (with timeout to avoid blocking)
-      const didDocResponse = await fetchWithTimeout(`https://plc.directory/${pubDid}`)
+      // Resolve the DID to find the PDS (supports did:plc and did:web)
+      let didDocUrl: string
+      if (pubDid.startsWith('did:web:')) {
+        const parts = pubDid.slice('did:web:'.length).split(':')
+        const host = decodeURIComponent(parts[0])
+        const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
+        didDocUrl = `https://${host}${path}/did.json`
+      } else {
+        didDocUrl = `https://plc.directory/${pubDid}`
+      }
+
+      const didDocResponse = await fetchWithTimeout(didDocUrl)
       if (!didDocResponse || !didDocResponse.ok) {
         if (didDocResponse) {
           console.error(`Failed to resolve DID: ${pubDid}`)
@@ -750,7 +757,16 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Also fetch PDS endpoint from DID document (needed for OG image thumbnails)
       let pdsEndpoint: string | null = null
       try {
-        const didDocResponse = await fetch(`https://plc.directory/${did}`)
+        let didDocUrl: string
+        if (did.startsWith('did:web:')) {
+          const parts = did.slice('did:web:'.length).split(':')
+          const host = decodeURIComponent(parts[0])
+          const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
+          didDocUrl = `https://${host}${path}/did.json`
+        } else {
+          didDocUrl = `https://plc.directory/${did}`
+        }
+        const didDocResponse = await fetch(didDocUrl)
         if (didDocResponse.ok) {
           const didDoc = await didDocResponse.json() as {
             service?: Array<{ id: string; type: string; serviceEndpoint: string }>
