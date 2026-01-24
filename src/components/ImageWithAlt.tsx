@@ -84,6 +84,7 @@ export function ImageWithAlt({
         role="presentation"
         className={`cursor-zoom-in ${className}`}
         onClick={handleImageClick}
+        decoding="async"
       />
     )
   }
@@ -95,6 +96,7 @@ export function ImageWithAlt({
         alt={alt}
         className={`cursor-zoom-in ${className}`}
         onClick={handleImageClick}
+        decoding="async"
       />
 
       {/* ALT badge - visible indicator that alt text is available */}

@@ -234,7 +234,7 @@ describe('MasonryGrid', () => {
       )
 
       const wrapper = screen.getByTestId('item').parentElement
-      expect(wrapper?.classList.contains('transition-all')).toBe(true)
+      expect(wrapper?.classList.contains('transition-[left,top,width,opacity]')).toBe(true)
       expect(wrapper?.classList.contains('duration-300')).toBe(true)
       expect(wrapper?.classList.contains('ease-out')).toBe(true)
     })

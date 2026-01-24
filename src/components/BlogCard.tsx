@@ -70,6 +70,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
               alt=""
               className="w-full h-full object-cover"
               loading="lazy"
+              decoding="async"
             />
           </div>
         )}
@@ -147,6 +148,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                       alt=""
                       className="w-5 h-5 rounded-full flex-shrink-0"
                       loading="lazy"
+                      decoding="async"
                     />
                   )}
                   <span className="truncate">@{authorHandle}</span>
@@ -172,6 +174,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                     alt=""
                     className="w-5 h-5 rounded-full flex-shrink-0"
                     loading="lazy"
+                    decoding="async"
                   />
                 )}
                 <span className="truncate">@{authorHandle}</span>
@@ -208,7 +211,10 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
   )
 
   return (
-    <article className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]">
+    <article
+      className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 350px' }}
+    >
       {isNetworkPost ? (
         <a
           href={externalUrl}

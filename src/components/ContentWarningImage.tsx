@@ -85,6 +85,7 @@ export function ContentWarningImage({
           alt={alt}
           className={`cursor-zoom-in ${className}`}
           onClick={handleImageClick}
+          decoding="async"
         />
 
         {hasAlt && (
@@ -127,6 +128,7 @@ export function ContentWarningImage({
         alt=""
         aria-hidden="true"
         className="w-full blur-[20px] brightness-50 scale-110 select-none pointer-events-none"
+        decoding="async"
       />
 
       {/* Warning overlay */}

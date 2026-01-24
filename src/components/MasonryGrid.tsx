@@ -39,6 +39,8 @@ export function MasonryGrid({
   const [currentColumns, setCurrentColumns] = useState(1)
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const layoutRequestRef = useRef<number | null>(null)
+  const batchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cachedHeightsRef = useRef<number[]>([])
 
   // Parse column configuration
   const getColumnConfig = useCallback((): ResponsiveColumns => {
@@ -123,14 +125,34 @@ export function MasonryGrid({
     setPositions(newPositions)
   }, [currentColumns, gap])
 
-  // Debounced layout calculation
+  // Debounced layout calculation with batching
   const requestLayout = useCallback(() => {
+    // Clear any pending batch timeout
+    if (batchTimeoutRef.current) {
+      clearTimeout(batchTimeoutRef.current)
+      batchTimeoutRef.current = null
+    }
     if (layoutRequestRef.current) {
       cancelAnimationFrame(layoutRequestRef.current)
     }
-    layoutRequestRef.current = requestAnimationFrame(() => {
-      calculateLayout()
-    })
+    // Batch: wait 16ms after last resize event to coalesce multiple image loads
+    batchTimeoutRef.current = setTimeout(() => {
+      layoutRequestRef.current = requestAnimationFrame(() => {
+        // Check if heights actually changed before recalculating
+        const items = itemRefs.current.filter(Boolean) as HTMLDivElement[]
+        const currentHeights = items.map((item) => item.offsetHeight)
+        const cached = cachedHeightsRef.current
+
+        const heightsChanged =
+          currentHeights.length !== cached.length ||
+          currentHeights.some((h, i) => Math.abs(h - cached[i]) >= 2)
+
+        if (heightsChanged) {
+          cachedHeightsRef.current = currentHeights
+          calculateLayout()
+        }
+      })
+    }, 16)
   }, [calculateLayout])
 
   // Observe children for size changes
@@ -155,11 +177,15 @@ export function MasonryGrid({
       if (layoutRequestRef.current) {
         cancelAnimationFrame(layoutRequestRef.current)
       }
+      if (batchTimeoutRef.current) {
+        clearTimeout(batchTimeoutRef.current)
+      }
     }
   }, [requestLayout, children])
 
-  // Recalculate when children change
+  // Recalculate when children change (bypass height cache)
   useEffect(() => {
+    cachedHeightsRef.current = []
     requestLayout()
   }, [children, currentColumns, requestLayout])
 
@@ -185,7 +211,7 @@ export function MasonryGrid({
             ref={(el) => {
               itemRefs.current[index] = el
             }}
-            className="transition-all duration-300 ease-out"
+            className="transition-[left,top,width,opacity] duration-300 ease-out"
             style={
               hasPosition
                 ? {
