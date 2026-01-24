@@ -17,7 +17,17 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 // Enable CORS for frontend
 app.use('/*', cors({
-  origin: ['http://localhost:5173', 'https://greengale.app', 'https://greengale-app.pages.dev'],
+  origin: (origin) => {
+    const allowed = [
+      'http://localhost:5173',
+      'https://greengale.app',
+      'https://greengale-app.pages.dev',
+    ]
+    if (allowed.includes(origin)) return origin
+    // Allow preview branch deployments (e.g., pwa.greengale-app.pages.dev)
+    if (origin.endsWith('.greengale-app.pages.dev')) return origin
+    return null
+  },
   allowMethods: ['GET', 'POST', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }))
