@@ -43,7 +43,7 @@ function generateFaceRotations(): Rotation[] {
   })
 }
 
-type Phase = 'idle' | 'hop1' | 'pause1' | 'hop2' | 'pause2' | 'returning'
+type Phase = 'idle' | 'intro' | 'hop1' | 'pause1' | 'hop2' | 'pause2' | 'returning'
 
 export const CubeLogo = memo(function CubeLogo({ className = '' }: CubeLogoProps) {
   const [rotations, setRotations] = useState<Rotation[] | null>(null)
@@ -79,9 +79,20 @@ export const CubeLogo = memo(function CubeLogo({ className = '' }: CubeLogoProps
     }
   }, [])
 
+  // Single-hop animation on mount
+  useEffect(() => {
+    setPhase('intro')
+    setRotations(generateFaceRotations())
+  }, [])
+
   const handleTransitionEnd = useCallback((e: React.TransitionEvent) => {
     if (e.propertyName !== 'transform') return
-    if (phase === 'hop1') {
+    if (phase === 'intro') {
+      pauseTimerRef.current = setTimeout(() => {
+        setPhase('returning')
+        setRotations(null)
+      }, 150)
+    } else if (phase === 'hop1') {
       setPhase('pause1')
       pauseTimerRef.current = setTimeout(() => {
         setPhase('hop2')
@@ -109,7 +120,7 @@ export const CubeLogo = memo(function CubeLogo({ className = '' }: CubeLogoProps
   const half = cubeSize / 2
 
   const getTransitionProps = (i: number) => {
-    if (phase === 'hop1' || phase === 'hop2') {
+    if (phase === 'intro' || phase === 'hop1' || phase === 'hop2') {
       return {
         duration: 0.5,
         delay: i * 30,
