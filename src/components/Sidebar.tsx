@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
@@ -181,6 +181,13 @@ function Logo({ className = '' }: { className?: string }) {
   )
 }
 
+interface BlueskyActor {
+  did: string
+  handle: string
+  displayName?: string
+  avatar?: string
+}
+
 // Login form as a separate component to prevent re-renders from affecting input focus
 function LoginForm({
   onLogin,
@@ -194,24 +201,186 @@ function LoginForm({
   error: string | null
 }) {
   const [loginHandle, setLoginHandle] = useState('')
+  const [results, setResults] = useState<BlueskyActor[]>([])
+  const [isOpen, setIsOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+
+  const inputRef = useRef<HTMLInputElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const searchActors = useCallback(async (query: string) => {
+    const trimmed = query.replace(/^@/, '').trim()
+    if (trimmed.length < 2) {
+      setResults([])
+      setIsOpen(false)
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch(
+        `https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead?q=${encodeURIComponent(trimmed)}&limit=8`
+      )
+      if (res.ok) {
+        const data = await res.json()
+        const actors: BlueskyActor[] = data.actors || []
+        setResults(actors)
+        setIsOpen(actors.length > 0)
+        setSelectedIndex(-1)
+      }
+    } catch {
+      // silently fail — user can still type manually
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setLoginHandle(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => searchActors(value), 300)
+  }
+
+  const selectActor = (actor: BlueskyActor) => {
+    setLoginHandle(actor.handle)
+    setIsOpen(false)
+    setResults([])
+    onLogin(actor.handle)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (loginHandle.trim()) {
-      await onLogin(loginHandle.trim().replace('@', ''))
+      setIsOpen(false)
+      await onLogin(loginHandle.trim().replace(/^@/, ''))
     }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isOpen || results.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1))
+    } else if (e.key === 'Enter' && selectedIndex >= 0) {
+      e.preventDefault()
+      selectActor(results[selectedIndex])
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setIsOpen(false)
+      setSelectedIndex(-1)
+    }
+  }
+
+  // Click outside closes dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (selectedIndex >= 0 && listRef.current) {
+      const item = listRef.current.children[selectedIndex] as HTMLElement | undefined
+      item?.scrollIntoView({ block: 'nearest' })
+    }
+  }, [selectedIndex])
+
+  // Re-focus shows existing results
+  const handleFocus = () => {
+    if (results.length > 0) setIsOpen(true)
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-2">
-      <input
-        type="text"
-        value={loginHandle}
-        onChange={(e) => setLoginHandle(e.target.value)}
-        placeholder="handle.bsky.social"
-        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
-        autoFocus
-      />
+      <div ref={containerRef} className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={loginHandle}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
+          placeholder="handle.bsky.social"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)]"
+          autoFocus
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls="login-autocomplete-list"
+          aria-activedescendant={selectedIndex >= 0 ? `login-option-${selectedIndex}` : undefined}
+        />
+        {loading && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            <div className="w-4 h-4 border-2 border-[var(--site-text-secondary)] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {isOpen && results.length > 0 && (
+          <ul
+            ref={listRef}
+            id="login-autocomplete-list"
+            role="listbox"
+            className="absolute bottom-full mb-1 left-0 right-0 max-h-64 overflow-y-auto rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] shadow-lg z-50"
+          >
+            {results.map((actor, i) => (
+              <li
+                key={actor.did}
+                id={`login-option-${i}`}
+                role="option"
+                aria-selected={i === selectedIndex}
+              >
+                <button
+                  type="button"
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--site-bg-secondary)] transition-colors ${
+                    i === selectedIndex ? 'bg-[var(--site-bg-secondary)]' : ''
+                  }`}
+                  onClick={() => selectActor(actor)}
+                  tabIndex={-1}
+                >
+                  {actor.avatar ? (
+                    <img
+                      src={actor.avatar}
+                      alt=""
+                      className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-[var(--site-bg-secondary)] flex items-center justify-center flex-shrink-0">
+                      <UserIcon className="w-4 h-4 text-[var(--site-text-secondary)]" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {actor.displayName && (
+                      <div className="text-sm font-medium text-[var(--site-text)] truncate">
+                        {actor.displayName}
+                      </div>
+                    )}
+                    <div className="text-xs text-[var(--site-text-secondary)] truncate">
+                      @{actor.handle}
+                    </div>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       {error && (
         <p className="text-xs text-red-500 px-1">{error}</p>
       )}
