@@ -1124,9 +1124,15 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
       ).bind(author).first()
 
       if (!authorRow) {
-        return c.json({ posts: [], cursor: undefined })
+        // Author not in DB - try to discover and index them
+        const discovered = await discoverAndIndexAuthor(author, c.env)
+        if (!discovered) {
+          return c.json({ posts: [], cursor: undefined })
+        }
+        authorDid = discovered.did
+      } else {
+        authorDid = authorRow.did as string
       }
-      authorDid = authorRow.did as string
     }
 
     // Determine visibility filter based on whether viewer is the author
@@ -1176,8 +1182,18 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
     query += ` ORDER BY p.created_at DESC LIMIT ?`
     params.push(limit + 1)
 
-    const result = await c.env.DB.prepare(query).bind(...params).all()
-    const posts = result.results || []
+    let result = await c.env.DB.prepare(query).bind(...params).all()
+    let posts = result.results || []
+
+    // If no posts found on the first page, try indexing from PDS
+    if (posts.length === 0 && !cursor) {
+      const indexed = await indexPostsFromPds(authorDid, c.env)
+      if (indexed > 0) {
+        // Re-query now that posts are indexed
+        result = await c.env.DB.prepare(query).bind(...params).all()
+        posts = result.results || []
+      }
+    }
 
     const hasMore = posts.length > limit
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
@@ -1289,7 +1305,21 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
     const authorRow = await c.env.DB.prepare(query).bind(author).first()
 
     if (!authorRow) {
-      return c.json({ error: 'Author not found' }, 404)
+      // Author not in DB - try to discover and index them
+      const discovered = await discoverAndIndexAuthor(author, c.env)
+      if (!discovered) {
+        return c.json({ error: 'Author not found' }, 404)
+      }
+      const response = {
+        did: discovered.did,
+        handle: discovered.handle,
+        displayName: discovered.displayName,
+        avatar: discovered.avatar,
+        description: discovered.description,
+        postsCount: discovered.postsCount,
+        publication: undefined,
+      }
+      return jsonWithCache(c, response, PROFILE_CACHE_MAX_AGE, PROFILE_CACHE_SWR)
     }
 
     // Build publication object if it exists
@@ -1974,6 +2004,208 @@ async function fetchPdsEndpoint(did: string): Promise<string | null> {
     // PDS lookup failed
   }
   return null
+}
+
+// Fetch blog posts from an author's PDS and index them in D1.
+// Returns the number of posts indexed. Uses KV cache to avoid repeated PDS calls.
+async function indexPostsFromPds(
+  did: string,
+  env: { DB: D1Database; CACHE: KVNamespace }
+): Promise<number> {
+  // Check if we've already indexed this author's posts recently
+  const cacheKey = `posts-indexed:${did}`
+  const cached = await env.CACHE.get(cacheKey)
+  if (cached) return 0
+
+  // Get PDS endpoint - check DB first, then resolve from DID document
+  let pdsEndpoint: string | null = null
+  const authorRow = await env.DB.prepare('SELECT pds_endpoint FROM authors WHERE did = ?').bind(did).first()
+  if (authorRow?.pds_endpoint) {
+    pdsEndpoint = authorRow.pds_endpoint as string
+  } else {
+    pdsEndpoint = await fetchPdsEndpoint(did)
+    if (pdsEndpoint) {
+      // Cache the PDS endpoint in the authors table
+      await env.DB.prepare('UPDATE authors SET pds_endpoint = ? WHERE did = ?').bind(pdsEndpoint, did).run()
+    }
+  }
+
+  if (!pdsEndpoint) return 0
+
+  const collections = [
+    { name: 'app.greengale.document', source: 'greengale', isV2: true },
+    { name: 'app.greengale.blog.entry', source: 'greengale', isV2: false },
+    { name: 'com.whtwnd.blog.entry', source: 'whitewind', isV2: false },
+  ]
+
+  let totalPosts = 0
+
+  for (const col of collections) {
+    try {
+      const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(col.name)}&limit=100`
+      const response = await fetch(listUrl)
+      if (!response.ok) continue
+
+      const data = await response.json() as {
+        records?: Array<{ uri: string; value: Record<string, unknown> }>
+      }
+      if (!data.records?.length) continue
+
+      for (const record of data.records) {
+        const uri = record.uri
+        const rkey = uri.split('/').pop()!
+        const value = record.value
+
+        const title = (value.title as string) || null
+        const subtitle = (value.subtitle as string) || null
+        const content = (value.content as string) || ''
+        const visibility = (value.visibility as string) || 'public'
+        const createdAt = col.isV2
+          ? (value.publishedAt as string) || null
+          : (value.createdAt as string) || null
+        const hasLatex = col.source === 'greengale' && value.latex === true
+        const documentPath = col.isV2 ? (value.path as string) || null : null
+
+        // Theme
+        let themePreset: string | null = null
+        if (value.theme) {
+          const themeData = value.theme as Record<string, unknown>
+          if (themeData.custom) {
+            themePreset = JSON.stringify(themeData.custom)
+          } else if (themeData.preset) {
+            themePreset = themeData.preset as string
+          }
+        }
+
+        // First image CID
+        let firstImageCid: string | null = null
+        const blobs = value.blobs as Array<Record<string, unknown>> | undefined
+        if (blobs?.length) {
+          for (const blob of blobs) {
+            // Skip blobs with sensitive labels
+            const labels = blob.labels as { values?: Array<{ val: string }> } | undefined
+            if (labels?.values?.some(l =>
+              ['nudity', 'sexual', 'porn', 'graphic-media'].includes(l.val)
+            )) continue
+
+            const blobref = blob.blobref as Record<string, unknown> | undefined
+            if (blobref?.ref) {
+              const ref = blobref.ref as Record<string, unknown>
+              if (typeof ref.$link === 'string') {
+                firstImageCid = ref.$link
+                break
+              }
+            }
+          }
+        }
+
+        // Content preview
+        const contentPreview = content
+          .replace(/[#*`\[\]()!]/g, '')
+          .replace(/\n+/g, ' ')
+          .slice(0, 300)
+
+        // Slug
+        const slug = title
+          ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+          : null
+
+        await env.DB.prepare(`
+          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(uri) DO NOTHING
+        `).bind(
+          uri, did, rkey, title, subtitle, slug, col.source, visibility,
+          createdAt, createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid, documentPath
+        ).run()
+
+        totalPosts++
+      }
+    } catch {
+      // Skip failed collections
+    }
+  }
+
+  // Mark as indexed (24-hour TTL) to avoid repeated PDS calls
+  await env.CACHE.put(cacheKey, '1', { expirationTtl: 86400 })
+
+  return totalPosts
+}
+
+// Discover and index an author who isn't in the DB yet.
+// Resolves their identity via Bluesky public API, fetches blog posts from their PDS, and indexes them.
+async function discoverAndIndexAuthor(
+  handle: string,
+  env: { DB: D1Database; CACHE: KVNamespace }
+): Promise<{ did: string; handle: string; displayName: string | null; avatar: string | null; description: string | null; postsCount: number } | null> {
+  // Check negative cache to avoid repeated lookups for non-existent handles
+  const negCacheKey = `discover-fail:${handle}`
+  const cached = await env.CACHE.get(negCacheKey)
+  if (cached) return null
+
+  try {
+    // Resolve handle via Bluesky public API
+    const profileResponse = await fetch(
+      `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(handle)}`
+    )
+    if (!profileResponse.ok) {
+      await env.CACHE.put(negCacheKey, '1', { expirationTtl: 3600 })
+      return null
+    }
+
+    const profile = await profileResponse.json() as {
+      did: string
+      handle: string
+      displayName?: string
+      avatar?: string
+      description?: string
+    }
+
+    const did = profile.did
+
+    // Fetch PDS endpoint
+    const pdsEndpoint = await fetchPdsEndpoint(did)
+    if (!pdsEndpoint) {
+      await env.CACHE.put(negCacheKey, '1', { expirationTtl: 3600 })
+      return null
+    }
+
+    // Index posts from PDS
+    const totalPosts = await indexPostsFromPds(did, env)
+
+    if (totalPosts === 0) {
+      await env.CACHE.put(negCacheKey, '1', { expirationTtl: 3600 })
+      return null
+    }
+
+    // Upsert author record
+    await env.DB.prepare(`
+      INSERT INTO authors (did, handle, display_name, description, avatar_url, pds_endpoint, posts_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(did) DO UPDATE SET
+        handle = excluded.handle,
+        display_name = excluded.display_name,
+        description = excluded.description,
+        avatar_url = excluded.avatar_url,
+        pds_endpoint = excluded.pds_endpoint,
+        posts_count = excluded.posts_count
+    `).bind(
+      did, profile.handle, profile.displayName || null, profile.description || null,
+      profile.avatar || null, pdsEndpoint, totalPosts
+    ).run()
+
+    return {
+      did,
+      handle: profile.handle,
+      displayName: profile.displayName || null,
+      avatar: profile.avatar || null,
+      description: profile.description || null,
+      postsCount: totalPosts,
+    }
+  } catch {
+    // Don't cache on network errors - they may be transient
+    return null
+  }
 }
 
 // Backfill first_image_cid for existing posts (admin only)
