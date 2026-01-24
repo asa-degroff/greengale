@@ -28,53 +28,13 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
 import { useDraftAutoSave, type DraftBlobMetadata } from '@/lib/useDraftAutoSave'
 import { DraftRestorationBanner } from '@/components/DraftRestorationBanner'
+import { getRecentPalettes, saveRecentPalette, type SavedPalette } from '@/lib/palettes'
 
 const VISIBILITY_OPTIONS = [
   { value: 'public', label: 'Public', description: 'Anyone can see this post' },
   { value: 'url', label: 'Unlisted', description: 'Only people with the link can see' },
   { value: 'author', label: 'Private', description: 'Only you can see this post' },
 ] as const
-
-const RECENT_PALETTES_KEY = 'recent-custom-palettes'
-const MAX_RECENT_PALETTES = 10
-
-interface SavedPalette {
-  background: string
-  text: string
-  accent: string
-  codeBackground?: string
-}
-
-function getRecentPalettes(): SavedPalette[] {
-  try {
-    const stored = localStorage.getItem(RECENT_PALETTES_KEY)
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
-}
-
-function saveRecentPalette(palette: SavedPalette): void {
-  try {
-    const existing = getRecentPalettes()
-
-    // Check if this palette already exists (same colors)
-    const isDuplicate = existing.some(
-      (p) =>
-        p.background.toLowerCase() === palette.background.toLowerCase() &&
-        p.text.toLowerCase() === palette.text.toLowerCase() &&
-        p.accent.toLowerCase() === palette.accent.toLowerCase()
-    )
-
-    if (isDuplicate) return
-
-    // Add to front and limit to max
-    const updated = [palette, ...existing].slice(0, MAX_RECENT_PALETTES)
-    localStorage.setItem(RECENT_PALETTES_KEY, JSON.stringify(updated))
-  } catch {
-    // localStorage not available
-  }
-}
 
 type LexiconType = 'greengale' | 'whitewind'
 

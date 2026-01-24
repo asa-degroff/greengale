@@ -4,6 +4,7 @@ import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
+import { getRecentPalettes, type SavedPalette } from '@/lib/palettes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
 import { LoadingCubeInline } from '@/components/LoadingCube'
@@ -358,6 +359,16 @@ export function Sidebar({ children }: SidebarProps) {
     }
   })
 
+  // Recent palettes for quick custom theme selection
+  const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
+
+  // Load recent palettes when theme section opens with custom selected
+  useEffect(() => {
+    if (showTheme && preferredTheme === 'custom') {
+      setRecentPalettes(getRecentPalettes())
+    }
+  }, [showTheme, preferredTheme])
+
   const navLinks = [
     { to: '/', label: 'Home', icon: HomeIcon },
   ]
@@ -599,6 +610,34 @@ export function Sidebar({ children }: SidebarProps) {
                 <p className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
                   Custom Colors
                 </p>
+                {recentPalettes.length > 0 && (
+                  <div className="mt-1.5 px-2">
+                    <p className="text-xs text-[var(--site-text-secondary)] mb-1">Recent:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {recentPalettes.map((palette, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => {
+                            const updated = {
+                              background: palette.background,
+                              text: palette.text,
+                              accent: palette.accent,
+                            }
+                            setCustomColors(updated)
+                            setPreferredCustomColors(updated)
+                          }}
+                          className="flex rounded overflow-hidden border border-[var(--site-border)] hover:border-[var(--site-accent)] transition-colors"
+                          title={`${palette.background} / ${palette.text} / ${palette.accent}`}
+                        >
+                          <div className="w-5 h-5" style={{ backgroundColor: palette.background }} />
+                          <div className="w-5 h-5" style={{ backgroundColor: palette.text }} />
+                          <div className="w-5 h-5" style={{ backgroundColor: palette.accent }} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="mt-2 space-y-2">
                   <div className="flex items-center gap-2 px-2">
                     <input

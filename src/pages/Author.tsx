@@ -35,43 +35,7 @@ import {
   buildAuthorCanonical,
   buildAuthorOgImage,
 } from '@/lib/useDocumentMeta'
-
-// Recent palettes storage (shared with Editor)
-const RECENT_PALETTES_KEY = 'recent-custom-palettes'
-const MAX_RECENT_PALETTES = 10
-
-interface SavedPalette {
-  background: string
-  text: string
-  accent: string
-  codeBackground?: string
-}
-
-function getRecentPalettes(): SavedPalette[] {
-  try {
-    const stored = localStorage.getItem(RECENT_PALETTES_KEY)
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
-}
-
-function saveRecentPalette(palette: SavedPalette): void {
-  try {
-    const existing = getRecentPalettes()
-    const isDuplicate = existing.some(
-      (p) =>
-        p.background.toLowerCase() === palette.background.toLowerCase() &&
-        p.text.toLowerCase() === palette.text.toLowerCase() &&
-        p.accent.toLowerCase() === palette.accent.toLowerCase()
-    )
-    if (isDuplicate) return
-    const updated = [palette, ...existing].slice(0, MAX_RECENT_PALETTES)
-    localStorage.setItem(RECENT_PALETTES_KEY, JSON.stringify(updated))
-  } catch {
-    // Ignore storage errors
-  }
-}
+import { getRecentPalettes, saveRecentPalette, type SavedPalette } from '@/lib/palettes'
 
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
