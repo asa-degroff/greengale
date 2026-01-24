@@ -10,6 +10,7 @@ import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
 import { LoadingCubeInline } from '@/components/LoadingCube'
 import { TextLogo } from '@/components/TextLogo'
 import { checkWebGPUSupport, type RGB } from '@/lib/webgpu-grid'
+import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import logoImage from '/grey-logo.avif?url'
 
 // Icons as inline SVGs
@@ -251,6 +252,7 @@ export function Sidebar({ children }: SidebarProps) {
   const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
   const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, activeCustomColors, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
+  const { isOnline } = useNetworkStatus()
 
   // Easter egg: animated grid background
   const [animatedGridEnabled, setAnimatedGridEnabled] = useState(false)
@@ -393,6 +395,12 @@ export function Sidebar({ children }: SidebarProps) {
         <Link to="/" className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
           <Logo className="w-8 h-8" />
           <TextLogo className="h-5 text-[var(--site-text)]" />
+          {!isOnline && (
+            <svg className="w-4 h-4 text-amber-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Offline">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636a9 9 0 010 12.728M5.636 5.636a9 9 0 000 12.728" />
+              <line x1="2" y1="2" x2="22" y2="22" strokeLinecap="round" />
+            </svg>
+          )}
         </Link>
       </div>
 
