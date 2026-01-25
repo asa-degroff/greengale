@@ -7,7 +7,8 @@
   "policy_uri": "https://greengale.app/privacy",
   "redirect_uris": [
     "https://greengale.app/auth/callback",
-    "https://greengale-app.pages.dev/auth/callback"
+    "https://greengale-app.pages.dev/auth/callback",
+    "https://pwa.greengale-app.pages.dev/auth/callback"
   ],
   "scope": "atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/*",
   "grant_types": ["authorization_code", "refresh_token"],

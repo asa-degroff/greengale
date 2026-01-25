@@ -11,6 +11,7 @@ import {
   type AuthorProfile,
   type Publication,
 } from '@/lib/atproto'
+import { cachePost, getCachedPost } from '@/lib/offline-store'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast, type Theme } from '@/lib/themes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
@@ -49,6 +50,7 @@ export function PostPage() {
   const [publication, setPublication] = useState<Publication | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [fromCache, setFromCache] = useState(false)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
   const { addRecentAuthor } = useRecentAuthors()
 
@@ -72,6 +74,7 @@ export function PostPage() {
     async function load() {
       setLoading(true)
       setError(null)
+      setFromCache(false)
 
       try {
         const [entryResult, authorResult, publicationResult] = await Promise.all([
@@ -97,6 +100,16 @@ export function PostPage() {
         setAuthor(authorResult)
         setPublication(publicationResult)
 
+        // Cache for offline reading
+        cachePost(
+          handle!,
+          rkey!,
+          entryResult,
+          authorResult,
+          publicationResult,
+          !!(session?.did && entryResult.authorDid === session.did)
+        )
+
         // Track this author as recently viewed
         addRecentAuthor({
           handle: authorResult.handle,
@@ -121,6 +134,32 @@ export function PostPage() {
         }
       } catch (err) {
         if (cancelled) return
+
+        // Try loading from offline cache
+        if (!navigator.onLine) {
+          const cached = await getCachedPost(handle!, rkey!)
+          if (cached && !cancelled) {
+            setEntry(cached.entry)
+            setAuthor(cached.author)
+            setPublication(cached.publication)
+            setFromCache(true)
+
+            const effectiveTheme = getThemeWithInheritance(
+              cached.entry.theme,
+              cached.publication?.theme
+            )
+            if (effectiveTheme?.custom) {
+              setActivePostTheme('custom')
+              setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
+            } else {
+              const themePreset = getEffectiveTheme(effectiveTheme)
+              setActivePostTheme(themePreset)
+              setActiveCustomColors(null)
+            }
+            return
+          }
+        }
+
         setError(err instanceof Error ? err.message : 'Failed to load post')
       } finally {
         if (!cancelled) {
@@ -270,6 +309,13 @@ export function PostPage() {
 
   return (
     <div className="min-h-screen">
+      {fromCache && (
+        <div className="max-w-3xl mx-auto px-4 pt-4">
+          <div className="text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
+            Offline — viewing cached copy
+          </div>
+        </div>
+      )}
       <nav className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
         <Link
           to={`/${handle}`}

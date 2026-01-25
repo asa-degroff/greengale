@@ -5,6 +5,8 @@ import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { LoadingCube } from '@/components/LoadingCube'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
+import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
+import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import {
   useDocumentMeta,
@@ -59,6 +61,9 @@ export function HomePage() {
   const [networkLoadCount, setNetworkLoadCount] = useState(1)
   const [networkLoadingMore, setNetworkLoadingMore] = useState(false)
 
+  const [feedFromCache, setFeedFromCache] = useState(false)
+  const { isOnline } = useNetworkStatus()
+
   // Set document metadata (title, canonical URL, OG tags)
   useDocumentMeta({
     title: 'GreenGale',
@@ -74,8 +79,21 @@ export function HomePage() {
         setRecentPosts(posts)
         setCursor(nextCursor)
         setAppViewAvailable(true)
+        setFeedFromCache(false)
+        // Cache for offline access
+        cacheFeed('recent', posts, nextCursor)
       } catch {
-        // AppView not available, that's fine
+        // Try offline cache if network fails
+        if (!navigator.onLine) {
+          const cached = await getCachedFeed('recent')
+          if (cached) {
+            setRecentPosts(cached.posts)
+            setCursor(cached.cursor)
+            setAppViewAvailable(true)
+            setFeedFromCache(true)
+            return
+          }
+        }
         setAppViewAvailable(false)
       } finally {
         setLoading(false)
@@ -189,6 +207,11 @@ export function HomePage() {
             {/* GreenGale feed */}
             {activeTab === 'greengale' && (
               <>
+                {feedFromCache && (
+                  <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
+                    Offline — showing cached feed
+                  </div>
+                )}
                 {recentPosts.length > 0 ? (
                   <>
                     <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
@@ -201,7 +224,7 @@ export function HomePage() {
                         />
                       ))}
                     </MasonryGrid>
-                    {cursor && loadCount < 12 && (
+                    {cursor && loadCount < 12 && isOnline && (
                       <div className="mt-8 text-center">
                         <button
                           onClick={handleLoadMore}

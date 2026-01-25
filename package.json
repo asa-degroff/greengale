@@ -34,6 +34,7 @@
     "cbor-x": "^1.6.0",
     "culori": "^4.0.2",
     "highlight.js": "^11.11.1",
+    "idb": "^8.0.3",
     "katex": "^0.16.25",
     "kokoro-js": "^1.2.1",
     "react": "^19.2.0",
@@ -71,6 +72,7 @@
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^16.5.0",
     "hono": "^4.10.7",
     "jsdom": "^27.4.0",
@@ -81,7 +83,13 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
+    "vite-plugin-pwa": "^1.2.0",
     "vitest": "^4.0.16",
+    "workbox-cacheable-response": "^7.4.0",
+    "workbox-expiration": "^7.4.0",
+    "workbox-precaching": "^7.4.0",
+    "workbox-routing": "^7.4.0",
+    "workbox-strategies": "^7.4.0",
     "wrangler": "^4.53.0"
   }
 }

@@ -26,6 +26,8 @@ import {
 } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
+import { getCachedPost, deleteCachedPost } from '@/lib/offline-store'
+import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import { useDraftAutoSave, type DraftBlobMetadata } from '@/lib/useDraftAutoSave'
 import { DraftRestorationBanner } from '@/components/DraftRestorationBanner'
 import { getRecentPalettes, saveRecentPalette, type SavedPalette } from '@/lib/palettes'
@@ -86,6 +88,7 @@ export function EditorPage() {
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
   const { isCollapsed: isToolbarCollapsed, toggleCollapsed: toggleToolbar } = useToolbarCollapsed()
+  const { isOnline } = useNetworkStatus()
 
   // Draft auto-save
   const {
@@ -773,6 +776,37 @@ export function EditorPage() {
       }
     } catch (err) {
       console.error('Failed to load post:', err)
+
+      // Try loading from offline cache
+      if (!navigator.onLine && handle && rkey) {
+        const cached = await getCachedPost(handle, rkey)
+        if (cached && cached.isOwnPost) {
+          const entry = cached.entry
+
+          setTitle(entry.title || '')
+          setSubtitle(entry.subtitle || '')
+          setContent(entry.content)
+          setLexicon(entry.source === 'whitewind' ? 'whitewind' : 'greengale')
+          setVisibility(entry.visibility || 'public')
+          setTags(entry.tags || [])
+
+          if (entry.source === 'greengale' && entry.theme?.custom) {
+            setTheme('custom')
+            setCustomColors({
+              background: entry.theme.custom.background || '#ffffff',
+              text: entry.theme.custom.text || '#24292f',
+              accent: entry.theme.custom.accent || '#0969da',
+              codeBackground: entry.theme.custom.codeBackground || '',
+            })
+          } else if (entry.source === 'greengale') {
+            setTheme(entry.theme?.preset || 'default')
+          }
+
+          setLoadingPost(false)
+          return
+        }
+      }
+
       setError(err instanceof Error ? err.message : 'Failed to load post')
     } finally {
       setLoadingPost(false)
@@ -1071,6 +1105,8 @@ export function EditorPage() {
     if (resultRkey) {
       // Clear the draft since we successfully published
       clearDraft()
+      // Invalidate offline cache for this post
+      if (handle) deleteCachedPost(handle, resultRkey)
       // Save custom palette to recent palettes if using custom theme
       if (theme === 'custom' && customColors.background && customColors.text && customColors.accent) {
         saveRecentPalette({
@@ -1221,6 +1257,11 @@ export function EditorPage() {
         return
       }
 
+      if (!navigator.onLine) {
+        setUploadError('Image uploads require an internet connection')
+        return
+      }
+
       if (!session || !pdsEndpoint) {
         setUploadError('Not authenticated or PDS endpoint not available')
         return
@@ -1317,6 +1358,11 @@ export function EditorPage() {
         return
       }
 
+      if (!navigator.onLine) {
+        setUploadError('Image uploads require an internet connection')
+        return
+      }
+
       if (!session || !pdsEndpoint) {
         setUploadError('Not authenticated or PDS endpoint not available')
         return
@@ -1391,6 +1437,11 @@ export function EditorPage() {
 
       // Reset the input so the same file can be selected again
       e.target.value = ''
+
+      if (!navigator.onLine) {
+        setUploadError('Image uploads require an internet connection')
+        return
+      }
 
       if (!session || !pdsEndpoint) {
         setUploadError('Not authenticated or PDS endpoint not available')
@@ -1604,9 +1655,9 @@ export function EditorPage() {
             </button>
             <button
               onClick={handlePublish}
-              disabled={publishing || !content.trim() || hasContrastError || (!isWhiteWind && !title.trim())}
+              disabled={publishing || !isOnline || !content.trim() || hasContrastError || (!isWhiteWind && !title.trim())}
               className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={hasContrastError ? 'Fix contrast issues before publishing' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
+              title={!isOnline ? 'Publishing requires an internet connection' : hasContrastError ? 'Fix contrast issues before publishing' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
             >
               {publishing ? 'Saving...' : isEditing ? 'Update' : 'Publish'}
             </button>
@@ -1616,6 +1667,12 @@ export function EditorPage() {
         {error && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600">
             {error}
+          </div>
+        )}
+
+        {!isOnline && (
+          <div className="mb-6 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-700 dark:text-amber-400 text-sm">
+            Offline mode — editing is available, but publishing and image uploads require an internet connection.
           </div>
         )}
 

@@ -1,0 +1,40 @@
+{
+  "name": "GreenGale",
+  "short_name": "GreenGale",
+  "description": "Markdown blog platform powered by your internet handle",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0fff4",
+  "theme_color": "#f0fff4",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-maskable-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Post",
+      "url": "/new",
+      "description": "Create a new blog post"
+    }
+  ]
+}

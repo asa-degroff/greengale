@@ -120,9 +120,42 @@ function parsePostRoute(
 // GreenGale platform account DID for site.standard verification
 const GREENGALE_PLATFORM_DID = 'did:plc:purpkfw7haimc4zu5a57slza'
 
+// OAuth scope (must match src/lib/auth.tsx OAUTH_SCOPE)
+const OAUTH_SCOPE =
+  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/*'
+
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, next } = context
   const url = new URL(request.url)
+
+  // Serve dynamic client-metadata.json so each deployment (greengale.app,
+  // pwa.greengale-app.pages.dev, etc.) has a client_id matching its own origin.
+  // AT Protocol OAuth requires redirect_uri origin to match client_id origin.
+  if (url.pathname === '/client-metadata.json') {
+    const origin = url.origin
+    const metadata = {
+      client_id: `${origin}/client-metadata.json`,
+      client_name: 'GreenGale',
+      client_uri: origin,
+      logo_uri: `${origin}/logo.png`,
+      tos_uri: `${origin}/terms`,
+      policy_uri: `${origin}/privacy`,
+      redirect_uris: [`${origin}/auth/callback`],
+      scope: OAUTH_SCOPE,
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+      application_type: 'web',
+      dpop_bound_access_tokens: true,
+    }
+    return new Response(JSON.stringify(metadata, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600',
+        'Access-Control-Allow-Origin': '*',
+      },
+    })
+  }
 
   // Handle .well-known/site.standard.publication endpoint
   // This returns the AT-URI of a publication record

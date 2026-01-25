@@ -12,6 +12,8 @@ import { TagPage } from '@/pages/Tag'
 import { SearchPage } from '@/pages/Search'
 import { TermsPage } from '@/pages/Terms'
 import { PrivacyPage } from '@/pages/Privacy'
+import { PWAUpdatePrompt } from '@/components/PWAUpdatePrompt'
+import { OfflineIndicator } from '@/components/OfflineIndicator'
 
 /**
  * ScrollToTop - Scrolls to top on route changes
@@ -64,7 +66,13 @@ const router = createBrowserRouter([
 ])
 
 function App() {
-  return <RouterProvider router={router} />
+  return (
+    <>
+      <RouterProvider router={router} />
+      <PWAUpdatePrompt />
+      <OfflineIndicator />
+    </>
+  )
 }
 
 export default App
