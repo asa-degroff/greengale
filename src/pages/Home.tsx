@@ -6,6 +6,12 @@ import { PublicationSearch } from '@/components/PublicationSearch'
 import { LoadingCube } from '@/components/LoadingCube'
 import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
+import {
+  getCachedGreengaleFeed,
+  setCachedGreengaleFeed,
+  getCachedNetworkFeed,
+  setCachedNetworkFeed,
+} from '@/lib/feedCache'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import {
@@ -45,20 +51,24 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
 export function HomePage() {
   const [activeTab, setActiveTab] = useState<FeedTab>('greengale')
 
-  // GreenGale feed state
-  const [recentPosts, setRecentPosts] = useState<AppViewPost[]>([])
-  const [loading, setLoading] = useState(true)
-  const [appViewAvailable, setAppViewAvailable] = useState(false)
-  const [cursor, setCursor] = useState<string | undefined>()
-  const [loadCount, setLoadCount] = useState(1)
+  // Check for cached feed data on initial render
+  const cachedGreengale = getCachedGreengaleFeed()
+  const cachedNetwork = getCachedNetworkFeed()
+
+  // GreenGale feed state - initialize from cache if available
+  const [recentPosts, setRecentPosts] = useState<AppViewPost[]>(cachedGreengale?.posts ?? [])
+  const [loading, setLoading] = useState(!cachedGreengale)
+  const [appViewAvailable, setAppViewAvailable] = useState(!!cachedGreengale)
+  const [cursor, setCursor] = useState<string | undefined>(cachedGreengale?.cursor)
+  const [loadCount, setLoadCount] = useState(cachedGreengale?.loadCount ?? 1)
   const [loadingMore, setLoadingMore] = useState(false)
 
-  // Network feed state
-  const [networkPosts, setNetworkPosts] = useState<AppViewPost[]>([])
+  // Network feed state - initialize from cache if available
+  const [networkPosts, setNetworkPosts] = useState<AppViewPost[]>(cachedNetwork?.posts ?? [])
   const [networkLoading, setNetworkLoading] = useState(false)
-  const [networkLoaded, setNetworkLoaded] = useState(false)
-  const [networkCursor, setNetworkCursor] = useState<string | undefined>()
-  const [networkLoadCount, setNetworkLoadCount] = useState(1)
+  const [networkLoaded, setNetworkLoaded] = useState(!!cachedNetwork)
+  const [networkCursor, setNetworkCursor] = useState<string | undefined>(cachedNetwork?.cursor)
+  const [networkLoadCount, setNetworkLoadCount] = useState(cachedNetwork?.loadCount ?? 1)
   const [networkLoadingMore, setNetworkLoadingMore] = useState(false)
 
   const [feedFromCache, setFeedFromCache] = useState(false)
@@ -74,6 +84,12 @@ export function HomePage() {
 
   useEffect(() => {
     async function loadRecentPosts() {
+      // If we have in-memory cached data, skip the fetch
+      // (cache is already loaded into state on mount)
+      if (cachedGreengale) {
+        return
+      }
+
       try {
         const { posts, cursor: nextCursor } = await getRecentPosts(24)
         setRecentPosts(posts)
@@ -82,6 +98,8 @@ export function HomePage() {
         setFeedFromCache(false)
         // Cache for offline access
         cacheFeed('recent', posts, nextCursor)
+        // Also cache in memory for navigation
+        setCachedGreengaleFeed(posts, nextCursor, 1)
       } catch {
         // Try offline cache if network fails
         if (!navigator.onLine) {
@@ -101,6 +119,7 @@ export function HomePage() {
     }
 
     loadRecentPosts()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function handleLoadMore() {
@@ -108,9 +127,13 @@ export function HomePage() {
     setLoadingMore(true)
     try {
       const { posts, cursor: nextCursor } = await getRecentPosts(24, cursor)
-      setRecentPosts(prev => [...prev, ...posts])
+      const newPosts = [...recentPosts, ...posts]
+      const newLoadCount = loadCount + 1
+      setRecentPosts(newPosts)
       setCursor(nextCursor)
-      setLoadCount(prev => prev + 1)
+      setLoadCount(newLoadCount)
+      // Update in-memory cache
+      setCachedGreengaleFeed(newPosts, nextCursor, newLoadCount)
     } finally {
       setLoadingMore(false)
     }
@@ -124,12 +147,19 @@ export function HomePage() {
   }, [activeTab, networkLoaded, networkLoading])
 
   async function loadNetworkPosts() {
+    // If we have in-memory cached data, skip the fetch
+    if (cachedNetwork) {
+      return
+    }
+
     setNetworkLoading(true)
     try {
       const { posts, cursor: nextCursor } = await getNetworkPosts(24)
       setNetworkPosts(posts)
       setNetworkCursor(nextCursor)
       setNetworkLoaded(true)
+      // Cache in memory for navigation
+      setCachedNetworkFeed(posts, nextCursor, 1)
     } catch {
       // Network feed not available
     } finally {
@@ -142,9 +172,13 @@ export function HomePage() {
     setNetworkLoadingMore(true)
     try {
       const { posts, cursor: nextCursor } = await getNetworkPosts(24, networkCursor)
-      setNetworkPosts(prev => [...prev, ...posts])
+      const newPosts = [...networkPosts, ...posts]
+      const newLoadCount = networkLoadCount + 1
+      setNetworkPosts(newPosts)
       setNetworkCursor(nextCursor)
-      setNetworkLoadCount(prev => prev + 1)
+      setNetworkLoadCount(newLoadCount)
+      // Update in-memory cache
+      setCachedNetworkFeed(newPosts, nextCursor, newLoadCount)
     } finally {
       setNetworkLoadingMore(false)
     }

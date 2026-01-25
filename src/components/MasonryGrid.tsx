@@ -7,6 +7,7 @@ import {
   isValidElement,
   cloneElement,
   useCallback,
+  useMemo,
 } from 'react'
 
 interface ResponsiveColumns {
@@ -27,6 +28,17 @@ interface ItemPosition {
   width: number
 }
 
+// Get initial column count based on window width (avoids flash on iPad)
+function getInitialColumns(columns: number | ResponsiveColumns): number {
+  if (typeof columns === 'number') return columns
+  if (typeof window === 'undefined') return columns.default
+  const mdBreakpoint = 768
+  if (columns.md && window.innerWidth >= mdBreakpoint) {
+    return columns.md
+  }
+  return columns.default
+}
+
 export function MasonryGrid({
   children,
   columns = { default: 1, md: 2 },
@@ -36,14 +48,17 @@ export function MasonryGrid({
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerHeight, setContainerHeight] = useState(0)
   const [positions, setPositions] = useState<ItemPosition[]>([])
-  const [currentColumns, setCurrentColumns] = useState(1)
+  // Initialize with correct column count to avoid flash on iPad/tablet
+  const [currentColumns, setCurrentColumns] = useState(() => getInitialColumns(columns))
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
   const layoutRequestRef = useRef<number | null>(null)
   const batchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cachedHeightsRef = useRef<number[]>([])
+  const isScrollingRef = useRef(false)
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Parse column configuration
-  const getColumnConfig = useCallback((): ResponsiveColumns => {
+  const columnConfig = useMemo((): ResponsiveColumns => {
     if (typeof columns === 'number') {
       return { default: columns }
     }
@@ -52,7 +67,6 @@ export function MasonryGrid({
 
   // Update column count based on viewport
   useEffect(() => {
-    const columnConfig = getColumnConfig()
     const mdBreakpoint = 768
 
     const updateColumns = () => {
@@ -63,8 +77,6 @@ export function MasonryGrid({
       }
     }
 
-    updateColumns()
-
     // Use matchMedia for efficient breakpoint listening
     const mediaQuery = window.matchMedia(`(min-width: ${mdBreakpoint}px)`)
     const handleChange = () => updateColumns()
@@ -73,7 +85,34 @@ export function MasonryGrid({
     return () => {
       mediaQuery.removeEventListener('change', handleChange)
     }
-  }, [getColumnConfig])
+  }, [columnConfig])
+
+  // Track scrolling state to avoid layout recalc during scroll (iOS address bar issue)
+  useEffect(() => {
+    const handleScroll = () => {
+      isScrollingRef.current = true
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      scrollTimeoutRef.current = setTimeout(() => {
+        isScrollingRef.current = false
+      }, 150)
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Convert children to array
+  const childArray = useMemo(
+    () => Children.toArray(children).filter(isValidElement),
+    [children]
+  )
 
   // Calculate layout
   const calculateLayout = useCallback(() => {
@@ -88,6 +127,8 @@ export function MasonryGrid({
     }
 
     const containerWidth = container.offsetWidth
+    if (containerWidth === 0) return
+
     const columnWidth = (containerWidth - gap * (currentColumns - 1)) / currentColumns
 
     // Track height of each column
@@ -127,6 +168,9 @@ export function MasonryGrid({
 
   // Debounced layout calculation with batching
   const requestLayout = useCallback(() => {
+    // Skip layout during scroll to avoid iOS address bar jank
+    if (isScrollingRef.current) return
+
     // Clear any pending batch timeout
     if (batchTimeoutRef.current) {
       clearTimeout(batchTimeoutRef.current)
@@ -181,16 +225,13 @@ export function MasonryGrid({
         clearTimeout(batchTimeoutRef.current)
       }
     }
-  }, [requestLayout, children])
+  }, [requestLayout, childArray])
 
-  // Recalculate when children change (bypass height cache)
+  // Recalculate when children or columns change
   useEffect(() => {
     cachedHeightsRef.current = []
     requestLayout()
-  }, [children, currentColumns, requestLayout])
-
-  // Convert children to array and wrap each with positioned div
-  const childArray = Children.toArray(children).filter(isValidElement)
+  }, [childArray, currentColumns, requestLayout])
 
   // Reset refs array length
   itemRefs.current = itemRefs.current.slice(0, childArray.length)
@@ -211,7 +252,6 @@ export function MasonryGrid({
             ref={(el) => {
               itemRefs.current[index] = el
             }}
-            className="transition-[left,top,width,opacity] duration-300 ease-out"
             style={
               hasPosition
                 ? {
@@ -221,9 +261,12 @@ export function MasonryGrid({
                     width: position.width,
                   }
                 : {
-                    // Initial render: use relative positioning until layout is calculated
-                    position: 'relative',
-                    opacity: 0,
+                    // Initial render: position off-screen until layout is calculated
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: `calc((100% - ${gap * (currentColumns - 1)}px) / ${currentColumns})`,
+                    visibility: 'hidden',
                   }
             }
           >

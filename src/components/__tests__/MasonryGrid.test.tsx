@@ -106,7 +106,11 @@ describe('MasonryGrid', () => {
     })
 
     it('renders with relative positioning', () => {
-      const { container } = render(<MasonryGrid />)
+      const { container } = render(
+        <MasonryGrid columns={{ default: 1, md: 2 }}>
+          <div>Item</div>
+        </MasonryGrid>
+      )
       expect((container.firstChild as HTMLElement).classList.contains('relative')).toBe(true)
     })
   })
@@ -225,18 +229,17 @@ describe('MasonryGrid', () => {
     })
   })
 
-  describe('layout transitions', () => {
-    it('applies transition classes to items', () => {
+  describe('layout modes', () => {
+    it('hides items until positions are calculated', () => {
       render(
-        <MasonryGrid>
+        <MasonryGrid columns={{ default: 1, md: 2 }}>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
       const wrapper = screen.getByTestId('item').parentElement
-      expect(wrapper?.classList.contains('transition-[left,top,width,opacity]')).toBe(true)
-      expect(wrapper?.classList.contains('duration-300')).toBe(true)
-      expect(wrapper?.classList.contains('ease-out')).toBe(true)
+      // Items are hidden until layout is calculated
+      expect(wrapper?.style.visibility).toBe('hidden')
     })
   })
 
