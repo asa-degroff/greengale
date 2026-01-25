@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState, useEffect } from 'react'
 
 interface LoadingCubeProps {
   size?: 'sm' | 'md' | 'lg'
@@ -8,8 +8,24 @@ interface LoadingCubeProps {
 /**
  * A 3D animated cube loading indicator
  * Features: rotating cube with glowing edges, pulsing faces, and particle effects
+ *
+ * Note: Browsers throttle CSS animations when pages are backgrounded (common in PWAs).
+ * We use a key that changes on visibility to force animation restart.
  */
 export const LoadingCube = memo(function LoadingCube({ size = 'md', className = '' }: LoadingCubeProps) {
+  // Force re-mount when page becomes visible to restart animations
+  // (browsers pause CSS animations when backgrounded)
+  const [animationKey, setAnimationKey] = useState(0)
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        setAnimationKey((k) => k + 1)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [])
   const sizeClasses = {
     sm: 'w-8 h-8',
     md: 'w-16 h-16',
@@ -27,6 +43,7 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
   return (
     <div className={`flex items-center justify-center ${className}`}>
       <div
+        key={animationKey}
         className={`${sizeClasses[size]} relative`}
         style={{
           perspective: s * 4,

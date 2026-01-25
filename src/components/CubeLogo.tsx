@@ -51,6 +51,7 @@ export const CubeLogo = memo(function CubeLogo({ className = '' }: CubeLogoProps
   const containerRef = useRef<HTMLDivElement>(null)
   const [cubeSize, setCubeSize] = useState(15)
   const pauseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const restingAngles = useMemo(() =>
     generateRestingOffsets().map(offset => ({
@@ -76,17 +77,101 @@ export const CubeLogo = memo(function CubeLogo({ className = '' }: CubeLogoProps
   useEffect(() => {
     return () => {
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
     }
   }, [])
 
   // Single-hop animation on mount
+  // Use double rAF to ensure the initial "resting" state is painted before
+  // triggering the transition (prevents "snap" on PWA navigation)
   useEffect(() => {
-    setPhase('intro')
-    setRotations(generateFaceRotations())
+    let cancelled = false
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) {
+          setPhase('intro')
+          setRotations(generateFaceRotations())
+        }
+      })
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
+
+  // Reset to idle if page was backgrounded during a transition
+  // (transitionend events may not fire properly when page is hidden)
+  useEffect(() => {
+    let visibilityTimer: ReturnType<typeof setTimeout> | null = null
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && phase !== 'idle') {
+        // Give a short delay in case the transition is about to complete
+        visibilityTimer = setTimeout(() => {
+          if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current)
+          if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
+          setPhase('idle')
+          setRotations(null)
+        }, 100)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (visibilityTimer) clearTimeout(visibilityTimer)
+    }
+  }, [phase])
+
+  // Fallback timeout to advance animation if transitionend doesn't fire
+  // (common in PWAs when browser throttles or skips animations)
+  useEffect(() => {
+    if (phase === 'idle') return
+
+    // Calculate max transition time: duration + delay for last letter + buffer
+    // intro/hop phases: 500ms + 240ms + 300ms buffer = 1040ms
+    // returning: 600ms + 200ms + 300ms buffer = 1100ms
+    const fallbackDelay = phase === 'returning' ? 1100 : 1040
+
+    fallbackTimerRef.current = setTimeout(() => {
+      if (phase === 'intro') {
+        pauseTimerRef.current = setTimeout(() => {
+          setPhase('returning')
+          setRotations(null)
+        }, 150)
+      } else if (phase === 'hop1') {
+        setPhase('pause1')
+        pauseTimerRef.current = setTimeout(() => {
+          setPhase('hop2')
+          setRotations(generateFaceRotations())
+        }, 150)
+      } else if (phase === 'hop2') {
+        setPhase('pause2')
+        pauseTimerRef.current = setTimeout(() => {
+          setPhase('returning')
+          setRotations(null)
+        }, 150)
+      } else if (phase === 'returning') {
+        setPhase('idle')
+      } else if (phase === 'pause1' || phase === 'pause2') {
+        // If stuck in pause phase, the pauseTimer should have fired
+        // but if not, force return to idle
+        setPhase('idle')
+        setRotations(null)
+      }
+    }, fallbackDelay)
+
+    return () => {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
+    }
+  }, [phase])
 
   const handleTransitionEnd = useCallback((e: React.TransitionEvent) => {
     if (e.propertyName !== 'transform') return
+    // Clear fallback timer since the real event fired
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current)
+      fallbackTimerRef.current = null
+    }
     if (phase === 'intro') {
       pauseTimerRef.current = setTimeout(() => {
         setPhase('returning')
