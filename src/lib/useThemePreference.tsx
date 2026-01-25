@@ -25,8 +25,9 @@ const THEME_BG_COLORS: Record<ThemePreset, string> = {
 }
 
 // Dark mode background for default theme
-const DEFAULT_DARK_BG = '#0a0a0a'
-const DEFAULT_LIGHT_BG = '#f0fff4'
+// These must match the values in index.html inline script
+const DEFAULT_DARK_BG = '#071910'  // oklch(4% 0.127 159) - dark green
+const DEFAULT_LIGHT_BG = '#f0fff4' // oklch(99% 0.06 155) - mint creme
 
 function updateThemeColor(theme: ThemePreset, customBg?: string) {
   let color: string

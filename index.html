@@ -11,6 +11,23 @@
     <meta name="apple-mobile-web-app-title" content="GreenGale" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>GreenGale</title>
+    <script>
+      // Set theme-color immediately before React loads to prevent flash of wrong color
+      // This mirrors the logic in useDarkMode.ts and useThemePreference.tsx
+      (function() {
+        var LIGHT_BG = '#f0fff4';  // Mint Creme - oklch(99% 0.06 155)
+        var DARK_BG = '#071910';   // Dark green - oklch(4% 0.127 159)
+        var stored = null;
+        try { stored = localStorage.getItem('site-theme'); } catch(e) {}
+        var isDark = stored === 'dark' ||
+          (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) {
+          document.documentElement.setAttribute('data-site-theme', 'dark');
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.content = DARK_BG;
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
