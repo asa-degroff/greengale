@@ -213,7 +213,6 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
   return (
     <article
       className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]"
-      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 350px' }}
     >
       {isNetworkPost ? (
         <a
