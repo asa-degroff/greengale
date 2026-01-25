@@ -117,21 +117,6 @@ export function PostPage() {
           avatarUrl: authorResult.avatar,
         })
 
-        // Set active theme with inheritance (post > publication > default)
-        const effectiveTheme = getThemeWithInheritance(
-          entryResult.theme,
-          publicationResult?.theme
-        )
-
-        // Apply contrast correction for externally-created posts with low contrast
-        if (effectiveTheme?.custom) {
-          setActivePostTheme('custom')
-          setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
-        } else {
-          const themePreset = getEffectiveTheme(effectiveTheme)
-          setActivePostTheme(themePreset)
-          setActiveCustomColors(null)
-        }
       } catch (err) {
         if (cancelled) return
 
@@ -211,6 +196,24 @@ export function PostPage() {
     }
   }, [entry, publication?.enableSiteStandard])
 
+  // Apply theme after loading completes (not during load, to prevent flash)
+  useEffect(() => {
+    // Only apply theme when we have data and loading is complete
+    if (loading || !entry) return
+    // Skip if from cache (theme already applied in catch block)
+    if (fromCache) return
+
+    const effectiveTheme = getThemeWithInheritance(entry.theme, publication?.theme)
+    if (effectiveTheme?.custom) {
+      setActivePostTheme('custom')
+      setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
+    } else {
+      const themePreset = getEffectiveTheme(effectiveTheme)
+      setActivePostTheme(themePreset)
+      setActiveCustomColors(null)
+    }
+  }, [loading, entry, publication?.theme, fromCache, setActivePostTheme, setActiveCustomColors])
+
   // Add site.standard.publication link tag
   // This helps validators find the author's publication from the document page
   useEffect(() => {
@@ -259,12 +262,12 @@ export function PostPage() {
           </div>
           {/* Skeleton content */}
           <div className="space-y-4 opacity-40">
-            <div className="h-10 rounded w-3/4 animate-cube-shimmer"></div>
-            <div className="h-6 rounded w-1/2 animate-cube-shimmer" style={{ animationDelay: '0.1s' }}></div>
+            <div className="h-10 rounded w-3/4 bg-[var(--site-border)] animate-cube-shimmer"></div>
+            <div className="h-6 rounded w-1/2 bg-[var(--site-border)] animate-cube-shimmer" style={{ animationDelay: '0.1s' }}></div>
             <div className="space-y-3 mt-8">
-              <div className="h-4 rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.2s' }}></div>
-              <div className="h-4 rounded w-full animate-cube-shimmer" style={{ animationDelay: '0.3s' }}></div>
-              <div className="h-4 rounded w-5/6 animate-cube-shimmer" style={{ animationDelay: '0.4s' }}></div>
+              <div className="h-4 rounded w-full bg-[var(--site-border)] animate-cube-shimmer" style={{ animationDelay: '0.2s' }}></div>
+              <div className="h-4 rounded w-full bg-[var(--site-border)] animate-cube-shimmer" style={{ animationDelay: '0.3s' }}></div>
+              <div className="h-4 rounded w-5/6 bg-[var(--site-border)] animate-cube-shimmer" style={{ animationDelay: '0.4s' }}></div>
             </div>
           </div>
         </div>
@@ -308,7 +311,7 @@ export function PostPage() {
   const isAuthor = session?.did && entry.authorDid === session.did
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-fade-in">
       {fromCache && (
         <div className="max-w-3xl mx-auto px-4 pt-4">
           <div className="text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
