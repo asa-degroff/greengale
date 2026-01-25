@@ -156,7 +156,7 @@ export const InlineLoading = memo(function InlineLoading({
  */
 export const AuthorPageLoading = memo(function AuthorPageLoading() {
   return (
-    <div className="min-h-screen">
+    <div>
       <div className="max-w-4xl mx-auto px-4 py-12">
         {/* Author header skeleton */}
         <div className="flex items-center gap-4 mb-8 opacity-50">

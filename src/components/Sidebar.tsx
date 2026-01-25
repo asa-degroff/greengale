@@ -994,7 +994,7 @@ export function Sidebar({ children }: SidebarProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="lg:ml-64 pt-14 lg:pt-0 min-h-screen relative z-10">
+      <main className="lg:ml-64 pt-14 lg:pt-0 relative z-10">
         {children}
       </main>
     </div>

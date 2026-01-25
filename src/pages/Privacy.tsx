@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 
 export function PrivacyPage() {
   return (
-    <div className="min-h-screen">
+    <div>
       <div className="max-w-4xl mx-auto px-4 py-12">
         <h1 className="text-4xl font-bold mb-8 text-[var(--site-text)]">
           Privacy Policy

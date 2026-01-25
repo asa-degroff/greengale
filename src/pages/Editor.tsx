@@ -1590,7 +1590,7 @@ export function EditorPage() {
 
   if (isLoading || loadingPost) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[calc(100vh-3.5rem)] lg:min-h-screen flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-4 border-[var(--site-accent)] border-t-transparent rounded-full" />
       </div>
     )
@@ -1601,7 +1601,7 @@ export function EditorPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div>
       {/* Header - consistent width regardless of view mode */}
       <div className="max-w-4xl mx-auto px-4 pt-8">
         <div className="flex items-center justify-between mb-8">

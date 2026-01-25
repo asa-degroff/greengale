@@ -28,7 +28,7 @@ export function AuthCallbackPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[calc(100vh-3.5rem)] lg:min-h-screen flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4 text-[var(--site-text)]">
             Authentication Error
@@ -46,7 +46,7 @@ export function AuthCallbackPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-[calc(100vh-3.5rem)] lg:min-h-screen flex items-center justify-center">
       <div className="text-center">
         <LoadingCube size="sm" className="mb-4" />
         <p className="text-[var(--site-text-secondary)]">Completing login...</p>

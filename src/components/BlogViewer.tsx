@@ -176,7 +176,7 @@ export function BlogViewer({
   return (
     <article
       style={customStyles}
-      className="min-h-screen text-[var(--theme-text)]"
+      className="text-[var(--theme-text)]"
     >
       <div className={`max-w-3xl px-4 py-8 mx-auto ${headings.length > 0 ? 'min-[1350px]:max-[1609px]:mx-0 min-[1350px]:max-[1609px]:ml-[max(1rem,calc((100vw-1344px)/2))] min-[1350px]:max-[1609px]:mr-[320px]' : ''} ${isTTSActive ? 'pb-24' : ''}`}>
         {/* Header */}

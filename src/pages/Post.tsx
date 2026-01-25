@@ -251,7 +251,7 @@ export function PostPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen">
+      <div>
         <div className="max-w-3xl mx-auto px-4 py-12">
           {/* Centered cube */}
           <div className="flex flex-col items-center justify-center py-16">
@@ -277,7 +277,7 @@ export function PostPage() {
 
   if (error || !entry) {
     return (
-      <div className="min-h-screen">
+      <div>
         <div className="max-w-3xl mx-auto px-4 py-12">
           <div className="text-center">
             <h1 className="text-2xl font-bold mb-4 text-[var(--site-text)]">
@@ -311,7 +311,7 @@ export function PostPage() {
   const isAuthor = session?.did && entry.authorDid === session.did
 
   return (
-    <div className="min-h-screen animate-fade-in">
+    <div className="animate-fade-in">
       {fromCache && (
         <div className="max-w-3xl mx-auto px-4 pt-4">
           <div className="text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
