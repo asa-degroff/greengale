@@ -64,6 +64,7 @@ export function BlogViewer({
 }: BlogViewerProps) {
   const { forceDefaultTheme } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   // TTS hooks
   const tts = useTTS()
@@ -147,6 +148,19 @@ export function BlogViewer({
   const handleAutoScrollChange = useCallback((autoScroll: boolean) => {
     ttsSettings.setAutoScroll(autoScroll)
   }, [ttsSettings])
+
+  // Copy link handler - extracts primary URL (first in comma-separated list)
+  const handleCopyLink = useCallback(async () => {
+    if (!postUrl) return
+    const primaryUrl = postUrl.split(',')[0]
+    try {
+      await navigator.clipboard.writeText(primaryUrl)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy link:', err)
+    }
+  }, [postUrl])
 
   // Determine if this post has special content that benefits from a raw view
   // Show toggle for LaTeX, SVG code blocks, or any code blocks
@@ -276,6 +290,25 @@ export function BlogViewer({
                     </svg>
                     <span>Raw</span>
                   </>
+                )}
+              </button>
+            )}
+
+            {/* Copy Link Button */}
+            {postUrl && (
+              <button
+                onClick={handleCopyLink}
+                className="flex items-center justify-center w-8 h-8 rounded-md border border-[var(--theme-border)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] hover:border-[var(--theme-text-secondary)] transition-colors"
+                title={linkCopied ? 'Link copied!' : 'Copy link to this post'}
+              >
+                {linkCopied ? (
+                  <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                  </svg>
                 )}
               </button>
             )}
