@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
 import { migrateSiteStandardPublication, fixSiteStandardUrls } from './atproto'
+import { markFromPWA, tryBridgeSession, isIOSStandalone } from './pwa-session-bridge'
 
 // Minimal OAuth scopes: blog entry collections + V2 document collection + publication + site.standard + blob uploads
 const OAUTH_SCOPE =
@@ -98,6 +99,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initSession = useCallback(async (isRecheck = false) => {
     try {
       console.log(`[Auth] ${isRecheck ? 'Re-checking' : 'Initializing'}, getting OAuth client...`)
+
+      // On iOS standalone PWA, try to bridge session from Safari's Cache Storage
+      if (isRecheck && isIOSStandalone()) {
+        const bridged = await tryBridgeSession()
+        if (bridged) {
+          console.log('[Auth] Session bridged from Safari, continuing with init...')
+        }
+      }
+
       const client = await getOAuthClient()
       console.log('[Auth] OAuth client loaded, calling init...')
       const result = await client.init()
@@ -217,31 +227,93 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (handle: string) => {
     setState((s) => ({ ...s, isLoading: true, error: null }))
 
+    // On iOS standalone PWA, redirect-based auth opens the system browser
+    // which can't redirect back to the PWA. Instead, get the auth URL directly
+    // and open it in Safari. Safari completes the OAuth flow, exports the
+    // session to Cache Storage, and the PWA picks it up on visibility change.
+    // Desktop PWAs can handle redirects fine, so use normal flow there.
+    const isIOSPWA = isIOSStandalone()
+
+    // IMPORTANT: On iOS, window.open() must be called synchronously in response
+    // to the user gesture. Any await before window.open() will cause iOS to block
+    // the popup. So we open the window FIRST with a blank page, then navigate it
+    // to the OAuth URL after the async operations complete.
+    let popup: Window | null = null
+    if (isIOSPWA) {
+      popup = window.open('about:blank', '_blank')
+      if (!popup) {
+        setState((s) => ({
+          ...s,
+          isLoading: false,
+          error: 'Please allow popups for this site to sign in',
+        }))
+        return
+      }
+      // Show a loading message in the popup while we prepare the OAuth URL
+      // Uses dark green theme colors to match the app
+      popup.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="theme-color" content="#0f1e14">
+            <style>
+              body {
+                font-family: system-ui, -apple-system, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+                background: #0f1e14;
+                color: #a8d4ae;
+              }
+              .loading { text-align: center; }
+              .spinner {
+                width: 32px;
+                height: 32px;
+                border: 3px solid #1a3d24;
+                border-top-color: #4a9960;
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+                margin: 0 auto 16px;
+              }
+              @keyframes spin {
+                to { transform: rotate(360deg); }
+              }
+              p { margin: 0; font-size: 15px; }
+            </style>
+          </head>
+          <body>
+            <div class="loading">
+              <div class="spinner"></div>
+              <p>Preparing login...</p>
+            </div>
+          </body>
+        </html>
+      `)
+    }
+
     try {
       console.log('[Auth] Starting login for handle:', handle)
       const client = await getOAuthClient()
-
-      // In standalone PWA mode, redirect-based auth opens the system browser
-      // which can't redirect back. Instead, get the auth URL directly and
-      // open it in a new window. The browser completes the OAuth flow and
-      // stores the session in shared IndexedDB. The PWA picks it up on
-      // visibility change via initRestore().
-      const isStandalone =
-        (typeof window.matchMedia === 'function' &&
-          window.matchMedia('(display-mode: standalone)').matches) ||
-        (navigator as unknown as { standalone?: boolean }).standalone === true
 
       // Ensure the redirect_uri matches the current origin (important for
       // preview deployments where the default would be the production URL)
       const redirectUri = `${window.location.origin}/auth/callback` as `https://${string}`
 
-      if (isStandalone) {
-        console.log('[Auth] Standalone mode: using authorize() + window.open()')
+      if (isIOSPWA && popup) {
+        console.log('[Auth] iOS standalone mode: navigating popup to OAuth URL')
+        await markFromPWA() // Mark so callback knows to export session for PWA (uses Cache Storage)
         const url = await client.authorize(handle, {
           scope: OAUTH_SCOPE,
           redirect_uri: redirectUri,
         })
-        window.open(url.href, '_blank')
+        // Check if popup was closed while we were preparing
+        if (popup.closed) {
+          throw new Error('Login window was closed. Please try again.')
+        }
+        popup.location.href = url.href
         // Keep loading state - visibilitychange handler will pick up the
         // session when the user returns to the PWA
       } else {
