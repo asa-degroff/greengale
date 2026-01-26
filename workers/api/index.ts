@@ -1063,6 +1063,213 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
   }
 })
 
+// Cache TTL for following DIDs (1 hour)
+const FOLLOWING_DIDS_CACHE_TTL = 60 * 60
+
+// Cache TTL for following feed results (5 minutes)
+const FOLLOWING_FEED_CACHE_TTL = 5 * 60
+
+// Maximum follows to paginate through (5000 = 50 API calls max)
+const MAX_FOLLOWS_TO_FETCH = 5000
+
+/**
+ * Fetch all accounts a user follows from Bluesky API.
+ * Paginates through all follows up to MAX_FOLLOWS_TO_FETCH.
+ * Returns array of DIDs.
+ */
+async function fetchBlueskyFollows(did: string): Promise<string[]> {
+  const follows: string[] = []
+  let cursor: string | undefined
+
+  while (follows.length < MAX_FOLLOWS_TO_FETCH) {
+    const url = new URL(`${BLUESKY_API}/xrpc/app.bsky.graph.getFollows`)
+    url.searchParams.set('actor', did)
+    url.searchParams.set('limit', '100')
+    if (cursor) {
+      url.searchParams.set('cursor', cursor)
+    }
+
+    try {
+      const response = await fetch(url.toString(), {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'GreenGale/1.0',
+        },
+      })
+
+      if (!response.ok) {
+        console.error(`Bluesky getFollows failed: ${response.status}`)
+        break
+      }
+
+      const data = await response.json() as {
+        follows: Array<{ did: string }>
+        cursor?: string
+      }
+
+      for (const follow of data.follows) {
+        follows.push(follow.did)
+      }
+
+      if (!data.cursor || data.follows.length === 0) {
+        break
+      }
+
+      cursor = data.cursor
+    } catch (err) {
+      console.error('Error fetching Bluesky follows:', err)
+      break
+    }
+  }
+
+  return follows
+}
+
+/**
+ * Get following DIDs that have blog posts, with caching.
+ * Fetches following list from Bluesky, then filters to only include
+ * DIDs that exist in our authors table.
+ */
+async function getFollowingDidsWithPosts(
+  viewerDid: string,
+  env: { DB: D1Database; CACHE: KVNamespace }
+): Promise<string[]> {
+  const cacheKey = `following:dids:${viewerDid}`
+
+  // Check cache first
+  const cached = await env.CACHE.get(cacheKey, 'json')
+  if (cached) {
+    return cached as string[]
+  }
+
+  // Fetch all follows from Bluesky
+  const allFollows = await fetchBlueskyFollows(viewerDid)
+
+  if (allFollows.length === 0) {
+    // Cache empty result for shorter time (10 min)
+    await env.CACHE.put(cacheKey, JSON.stringify([]), {
+      expirationTtl: 10 * 60,
+    })
+    return []
+  }
+
+  // Filter to only DIDs that exist in our authors table (have posts)
+  // Use batches to avoid query limits
+  const batchSize = 100
+  const didsWithPosts: string[] = []
+
+  for (let i = 0; i < allFollows.length; i += batchSize) {
+    const batch = allFollows.slice(i, i + batchSize)
+    const placeholders = batch.map(() => '?').join(',')
+
+    const result = await env.DB.prepare(`
+      SELECT did FROM authors WHERE did IN (${placeholders})
+    `).bind(...batch).all()
+
+    for (const row of result.results || []) {
+      didsWithPosts.push(row.did as string)
+    }
+  }
+
+  // Cache for 1 hour
+  await env.CACHE.put(cacheKey, JSON.stringify(didsWithPosts), {
+    expirationTtl: FOLLOWING_DIDS_CACHE_TTL,
+  })
+
+  return didsWithPosts
+}
+
+// Get posts from accounts the viewer follows
+app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
+  const viewer = c.req.query('viewer')
+  if (!viewer) {
+    return c.json({ error: 'Missing viewer parameter' }, 400)
+  }
+
+  // Validate viewer is a DID
+  if (!viewer.startsWith('did:')) {
+    return c.json({ error: 'Invalid viewer parameter - must be a DID' }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
+  const cursor = c.req.query('cursor')
+
+  // Build cache key for feed results
+  const feedCacheKey = `following:feed:${viewer}:${limit}:${cursor || ''}`
+
+  try {
+    // Check feed cache first
+    const cached = await c.env.CACHE.get(feedCacheKey, 'json')
+    if (cached) {
+      return jsonWithCache(c, cached, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+    }
+
+    // Get following DIDs with posts (cached)
+    const followingDids = await getFollowingDidsWithPosts(viewer, c.env)
+
+    if (followingDids.length === 0) {
+      const emptyResponse = { posts: [], cursor: undefined }
+      return jsonWithCache(c, emptyResponse, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+    }
+
+    // Build SQL query with dynamic IN clause
+    const placeholders = followingDids.map(() => '?').join(',')
+    const cursorClause = cursor ? 'AND p.indexed_at < ?' : ''
+
+    // Use CTE with window function to limit 3 posts per author
+    const query = `
+      WITH ranked_posts AS (
+        SELECT
+          p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
+          p.visibility, p.created_at, p.indexed_at,
+          a.handle, a.display_name, a.avatar_url,
+          (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank
+        FROM posts p
+        LEFT JOIN authors a ON p.author_did = a.did
+        WHERE p.author_did IN (${placeholders})
+          AND p.visibility = 'public'
+          AND p.uri NOT LIKE '%/site.standard.document/%'
+          ${cursorClause}
+      )
+      SELECT uri, author_did, rkey, title, subtitle, source,
+             visibility, created_at, indexed_at,
+             handle, display_name, avatar_url, tags
+      FROM ranked_posts
+      WHERE author_rank <= 3
+      ORDER BY indexed_at DESC
+      LIMIT ?
+    `
+
+    const params: (string | number)[] = [...followingDids]
+    if (cursor) {
+      params.push(cursor)
+    }
+    params.push(limit + 1)
+
+    const result = await c.env.DB.prepare(query).bind(...params).all()
+    const posts = result.results || []
+
+    const hasMore = posts.length > limit
+    const returnPosts = hasMore ? posts.slice(0, limit) : posts
+
+    const response = {
+      posts: returnPosts.map(p => formatPost(p)),
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+    }
+
+    // Cache feed results for 5 minutes
+    await c.env.CACHE.put(feedCacheKey, JSON.stringify(response), {
+      expirationTtl: FOLLOWING_FEED_CACHE_TTL,
+    })
+
+    return jsonWithCache(c, response, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+  } catch (error) {
+    console.error('Error fetching following posts:', error)
+    return c.json({ error: 'Failed to fetch posts' }, 500)
+  }
+})
+
 // Get recent posts from the network (site.standard.document posts with external URLs)
 app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)

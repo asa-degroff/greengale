@@ -460,6 +460,222 @@ describe('API Endpoints', () => {
     })
   })
 
+  describe('getFollowingPosts', () => {
+    let mockFetch: ReturnType<typeof vi.fn>
+
+    beforeEach(() => {
+      mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('returns 400 when viewer parameter is missing', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Missing viewer parameter')
+    })
+
+    it('returns 400 when viewer is not a DID', async () => {
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=user.bsky.social')
+      expect(res.status).toBe(400)
+
+      const data = await res.json()
+      expect(data.error).toBe('Invalid viewer parameter - must be a DID')
+    })
+
+    it('returns empty posts when user follows no one', async () => {
+      // Mock Bluesky API to return empty follows
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ follows: [] }),
+      })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toEqual([])
+      expect(data.cursor).toBeUndefined()
+    })
+
+    it('returns empty posts when no followed accounts have blog posts', async () => {
+      // Mock Bluesky API to return follows
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          follows: [
+            { did: 'did:plc:followed1' },
+            { did: 'did:plc:followed2' },
+          ],
+        }),
+      })
+
+      // Mock DB to return no matching authors
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toEqual([])
+    })
+
+    it('returns posts from followed accounts with blog posts', async () => {
+      // Mock Bluesky API to return follows
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          follows: [
+            { did: 'did:plc:followed1' },
+            { did: 'did:plc:followed2' },
+          ],
+        }),
+      })
+
+      // Mock DB to return matching authors
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [{ did: 'did:plc:followed1' }],
+      })
+
+      // Mock posts query
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:followed1/app.greengale.document/123',
+          author_did: 'did:plc:followed1',
+          rkey: '123',
+          title: 'Test Post from Followed',
+          source: 'greengale',
+          visibility: 'public',
+          created_at: '2024-01-01T00:00:00Z',
+          indexed_at: '2024-01-01T00:00:00Z',
+          handle: 'followed.bsky.social',
+          display_name: 'Followed User',
+          avatar_url: 'https://example.com/avatar.jpg',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toHaveLength(1)
+      expect(data.posts[0].title).toBe('Test Post from Followed')
+      expect(data.posts[0].author.handle).toBe('followed.bsky.social')
+    })
+
+    it('paginates through follows for users following many accounts', async () => {
+      // First page of follows
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          follows: Array(100).fill(null).map((_, i) => ({ did: `did:plc:followed${i}` })),
+          cursor: 'page2cursor',
+        }),
+      })
+
+      // Second page of follows (final page, no cursor)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          follows: Array(50).fill(null).map((_, i) => ({ did: `did:plc:followed${100 + i}` })),
+        }),
+      })
+
+      // Mock DB to return some matching authors
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [{ did: 'did:plc:followed0' }, { did: 'did:plc:followed100' }],
+      })
+
+      // Mock posts query
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+
+      // Should have called getFollows twice (pagination)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('uses cached following DIDs when available', async () => {
+      // Set up cached following DIDs
+      await env.CACHE.put('following:dids:did:plc:viewer123', JSON.stringify(['did:plc:followed1']))
+
+      // Mock posts query (no Bluesky API call needed due to cache)
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:followed1/app.greengale.document/123',
+          author_did: 'did:plc:followed1',
+          rkey: '123',
+          title: 'Cached Follow Post',
+          source: 'greengale',
+          visibility: 'public',
+          indexed_at: '2024-01-01T00:00:00Z',
+          handle: 'followed.bsky.social',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toHaveLength(1)
+
+      // Should NOT have called Bluesky API (cache hit)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('uses cached feed results when available', async () => {
+      // Set up cached feed results
+      const cachedResponse = {
+        posts: [{ uri: 'at://cached', title: 'Cached Post' }],
+        cursor: 'cachedCursor',
+      }
+      await env.CACHE.put('following:feed:did:plc:viewer123:50:', JSON.stringify(cachedResponse))
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toEqual(cachedResponse.posts)
+      expect(data.cursor).toBe('cachedCursor')
+
+      // Should NOT have called DB (cache hit)
+      expect(env.DB.prepare).not.toHaveBeenCalled()
+    })
+
+    it('limits posts per author to 3', async () => {
+      // Mock Bluesky API to return follows
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          follows: [{ did: 'did:plc:followed1' }],
+        }),
+      })
+
+      // Mock DB to return matching authors
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [{ did: 'did:plc:followed1' }],
+      })
+
+      // Mock posts query
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
+
+      // Check that the query uses window function to limit per-author posts
+      expect(env.DB.prepare).toHaveBeenCalled()
+      const query = env.DB.prepare.mock.calls[1][0]
+      expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank')
+      expect(query).toContain('WHERE author_rank <= 3')
+    })
+  })
+
   describe('getAuthorPosts', () => {
     it('returns 400 when author parameter is missing', async () => {
       const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts')

@@ -116,6 +116,28 @@ export async function getNetworkPosts(
 }
 
 /**
+ * Get posts from accounts the viewer follows on Bluesky
+ */
+export async function getFollowingPosts(
+  viewer: string,
+  limit = 50,
+  cursor?: string
+): Promise<RecentPostsResponse> {
+  const params = new URLSearchParams({ viewer, limit: String(limit) })
+  if (cursor) params.set('cursor', cursor)
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.feed.getFollowingPosts?${params}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch following posts: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
  * Get posts by a specific author
  * @param viewer Optional viewer DID - if matches author, includes private posts
  */

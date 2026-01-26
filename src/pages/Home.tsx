@@ -4,15 +4,18 @@ import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { LoadingCube } from '@/components/LoadingCube'
-import { getRecentPosts, getNetworkPosts, type AppViewPost } from '@/lib/appview'
+import { getRecentPosts, getNetworkPosts, getFollowingPosts, type AppViewPost } from '@/lib/appview'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
 import {
   getCachedGreengaleFeed,
   setCachedGreengaleFeed,
   getCachedNetworkFeed,
   setCachedNetworkFeed,
+  getCachedFollowingFeed,
+  setCachedFollowingFeed,
 } from '@/lib/feedCache'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
+import { useAuth } from '@/lib/auth'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import {
   useDocumentMeta,
@@ -20,7 +23,7 @@ import {
   buildHomeOgImage,
 } from '@/lib/useDocumentMeta'
 
-type FeedTab = 'greengale' | 'network'
+type FeedTab = 'greengale' | 'following' | 'network'
 
 // Convert AppView post to BlogEntry format for BlogCard
 function toBlogEntry(post: AppViewPost): BlogEntry {
@@ -50,10 +53,12 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
 
 export function HomePage() {
   const [activeTab, setActiveTab] = useState<FeedTab>('greengale')
+  const { isAuthenticated, session } = useAuth()
 
   // Check for cached feed data on initial render
   const cachedGreengale = getCachedGreengaleFeed()
   const cachedNetwork = getCachedNetworkFeed()
+  const cachedFollowing = getCachedFollowingFeed()
 
   // GreenGale feed state - initialize from cache if available
   const [recentPosts, setRecentPosts] = useState<AppViewPost[]>(cachedGreengale?.posts ?? [])
@@ -70,6 +75,14 @@ export function HomePage() {
   const [networkCursor, setNetworkCursor] = useState<string | undefined>(cachedNetwork?.cursor)
   const [networkLoadCount, setNetworkLoadCount] = useState(cachedNetwork?.loadCount ?? 1)
   const [networkLoadingMore, setNetworkLoadingMore] = useState(false)
+
+  // Following feed state - initialize from cache if available
+  const [followingPosts, setFollowingPosts] = useState<AppViewPost[]>(cachedFollowing?.posts ?? [])
+  const [followingLoading, setFollowingLoading] = useState(false)
+  const [followingLoaded, setFollowingLoaded] = useState(!!cachedFollowing)
+  const [followingCursor, setFollowingCursor] = useState<string | undefined>(cachedFollowing?.cursor)
+  const [followingLoadCount, setFollowingLoadCount] = useState(cachedFollowing?.loadCount ?? 1)
+  const [followingLoadingMore, setFollowingLoadingMore] = useState(false)
 
   const [feedFromCache, setFeedFromCache] = useState(false)
   const { isOnline } = useNetworkStatus()
@@ -184,6 +197,54 @@ export function HomePage() {
     }
   }
 
+  // Lazy-load following posts when tab is switched
+  useEffect(() => {
+    if (activeTab === 'following' && !followingLoaded && !followingLoading && isAuthenticated && session?.did) {
+      loadFollowingPosts()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, followingLoaded, followingLoading, isAuthenticated, session?.did])
+
+  async function loadFollowingPosts() {
+    if (!session?.did) return
+
+    // If we have in-memory cached data, skip the fetch
+    if (cachedFollowing) {
+      return
+    }
+
+    setFollowingLoading(true)
+    try {
+      const { posts, cursor: nextCursor } = await getFollowingPosts(session.did, 24)
+      setFollowingPosts(posts)
+      setFollowingCursor(nextCursor)
+      setFollowingLoaded(true)
+      // Cache in memory for navigation
+      setCachedFollowingFeed(posts, nextCursor, 1)
+    } catch {
+      // Following feed not available
+    } finally {
+      setFollowingLoading(false)
+    }
+  }
+
+  async function handleLoadMoreFollowing() {
+    if (!followingCursor || followingLoadingMore || followingLoadCount >= 12 || !session?.did) return
+    setFollowingLoadingMore(true)
+    try {
+      const { posts, cursor: nextCursor } = await getFollowingPosts(session.did, 24, followingCursor)
+      const newPosts = [...followingPosts, ...posts]
+      const newLoadCount = followingLoadCount + 1
+      setFollowingPosts(newPosts)
+      setFollowingCursor(nextCursor)
+      setFollowingLoadCount(newLoadCount)
+      // Update in-memory cache
+      setCachedFollowingFeed(newPosts, nextCursor, newLoadCount)
+    } finally {
+      setFollowingLoadingMore(false)
+    }
+  }
+
   return (
     <div>
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -223,6 +284,21 @@ export function HomePage() {
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
                 )}
               </button>
+              {isAuthenticated && (
+                <button
+                  onClick={() => setActiveTab('following')}
+                  className={`px-4 py-2 font-medium transition-colors relative ${
+                    activeTab === 'following'
+                      ? 'text-[var(--site-accent)]'
+                      : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+                  }`}
+                >
+                  Following
+                  {activeTab === 'following' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
+                  )}
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('network')}
                 className={`px-4 py-2 font-medium transition-colors relative ${
@@ -231,7 +307,7 @@ export function HomePage() {
                     : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
                 }`}
               >
-                From the Network (Beta)
+                From the Network
                 {activeTab === 'network' && (
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
                 )}
@@ -273,6 +349,48 @@ export function HomePage() {
                 ) : !loading && (
                   <p className="text-center text-[var(--site-text-secondary)] py-8">
                     No posts yet.
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* Following feed */}
+            {activeTab === 'following' && (
+              <>
+                {followingLoading ? (
+                  <div className="flex flex-col items-center py-12">
+                    <LoadingCube size="md" />
+                    <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+                      Loading posts from accounts you follow...
+                    </p>
+                  </div>
+                ) : followingPosts.length > 0 ? (
+                  <>
+                    <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
+                      {followingPosts.map((post) => (
+                        <BlogCard
+                          key={post.uri}
+                          entry={toBlogEntry(post)}
+                          author={toAuthorProfile(post)}
+                          tags={post.tags}
+                        />
+                      ))}
+                    </MasonryGrid>
+                    {followingCursor && followingLoadCount < 12 && (
+                      <div className="mt-8 text-center">
+                        <button
+                          onClick={handleLoadMoreFollowing}
+                          disabled={followingLoadingMore}
+                          className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {followingLoadingMore ? 'Loading...' : 'More'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-center text-[var(--site-text-secondary)] py-8">
+                    None of the accounts you follow have blog posts yet.
                   </p>
                 )}
               </>
@@ -330,8 +448,13 @@ export function HomePage() {
                 Recents
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
               </div>
+              {isAuthenticated && (
+                <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
+                  Following
+                </div>
+              )}
               <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
-                From the Network (Beta)
+                From the Network
               </div>
             </div>
             <div className="flex flex-col items-center py-12">
