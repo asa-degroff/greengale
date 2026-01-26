@@ -177,7 +177,9 @@ export function BlueskyInteractions({
     load()
   }, [postUrl])
 
-  const shareUrl = getBlueskyShareUrl(postUrl, postTitle)
+  // Use only the first URL (GreenGale) for sharing - postUrl may contain comma-separated URLs
+  const primaryUrl = postUrl.split(',')[0]
+  const shareUrl = getBlueskyShareUrl(primaryUrl, postTitle)
 
   // Outline button style (consistent with other buttons)
   const outlineButtonClass = "flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--theme-border)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] hover:border-[var(--theme-text-secondary)] transition-colors"

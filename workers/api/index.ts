@@ -432,18 +432,26 @@ const BLUESKY_INTERACTIONS_CACHE_TTL = 10 * 60
 const BLUESKY_API = 'https://api.bsky.app'
 
 // Get Bluesky posts that link to a GreenGale blog post URL
+// Supports multiple URLs (comma-separated) to also find WhiteWind links
 app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
-  const url = c.req.query('url')
-  if (!url) {
+  const urlParam = c.req.query('url')
+  if (!urlParam) {
     return c.json({ error: 'Missing url parameter' }, 400)
+  }
+
+  // Support comma-separated URLs (e.g., GreenGale URL + WhiteWind URL)
+  const urls = urlParam.split(',').map(u => u.trim()).filter(u => u.length > 0)
+  if (urls.length === 0) {
+    return c.json({ error: 'No valid URLs provided' }, 400)
   }
 
   const limit = Math.min(parseInt(c.req.query('limit') || '10'), 25)
   const sort = c.req.query('sort') || 'top'
   const includeReplies = c.req.query('includeReplies') !== 'false'
 
-  // Build cache key
-  const cacheKey = `bluesky:${url}:${limit}:${sort}:${includeReplies}`
+  // Build cache key (sort URLs for consistent caching)
+  const sortedUrls = [...urls].sort().join(',')
+  const cacheKey = `bluesky:${sortedUrls}:${limit}:${sort}:${includeReplies}`
 
   try {
     // Check cache first
@@ -452,35 +460,76 @@ app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
       return c.json(cached)
     }
 
-    // Search for posts linking to this URL
-    // Note: We use '*' as the query since empty query may be rejected
-    const searchUrl = new URL(`${BLUESKY_API}/xrpc/app.bsky.feed.searchPosts`)
-    searchUrl.searchParams.set('q', '*')
-    searchUrl.searchParams.set('url', url)
-    searchUrl.searchParams.set('limit', limit.toString())
-    searchUrl.searchParams.set('sort', sort)
+    // Search for posts linking to each URL in parallel
+    const searchResults = await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const searchUrl = new URL(`${BLUESKY_API}/xrpc/app.bsky.feed.searchPosts`)
+          searchUrl.searchParams.set('q', '*')
+          searchUrl.searchParams.set('url', url)
+          searchUrl.searchParams.set('limit', limit.toString())
+          searchUrl.searchParams.set('sort', sort)
 
-    const searchResponse = await fetch(searchUrl.toString(), {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'GreenGale/1.0',
-      },
-    })
+          const searchResponse = await fetch(searchUrl.toString(), {
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'GreenGale/1.0',
+            },
+          })
 
-    if (!searchResponse.ok) {
-      const errorText = await searchResponse.text()
-      console.error('Bluesky search failed:', searchResponse.status, errorText)
-      return c.json({ error: 'Failed to search Bluesky', posts: [] }, searchResponse.status)
+          if (!searchResponse.ok) {
+            console.error(`Bluesky search failed for ${url}:`, searchResponse.status)
+            return { posts: [] as BlueskyPostView[], hitsTotal: 0 }
+          }
+
+          const data = await searchResponse.json() as {
+            posts: BlueskyPostView[]
+            cursor?: string
+            hitsTotal?: number
+          }
+          return { posts: data.posts, hitsTotal: data.hitsTotal || 0 }
+        } catch (err) {
+          console.error(`Error searching Bluesky for ${url}:`, err)
+          return { posts: [] as BlueskyPostView[], hitsTotal: 0 }
+        }
+      })
+    )
+
+    // Combine and deduplicate posts by URI
+    const seenUris = new Set<string>()
+    const combinedPosts: BlueskyPostView[] = []
+    let totalHits = 0
+
+    for (const result of searchResults) {
+      totalHits += result.hitsTotal
+      for (const post of result.posts) {
+        if (!seenUris.has(post.uri)) {
+          seenUris.add(post.uri)
+          combinedPosts.push(post)
+        }
+      }
     }
 
-    const searchData = await searchResponse.json() as {
-      posts: BlueskyPostView[]
-      cursor?: string
-      hitsTotal?: number
+    // Sort combined posts
+    if (sort === 'top') {
+      // Sort by engagement (likes + reposts + replies)
+      combinedPosts.sort((a, b) => {
+        const scoreA = (a.likeCount || 0) + (a.repostCount || 0) + (a.replyCount || 0)
+        const scoreB = (b.likeCount || 0) + (b.repostCount || 0) + (b.replyCount || 0)
+        return scoreB - scoreA
+      })
+    } else {
+      // Sort by date (latest first)
+      combinedPosts.sort((a, b) => {
+        return new Date(b.indexedAt).getTime() - new Date(a.indexedAt).getTime()
+      })
     }
+
+    // Limit to requested number after combining
+    const limitedPosts = combinedPosts.slice(0, limit)
 
     // Transform posts to our format
-    let posts = searchData.posts.map(transformBlueskyPost)
+    let posts = limitedPosts.map(transformBlueskyPost)
 
     // Optionally fetch replies for each post
     if (includeReplies) {
@@ -521,8 +570,9 @@ app.get('/xrpc/app.greengale.feed.getBlueskyInteractions', async (c) => {
 
     const response = {
       posts,
-      totalHits: searchData.hitsTotal,
-      cursor: searchData.cursor,
+      totalHits,
+      // No cursor for multi-URL searches (pagination would be complex)
+      cursor: urls.length === 1 ? undefined : undefined,
     }
 
     // Cache the response

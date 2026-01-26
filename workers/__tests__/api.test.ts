@@ -2351,6 +2351,197 @@ describe('API Endpoints', () => {
         expect(depth).toBeLessThanOrEqual(11)
       })
     })
+
+    describe('getBlueskyInteractions with multiple URLs', () => {
+      const originalFetch = globalThis.fetch
+
+      beforeEach(() => {
+        env.CACHE._store.clear()
+      })
+
+      afterEach(() => {
+        globalThis.fetch = originalFetch
+      })
+
+      function createBlueskyPost(id: string, likeCount: number = 0, replyCount: number = 0) {
+        return {
+          uri: `at://did:plc:${id}/app.bsky.feed.post/${id}`,
+          cid: `cid${id}`,
+          author: {
+            did: `did:plc:${id}`,
+            handle: `user${id}.bsky.social`,
+            displayName: `User ${id}`,
+            avatar: `https://avatar.url/${id}`,
+          },
+          record: {
+            text: `Post text ${id}`,
+            createdAt: '2024-01-01T00:00:00.000Z',
+          },
+          indexedAt: '2024-01-01T00:00:00.000Z',
+          likeCount,
+          repostCount: 0,
+          replyCount,
+          quoteCount: 0,
+        }
+      }
+
+      it('searches multiple URLs and combines results', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        // Return different posts for each URL
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            if (url.includes('greengale.com')) {
+              return new Response(JSON.stringify({
+                posts: [createBlueskyPost('greengale1', 10, 0)],
+                hitsTotal: 1,
+              }))
+            }
+            if (url.includes('whtwnd.com')) {
+              return new Response(JSON.stringify({
+                posts: [createBlueskyPost('whitewind1', 5, 0)],
+                hitsTotal: 1,
+              }))
+            }
+          }
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://greengale.com/user/post,https://whtwnd.com/user/post&includeReplies=false'
+        )
+        const data = await res.json() as { posts: Array<{ uri: string }>, totalHits: number }
+
+        // Should have combined posts from both URLs
+        expect(data.posts).toHaveLength(2)
+        expect(data.posts.map(p => p.uri)).toContain('at://did:plc:greengale1/app.bsky.feed.post/greengale1')
+        expect(data.posts.map(p => p.uri)).toContain('at://did:plc:whitewind1/app.bsky.feed.post/whitewind1')
+        expect(data.totalHits).toBe(2)
+      })
+
+      it('deduplicates posts that appear in both searches', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        // Return the same post for both URLs (user linked to both)
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            return new Response(JSON.stringify({
+              posts: [createBlueskyPost('shared', 10, 0)],
+              hitsTotal: 1,
+            }))
+          }
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://greengale.com/user/post,https://whtwnd.com/user/post&includeReplies=false'
+        )
+        const data = await res.json() as { posts: Array<{ uri: string }>, totalHits: number }
+
+        // Should deduplicate - only one post even though both searches returned it
+        expect(data.posts).toHaveLength(1)
+        expect(data.posts[0].uri).toBe('at://did:plc:shared/app.bsky.feed.post/shared')
+      })
+
+      it('sorts combined results by engagement when sort=top', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            if (url.includes('greengale.com')) {
+              return new Response(JSON.stringify({
+                posts: [createBlueskyPost('low', 2, 0)],
+                hitsTotal: 1,
+              }))
+            }
+            if (url.includes('whtwnd.com')) {
+              return new Response(JSON.stringify({
+                posts: [createBlueskyPost('high', 20, 0)],
+                hitsTotal: 1,
+              }))
+            }
+          }
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://greengale.com/user/post,https://whtwnd.com/user/post&sort=top&includeReplies=false'
+        )
+        const data = await res.json() as { posts: Array<{ uri: string, likeCount: number }> }
+
+        // Higher engagement post should come first
+        expect(data.posts[0].likeCount).toBe(20)
+        expect(data.posts[1].likeCount).toBe(2)
+      })
+
+      it('handles one URL failing gracefully', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        mockFetch.mockImplementation(async (url: string) => {
+          if (url.includes('searchPosts')) {
+            if (url.includes('greengale.com')) {
+              return new Response(JSON.stringify({
+                posts: [createBlueskyPost('works', 10, 0)],
+                hitsTotal: 1,
+              }))
+            }
+            if (url.includes('whtwnd.com')) {
+              return new Response('Server error', { status: 500 })
+            }
+          }
+          return new Response('Not found', { status: 404 })
+        })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://greengale.com/user/post,https://whtwnd.com/user/post&includeReplies=false'
+        )
+        expect(res.status).toBe(200)
+
+        const data = await res.json() as { posts: Array<{ uri: string }> }
+
+        // Should still return the successful results
+        expect(data.posts).toHaveLength(1)
+        expect(data.posts[0].uri).toBe('at://did:plc:works/app.bsky.feed.post/works')
+      })
+
+      it('caches with consistent key regardless of URL order', async () => {
+        const mockFetch = vi.fn()
+        globalThis.fetch = mockFetch
+
+        mockFetch.mockImplementation(async () => {
+          return new Response(JSON.stringify({
+            posts: [createBlueskyPost('test', 10, 0)],
+            hitsTotal: 1,
+          }))
+        })
+
+        // First request with URLs in one order
+        await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://a.com/post,https://b.com/post&includeReplies=false'
+        )
+
+        // Should have cached
+        const callsBeforeSecond = mockFetch.mock.calls.length
+
+        // Second request with URLs in reverse order
+        await makeRequest(
+          env,
+          '/xrpc/app.greengale.feed.getBlueskyInteractions?url=https://b.com/post,https://a.com/post&includeReplies=false'
+        )
+
+        // Should hit cache - no new fetch calls
+        expect(mockFetch.mock.calls.length).toBe(callsBeforeSecond)
+      })
+    })
   })
 })
 
