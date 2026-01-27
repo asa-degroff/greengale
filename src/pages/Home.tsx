@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
@@ -119,6 +119,8 @@ export function HomePage() {
   const [followingLoadCount, setFollowingLoadCount] = useState(cachedFollowing?.loadCount ?? 1)
   const [followingLoadingMore, setFollowingLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [spinning, setSpinning] = useState(false)
+  const spinStartRef = useRef<number>(0)
 
   const [feedFromCache, setFeedFromCache] = useState(false)
   const { isOnline } = useNetworkStatus()
@@ -284,6 +286,8 @@ export function HomePage() {
   async function handleRefresh() {
     if (refreshing) return
     setRefreshing(true)
+    setSpinning(true)
+    spinStartRef.current = Date.now()
 
     const minDuration = 400
     const startTime = Date.now()
@@ -321,6 +325,11 @@ export function HomePage() {
         await new Promise(resolve => setTimeout(resolve, minDuration - elapsed))
       }
       setRefreshing(false)
+      // Wait for current spin animation cycle to complete before stopping
+      const spinElapsed = Date.now() - spinStartRef.current
+      const animationDuration = 1000 // animate-spin is 1s per rotation
+      const remaining = animationDuration - (spinElapsed % animationDuration)
+      setTimeout(() => setSpinning(false), remaining)
     }
   }
 
@@ -398,7 +407,7 @@ export function HomePage() {
                 title="Refresh feed"
               >
                 <svg
-                  className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
+                  className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`}
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
