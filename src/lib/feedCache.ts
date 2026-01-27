@@ -80,6 +80,18 @@ export function setCachedFollowingFeed(posts: AppViewPost[], cursor: string | un
   }
 }
 
+export function clearGreengaleFeedCache(): void {
+  cache.greengale = null
+}
+
+export function clearNetworkFeedCache(): void {
+  cache.network = null
+}
+
+export function clearFollowingFeedCache(): void {
+  cache.following = null
+}
+
 export function invalidateFeedCache(): void {
   cache.greengale = null
   cache.network = null

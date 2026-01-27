@@ -9,10 +9,13 @@ import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
 import {
   getCachedGreengaleFeed,
   setCachedGreengaleFeed,
+  clearGreengaleFeedCache,
   getCachedNetworkFeed,
   setCachedNetworkFeed,
+  clearNetworkFeedCache,
   getCachedFollowingFeed,
   setCachedFollowingFeed,
+  clearFollowingFeedCache,
 } from '@/lib/feedCache'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import { useAuth } from '@/lib/auth'
@@ -115,6 +118,7 @@ export function HomePage() {
   const [followingCursor, setFollowingCursor] = useState<string | undefined>(cachedFollowing?.cursor)
   const [followingLoadCount, setFollowingLoadCount] = useState(cachedFollowing?.loadCount ?? 1)
   const [followingLoadingMore, setFollowingLoadingMore] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   const [feedFromCache, setFeedFromCache] = useState(false)
   const { isOnline } = useNetworkStatus()
@@ -277,6 +281,49 @@ export function HomePage() {
     }
   }
 
+  async function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+
+    const minDuration = 400
+    const startTime = Date.now()
+
+    try {
+      if (activeTab === 'greengale') {
+        clearGreengaleFeedCache()
+        const { posts, cursor: nextCursor } = await getRecentPosts(24)
+        setRecentPosts(posts)
+        setCursor(nextCursor)
+        setLoadCount(1)
+        setFeedFromCache(false)
+        setCachedGreengaleFeed(posts, nextCursor, 1)
+      } else if (activeTab === 'network') {
+        clearNetworkFeedCache()
+        const { posts, cursor: nextCursor } = await getNetworkPosts(24)
+        setNetworkPosts(posts)
+        setNetworkCursor(nextCursor)
+        setNetworkLoadCount(1)
+        setCachedNetworkFeed(posts, nextCursor, 1)
+      } else if (activeTab === 'following' && session?.did) {
+        clearFollowingFeedCache()
+        const { posts, cursor: nextCursor } = await getFollowingPosts(session.did, 24)
+        setFollowingPosts(posts)
+        setFollowingCursor(nextCursor)
+        setFollowingLoadCount(1)
+        setCachedFollowingFeed(posts, nextCursor, 1)
+      }
+    } catch {
+      // Refresh failed silently
+    } finally {
+      // Ensure spinner is visible for at least minDuration
+      const elapsed = Date.now() - startTime
+      if (elapsed < minDuration) {
+        await new Promise(resolve => setTimeout(resolve, minDuration - elapsed))
+      }
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div>
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -339,10 +386,29 @@ export function HomePage() {
                     : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
                 }`}
               >
-                From the Network
+                Network
                 {activeTab === 'network' && (
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
                 )}
+              </button>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="ml-auto px-2 py-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors disabled:opacity-50"
+                title="Refresh feed"
+              >
+                <svg
+                  className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
               </button>
             </div>
 
