@@ -268,7 +268,7 @@ export function HomePage() {
 
         {/* Posts Section with Tabs */}
         {appViewAvailable && (
-          <div className="mb-12">
+          <div className="mb-12 min-h-[400px]">
             {/* Tab navigation */}
             <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
               <button
@@ -442,7 +442,7 @@ export function HomePage() {
         )}
 
         {loading && (
-          <div className="mb-12">
+          <div className="mb-12 min-h-[400px]">
             <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
               <div className="px-4 py-2 font-medium text-[var(--site-accent)] relative">
                 Recents
