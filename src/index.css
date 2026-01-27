@@ -731,6 +731,56 @@ body {
   background-color: var(--site-text-secondary);
 }
 
+/* Global scrollbar styling for Chrome/Safari */
+/* Editor textarea */
+textarea::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+textarea::-webkit-scrollbar-thumb {
+  background-color: var(--site-border);
+  border-radius: 4px;
+}
+
+textarea::-webkit-scrollbar-thumb:hover {
+  background-color: var(--site-text-secondary);
+}
+
+/* Preview panel and other overflow-auto elements */
+.prose::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.prose::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prose::-webkit-scrollbar-thumb {
+  background-color: var(--theme-border);
+  border-radius: 4px;
+}
+
+.prose::-webkit-scrollbar-thumb:hover {
+  background-color: var(--theme-text-secondary);
+}
+
+/* Firefox scrollbar styling */
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: var(--site-border) transparent;
+}
+
+.prose {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border) transparent;
+}
+
 /* Smooth scrolling for anchor navigation */
 html {
   scroll-behavior: smooth;
