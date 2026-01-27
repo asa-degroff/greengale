@@ -372,6 +372,7 @@ export function HomePage() {
                           key={post.uri}
                           entry={toBlogEntry(post)}
                           author={toAuthorProfile(post)}
+                          externalUrl={post.externalUrl}
                           tags={post.tags}
                         />
                       ))}

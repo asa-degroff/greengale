@@ -1221,7 +1221,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
       WITH ranked_posts AS (
         SELECT
           p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-          p.visibility, p.created_at, p.indexed_at,
+          p.visibility, p.created_at, p.indexed_at, p.external_url,
           a.handle, a.display_name, a.avatar_url,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank
@@ -1229,11 +1229,24 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
         LEFT JOIN authors a ON p.author_did = a.did
         WHERE p.author_did IN (${placeholders})
           AND p.visibility = 'public'
-          AND p.uri NOT LIKE '%/site.standard.document/%'
+          AND NOT (
+            p.uri LIKE '%/site.standard.document/%'
+            AND (
+              p.external_url IS NULL
+              OR EXISTS (
+                SELECT 1 FROM posts gg
+                WHERE gg.author_did = p.author_did
+                  AND gg.rkey = p.rkey
+                  AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                    OR gg.uri LIKE '%/app.greengale.document/%'
+                    OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+              )
+            )
+          )
           ${cursorClause}
       )
       SELECT uri, author_did, rkey, title, subtitle, source,
-             visibility, created_at, indexed_at,
+             visibility, created_at, indexed_at, external_url,
              handle, display_name, avatar_url, tags
       FROM ranked_posts
       WHERE author_rank <= 3
@@ -1254,7 +1267,14 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
 
     const response = {
-      posts: returnPosts.map(p => formatPost(p)),
+      posts: returnPosts.map(p => {
+        const formatted = formatPost(p)
+        // Override source to 'network' for external site.standard posts
+        if (formatted.externalUrl) {
+          formatted.source = 'network'
+        }
+        return formatted
+      }),
       cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
     }
 
