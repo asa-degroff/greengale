@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
@@ -24,6 +24,20 @@ import {
 } from '@/lib/useDocumentMeta'
 
 type FeedTab = 'greengale' | 'following' | 'network'
+
+const HOME_TAB_STORAGE_KEY = 'greengale:home-tab'
+
+function getStoredTab(): FeedTab {
+  try {
+    const stored = localStorage.getItem(HOME_TAB_STORAGE_KEY)
+    if (stored === 'greengale' || stored === 'following' || stored === 'network') {
+      return stored
+    }
+  } catch {
+    // localStorage not available
+  }
+  return 'greengale'
+}
 
 // Convert AppView post to BlogEntry format for BlogCard
 function toBlogEntry(post: AppViewPost): BlogEntry {
@@ -52,8 +66,26 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
 }
 
 export function HomePage() {
-  const [activeTab, setActiveTab] = useState<FeedTab>('greengale')
-  const { isAuthenticated, session } = useAuth()
+  const [activeTab, setActiveTab] = useState<FeedTab>(getStoredTab)
+  const { isAuthenticated, isLoading: authLoading, session } = useAuth()
+
+  // Validate stored tab - fall back to 'greengale' if 'following' selected but not authenticated
+  // Wait for auth to finish loading before validating
+  useEffect(() => {
+    if (!authLoading && activeTab === 'following' && !isAuthenticated) {
+      setActiveTab('greengale')
+    }
+  }, [activeTab, isAuthenticated, authLoading])
+
+  // Persist tab selection to localStorage
+  const handleTabChange = useCallback((tab: FeedTab) => {
+    setActiveTab(tab)
+    try {
+      localStorage.setItem(HOME_TAB_STORAGE_KEY, tab)
+    } catch {
+      // localStorage not available
+    }
+  }, [])
 
   // Check for cached feed data on initial render
   const cachedGreengale = getCachedGreengaleFeed()
@@ -272,7 +304,7 @@ export function HomePage() {
             {/* Tab navigation */}
             <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
               <button
-                onClick={() => setActiveTab('greengale')}
+                onClick={() => handleTabChange('greengale')}
                 className={`px-4 py-2 font-medium transition-colors relative ${
                   activeTab === 'greengale'
                     ? 'text-[var(--site-accent)]'
@@ -286,7 +318,7 @@ export function HomePage() {
               </button>
               {isAuthenticated && (
                 <button
-                  onClick={() => setActiveTab('following')}
+                  onClick={() => handleTabChange('following')}
                   className={`px-4 py-2 font-medium transition-colors relative ${
                     activeTab === 'following'
                       ? 'text-[var(--site-accent)]'
@@ -300,7 +332,7 @@ export function HomePage() {
                 </button>
               )}
               <button
-                onClick={() => setActiveTab('network')}
+                onClick={() => handleTabChange('network')}
                 className={`px-4 py-2 font-medium transition-colors relative ${
                   activeTab === 'network'
                     ? 'text-[var(--site-accent)]'
@@ -314,131 +346,141 @@ export function HomePage() {
               </button>
             </div>
 
-            {/* GreenGale feed */}
-            {activeTab === 'greengale' && (
-              <>
-                {feedFromCache && (
-                  <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
-                    Offline — showing cached feed
-                  </div>
-                )}
-                {recentPosts.length > 0 ? (
-                  <>
-                    <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                      {recentPosts.map((post) => (
-                        <BlogCard
-                          key={post.uri}
-                          entry={toBlogEntry(post)}
-                          author={toAuthorProfile(post)}
-                          tags={post.tags}
-                        />
-                      ))}
-                    </MasonryGrid>
-                    {cursor && loadCount < 12 && isOnline && (
-                      <div className="mt-8 text-center">
-                        <button
-                          onClick={handleLoadMore}
-                          disabled={loadingMore}
-                          className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {loadingMore ? 'Loading...' : 'More'}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : !loading && (
-                  <p className="text-center text-[var(--site-text-secondary)] py-8">
-                    No posts yet.
-                  </p>
-                )}
-              </>
-            )}
-
-            {/* Following feed */}
-            {activeTab === 'following' && (
-              <>
-                {followingLoading ? (
-                  <div className="flex flex-col items-center py-12">
-                    <LoadingCube size="md" />
-                    <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
-                      Loading posts from accounts you follow...
+            {/* Sliding feed panels */}
+            <div className="overflow-hidden">
+              <div
+                className="flex transition-transform duration-300 ease-out"
+                style={{
+                  transform: `translateX(-${
+                    activeTab === 'greengale' ? 0 :
+                    activeTab === 'following' ? 100 :
+                    isAuthenticated ? 200 : 100
+                  }%)`
+                }}
+              >
+                {/* GreenGale feed panel */}
+                <div className="w-full flex-shrink-0">
+                  {feedFromCache && (
+                    <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
+                      Offline — showing cached feed
+                    </div>
+                  )}
+                  {recentPosts.length > 0 ? (
+                    <>
+                      <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
+                        {recentPosts.map((post) => (
+                          <BlogCard
+                            key={post.uri}
+                            entry={toBlogEntry(post)}
+                            author={toAuthorProfile(post)}
+                            tags={post.tags}
+                          />
+                        ))}
+                      </MasonryGrid>
+                      {cursor && loadCount < 12 && isOnline && (
+                        <div className="mt-8 text-center">
+                          <button
+                            onClick={handleLoadMore}
+                            disabled={loadingMore}
+                            className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {loadingMore ? 'Loading...' : 'More'}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : !loading && (
+                    <p className="text-center text-[var(--site-text-secondary)] py-8">
+                      No posts yet.
                     </p>
-                  </div>
-                ) : followingPosts.length > 0 ? (
-                  <>
-                    <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                      {followingPosts.map((post) => (
-                        <BlogCard
-                          key={post.uri}
-                          entry={toBlogEntry(post)}
-                          author={toAuthorProfile(post)}
-                          externalUrl={post.externalUrl}
-                          tags={post.tags}
-                        />
-                      ))}
-                    </MasonryGrid>
-                    {followingCursor && followingLoadCount < 12 && (
-                      <div className="mt-8 text-center">
-                        <button
-                          onClick={handleLoadMoreFollowing}
-                          disabled={followingLoadingMore}
-                          className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {followingLoadingMore ? 'Loading...' : 'More'}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-center text-[var(--site-text-secondary)] py-8">
-                    None of the accounts you follow have blog posts yet.
-                  </p>
-                )}
-              </>
-            )}
+                  )}
+                </div>
 
-            {/* Network feed */}
-            {activeTab === 'network' && (
-              <>
-                {networkLoading ? (
-                  <div className="flex flex-col items-center py-12">
-                    <LoadingCube size="md" />
-                    <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
-                      Loading network posts...
-                    </p>
-                  </div>
-                ) : networkPosts.length > 0 ? (
-                  <>
-                    <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                      {networkPosts.map((post) => (
-                        <BlogCard
-                          key={post.uri}
-                          entry={toBlogEntry(post)}
-                          author={toAuthorProfile(post)}
-                          externalUrl={post.externalUrl}
-                          tags={post.tags}
-                        />
-                      ))}
-                    </MasonryGrid>
-                    {networkCursor && networkLoadCount < 12 && (
-                      <div className="mt-8 text-center">
-                        <button
-                          onClick={handleLoadMoreNetwork}
-                          disabled={networkLoadingMore}
-                          className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {networkLoadingMore ? 'Loading...' : 'More'}
-                        </button>
+                {/* Following feed panel - only rendered when authenticated */}
+                {isAuthenticated && (
+                  <div className="w-full flex-shrink-0">
+                    {followingLoading ? (
+                      <div className="flex flex-col items-center py-12">
+                        <LoadingCube size="md" />
+                        <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+                          Loading posts from accounts you follow...
+                        </p>
                       </div>
+                    ) : followingPosts.length > 0 ? (
+                      <>
+                        <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
+                          {followingPosts.map((post) => (
+                            <BlogCard
+                              key={post.uri}
+                              entry={toBlogEntry(post)}
+                              author={toAuthorProfile(post)}
+                              externalUrl={post.externalUrl}
+                              tags={post.tags}
+                            />
+                          ))}
+                        </MasonryGrid>
+                        {followingCursor && followingLoadCount < 12 && (
+                          <div className="mt-8 text-center">
+                            <button
+                              onClick={handleLoadMoreFollowing}
+                              disabled={followingLoadingMore}
+                              className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {followingLoadingMore ? 'Loading...' : 'More'}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-center text-[var(--site-text-secondary)] py-8">
+                        None of the accounts you follow have blog posts yet.
+                      </p>
                     )}
-                  </>
-                ) : (
-                  <p className="text-center text-[var(--site-text-secondary)] py-8">
-                    No network posts available yet.
-                  </p>
+                  </div>
                 )}
-              </>
-            )}
+
+                {/* Network feed panel */}
+                <div className="w-full flex-shrink-0">
+                  {networkLoading ? (
+                    <div className="flex flex-col items-center py-12">
+                      <LoadingCube size="md" />
+                      <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+                        Loading network posts...
+                      </p>
+                    </div>
+                  ) : networkPosts.length > 0 ? (
+                    <>
+                      <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
+                        {networkPosts.map((post) => (
+                          <BlogCard
+                            key={post.uri}
+                            entry={toBlogEntry(post)}
+                            author={toAuthorProfile(post)}
+                            externalUrl={post.externalUrl}
+                            tags={post.tags}
+                          />
+                        ))}
+                      </MasonryGrid>
+                      {networkCursor && networkLoadCount < 12 && (
+                        <div className="mt-8 text-center">
+                          <button
+                            onClick={handleLoadMoreNetwork}
+                            disabled={networkLoadingMore}
+                            className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {networkLoadingMore ? 'Loading...' : 'More'}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-center text-[var(--site-text-secondary)] py-8">
+                      No network posts available yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
