@@ -153,6 +153,7 @@ const OG_IMAGE_CACHE_TTL = 7 * 24 * 60 * 60
 // Test endpoint for OG image generation (no database required)
 // Usage: /og/test?title=Hello&subtitle=World&author=Test&theme=default
 // Custom colors: /og/test?title=Hello&bg=%23282a36&text=%23f8f8f2&accent=%23bd93f9
+// Tags: /og/test?title=Hello&tags=javascript,react,web
 app.get('/og/test', async (c) => {
   const title = c.req.query('title') || 'Test Post Title'
   const subtitle = c.req.query('subtitle') || null
@@ -160,6 +161,8 @@ app.get('/og/test', async (c) => {
   const authorHandle = c.req.query('handle') || 'test.bsky.social'
   const authorAvatar = c.req.query('avatar') || null
   const themePreset = c.req.query('theme') || null
+  const tagsParam = c.req.query('tags')
+  const tags = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : null
 
   // Support custom colors via query params
   const bg = c.req.query('bg')
@@ -176,6 +179,7 @@ app.get('/og/test', async (c) => {
       authorAvatar,
       themePreset,
       customColors,
+      tags,
     })
 
     return new Response(await imageResponse.arrayBuffer(), {
@@ -328,7 +332,7 @@ app.get('/og/:handle/:filename', async (c) => {
     // Exclude site.standard.document posts since they don't have theme data
     // (dual-published posts share the same rkey, so we want the GreenGale version)
     const post = await c.env.DB.prepare(`
-      SELECT p.title, p.subtitle, p.theme_preset, p.first_image_cid,
+      SELECT p.uri, p.title, p.subtitle, p.theme_preset, p.first_image_cid,
              a.handle, a.display_name, a.avatar_url, a.pds_endpoint
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
@@ -339,6 +343,12 @@ app.get('/og/:handle/:filename', async (c) => {
     if (!post) {
       return c.json({ error: 'Post not found' }, 404)
     }
+
+    // Fetch tags for this post
+    const tagsResult = await c.env.DB.prepare(
+      'SELECT tag FROM post_tags WHERE post_uri = ? ORDER BY tag LIMIT 10'
+    ).bind(post.uri as string).all()
+    const tags = (tagsResult.results || []).map(r => r.tag as string)
 
     // Parse theme data - could be preset name or JSON custom colors
     let themePreset: string | null = null
@@ -400,6 +410,7 @@ app.get('/og/:handle/:filename', async (c) => {
       themePreset,
       customColors,
       thumbnailUrl,
+      tags: tags.length > 0 ? tags : null,
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()

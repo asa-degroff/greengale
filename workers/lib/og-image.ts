@@ -12,6 +12,8 @@ export interface OGImageData {
   customColors?: { background?: string; text?: string; accent?: string } | null
   /** URL to the first image in the post for OG thumbnail */
   thumbnailUrl?: string | null
+  /** Tags/hashtags for the post */
+  tags?: string[] | null
 }
 
 // Font URLs (TTF format required by Satori)
@@ -378,7 +380,7 @@ async function buildFontsArray(baseFonts: BaseFonts, text: string): Promise<Font
  * Returns a PNG image response (1200x630)
  */
 export async function generateOGImage(data: OGImageData): Promise<Response> {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors, thumbnailUrl } = data
+  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors, thumbnailUrl, tags } = data
 
   // Resolve theme colors (supports both presets and custom colors)
   const colors = resolveThemeColors(themePreset, customColors)
@@ -387,8 +389,8 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
   // Load base fonts
   const baseFonts = await loadBaseFonts()
 
-  // Collect all text that might need fallback fonts
-  const allText = [title, subtitle, authorName, authorHandle].filter(Boolean).join('')
+  // Collect all text that might need fallback fonts (include tags)
+  const allText = [title, subtitle, authorName, authorHandle, ...(tags || [])].filter(Boolean).join('')
 
   // Build fonts array with fallback fonts for non-Latin scripts
   const fonts = await buildFontsArray(baseFonts, allText)
@@ -406,6 +408,7 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
     colors,
     isDark,
     thumbnailUrl,
+    tags,
   })
 
   return new ImageResponse(html, {
@@ -488,6 +491,8 @@ interface BuildHtmlOptions {
   isDark: boolean
   /** URL to the first image in the post for OG thumbnail */
   thumbnailUrl?: string | null
+  /** Tags/hashtags for the post */
+  tags?: string[] | null
 }
 
 function escapeHtml(text: string): string {
@@ -537,7 +542,7 @@ function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
 }
 
 function buildImageHtml(options: BuildHtmlOptions): string {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark, thumbnailUrl } = options
+  const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark, thumbnailUrl, tags } = options
 
   // Truncate title if too long (shorter limit when thumbnail is present)
   const maxTitleLength = thumbnailUrl ? 80 : 100
@@ -563,6 +568,17 @@ function buildImageHtml(options: BuildHtmlOptions): string {
   // Build subtitle element (increased font size)
   const subtitleHtml = displaySubtitle
     ? `<div style="display: flex; font-size: 32px; color: ${colors.textSecondary}; line-height: 1.4; font-family: ${fontFamily};">${escapeHtml(displaySubtitle)}</div>`
+    : ''
+
+  // Build tags element (pill badges, max 4 tags)
+  const displayTags = tags?.slice(0, 4) || []
+  const tagsHtml = displayTags.length > 0
+    ? `<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px;">
+        ${displayTags.map(tag =>
+          `<div style="display: flex; padding: 6px 14px; border-radius: 9999px; font-size: 20px; background: ${colors.accent}20; color: ${colors.accent}; font-family: ${fontFamily};">${escapeHtml(tag)}</div>`
+        ).join('')}
+        ${tags && tags.length > 4 ? `<div style="display: flex; padding: 6px 14px; font-size: 20px; color: ${colors.textSecondary}; font-family: ${fontFamily};">+${tags.length - 4} more</div>` : ''}
+       </div>`
     : ''
 
   // Build thumbnail element (280x280 square, vertically centered on the right)
@@ -591,6 +607,7 @@ function buildImageHtml(options: BuildHtmlOptions): string {
     <div style="display: flex; flex-direction: column; justify-content: center; position: absolute; top: 60px; left: 60px; right: ${contentRightPadding}; bottom: 160px;">
       <div style="display: flex; font-size: ${titleFontSize}px; font-weight: 700; color: ${colors.text}; line-height: 1.2; margin-bottom: ${subtitle ? '16px' : '0'}; font-family: ${titleFontFamily};">${escapeHtml(displayTitle)}</div>
       ${subtitleHtml}
+      ${tagsHtml}
     </div>
     <div style="display: flex; align-items: center; position: absolute; bottom: 60px; left: 60px;">
       ${avatarHtml}

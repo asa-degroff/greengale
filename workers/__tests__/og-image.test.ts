@@ -678,6 +678,60 @@ describe('OG Image Generation', () => {
     })
   })
 
+  describe('Tags Display', () => {
+    // Test the tags display logic matching the implementation
+    function getDisplayTags(tags: string[] | null | undefined): string[] {
+      return tags?.slice(0, 4) || []
+    }
+
+    function hasMoreIndicator(tags: string[] | null | undefined): boolean {
+      return tags !== null && tags !== undefined && tags.length > 4
+    }
+
+    function getMoreCount(tags: string[] | null | undefined): number {
+      if (!tags || tags.length <= 4) return 0
+      return tags.length - 4
+    }
+
+    it('shows up to 4 tags', () => {
+      const tags = ['javascript', 'react', 'typescript', 'web']
+      expect(getDisplayTags(tags)).toHaveLength(4)
+      expect(getDisplayTags(tags)).toEqual(tags)
+    })
+
+    it('limits tags to 4 when more are provided', () => {
+      const tags = ['javascript', 'react', 'typescript', 'web', 'css', 'html']
+      expect(getDisplayTags(tags)).toHaveLength(4)
+      expect(getDisplayTags(tags)).toEqual(['javascript', 'react', 'typescript', 'web'])
+    })
+
+    it('shows "+N more" indicator when there are more than 4 tags', () => {
+      const tags = ['javascript', 'react', 'typescript', 'web', 'css', 'html']
+      expect(hasMoreIndicator(tags)).toBe(true)
+      expect(getMoreCount(tags)).toBe(2)
+    })
+
+    it('does not show more indicator when 4 or fewer tags', () => {
+      expect(hasMoreIndicator(['a', 'b', 'c', 'd'])).toBe(false)
+      expect(hasMoreIndicator(['a', 'b'])).toBe(false)
+    })
+
+    it('handles null tags', () => {
+      expect(getDisplayTags(null)).toEqual([])
+      expect(hasMoreIndicator(null)).toBe(false)
+    })
+
+    it('handles undefined tags', () => {
+      expect(getDisplayTags(undefined)).toEqual([])
+      expect(hasMoreIndicator(undefined)).toBe(false)
+    })
+
+    it('handles empty tags array', () => {
+      expect(getDisplayTags([])).toEqual([])
+      expect(hasMoreIndicator([])).toBe(false)
+    })
+  })
+
   describe('Integration: Generate OG Image', () => {
     beforeEach(() => {
       // Mock font fetches
@@ -733,6 +787,65 @@ describe('OG Image Generation', () => {
 
       expect(result).toBeDefined()
       expect(result.type).toBe('ImageResponse')
+    })
+
+    it('generates post OG image with tags', async () => {
+      const { generateOGImage } = await import('../lib/og-image')
+
+      const result = await generateOGImage({
+        title: 'Test Post with Tags',
+        subtitle: 'A post about web development',
+        authorName: 'Test Author',
+        authorHandle: 'testauthor',
+        tags: ['javascript', 'react', 'typescript'],
+      })
+
+      expect(result).toBeDefined()
+      expect(result.type).toBe('ImageResponse')
+      // Verify the HTML contains the tags
+      const html = (result as unknown as { html: string }).html
+      expect(html).toContain('javascript')
+      expect(html).toContain('react')
+      expect(html).toContain('typescript')
+    })
+
+    it('generates post OG image with many tags showing +N more', async () => {
+      const { generateOGImage } = await import('../lib/og-image')
+
+      const result = await generateOGImage({
+        title: 'Test Post with Many Tags',
+        authorName: 'Test Author',
+        authorHandle: 'testauthor',
+        tags: ['javascript', 'react', 'typescript', 'web', 'css', 'html'],
+      })
+
+      expect(result).toBeDefined()
+      const html = (result as unknown as { html: string }).html
+      // First 4 tags should be present
+      expect(html).toContain('javascript')
+      expect(html).toContain('react')
+      expect(html).toContain('typescript')
+      expect(html).toContain('web')
+      // "+2 more" indicator should be present
+      expect(html).toContain('+2 more')
+      // 5th and 6th tags should NOT be present
+      expect(html).not.toContain('>css<')
+      expect(html).not.toContain('>html<')
+    })
+
+    it('generates post OG image without tags when none provided', async () => {
+      const { generateOGImage } = await import('../lib/og-image')
+
+      const result = await generateOGImage({
+        title: 'Test Post without Tags',
+        authorName: 'Test Author',
+        authorHandle: 'testauthor',
+      })
+
+      expect(result).toBeDefined()
+      const html = (result as unknown as { html: string }).html
+      // Should not contain tag-related markup when no tags
+      expect(html).not.toContain('more</div>')
     })
   })
 })
