@@ -52,7 +52,7 @@ export function AuthCallbackPage() {
     // Don't run twice
     if (hasHandledAuth.current) return
 
-    async function handleAuthComplete() {
+    async function handleAuthComplete(requireSession: boolean = false) {
       if (fromPWA) {
         // PWA flow: export session to Cache Storage for the PWA to pick up
         console.log('[AuthCallback] Auth complete, exporting session for PWA...')
@@ -69,7 +69,16 @@ export function AuthCallbackPage() {
           }
         }
 
-        // If we couldn't export, still clear the flag and show success
+        // If requireSession is true and we have no session, this is an auth failure
+        if (requireSession && !session) {
+          await clearFromPWA()
+          console.error('[AuthCallback] No session found after auth - login failed')
+          setError('Login failed. Please try again.')
+          setState('error')
+          return
+        }
+
+        // If we couldn't export but auth was confirmed, still show success
         // The session is stored in Safari's IndexedDB at least
         await clearFromPWA()
         console.warn('[AuthCallback] Could not export session, but auth succeeded')
@@ -83,17 +92,16 @@ export function AuthCallbackPage() {
 
     if (isAuthenticated && !isLoading) {
       hasHandledAuth.current = true
-      handleAuthComplete()
+      handleAuthComplete(false)
     } else if (!isAuthenticated && !isLoading && fromPWA !== null) {
-      // Auth finished but not authenticated - wait a bit and try again
-      // The OAuth client might still be processing
-      const timeout = setTimeout(() => {
+      // Auth finished but not authenticated - wait a bit for IndexedDB sync
+      // On iOS, the OAuth client might still be processing
+      const timeout = setTimeout(async () => {
         if (!hasHandledAuth.current) {
-          // If we're from PWA and auth failed, still show success
-          // (the session might be stored but not picked up by useAuth yet)
           if (fromPWA) {
             hasHandledAuth.current = true
-            handleAuthComplete()
+            // Must verify session exists - if not, it's a real auth failure
+            await handleAuthComplete(true)
           }
         }
       }, 2000)
