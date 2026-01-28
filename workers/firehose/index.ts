@@ -848,8 +848,23 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const authorData = await this.fetchAuthorData(did)
 
       // Phase 2: Invalidate OG cache BEFORE DB write
+      // Invalidate profile OG image and all post OG images (since posts may inherit publication theme)
       if (authorData?.handle) {
-        await this.env.CACHE.delete(`og:profile:${authorData.handle}`)
+        const cacheInvalidations: Promise<boolean>[] = [
+          this.env.CACHE.delete(`og:profile:${authorData.handle}`),
+        ]
+
+        // Get all rkeys for this author's posts to invalidate their OG images
+        const postsResult = await this.env.DB.prepare(
+          'SELECT rkey FROM posts WHERE author_did = ?'
+        ).bind(did).all()
+        for (const row of postsResult.results || []) {
+          cacheInvalidations.push(
+            this.env.CACHE.delete(`og:${authorData.handle}:${row.rkey}`)
+          )
+        }
+
+        await Promise.all(cacheInvalidations)
       }
 
       // Phase 3: Atomic database batch

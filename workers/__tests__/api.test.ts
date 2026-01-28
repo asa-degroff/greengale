@@ -20,6 +20,10 @@ vi.mock('../lib/og-image', () => ({
   })),
 }))
 
+// Import mocked module to access mock functions for assertions
+import { generateOGImage } from '../lib/og-image'
+const mockGenerateOGImage = generateOGImage as ReturnType<typeof vi.fn>
+
 // Import the REAL app after mocking dependencies
 import api from '../api/index'
 
@@ -1970,6 +1974,128 @@ describe('API Endpoints', () => {
 
       const data = await res.json()
       expect(data.error).toBe('Invalid image format')
+    })
+
+    it('uses post theme when available', async () => {
+      // First query: resolve handle to DID
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
+      // Second query: get post with theme_preset
+      env.DB._statement.first.mockResolvedValueOnce({
+        uri: 'at://did:plc:abc/app.greengale.document/123',
+        title: 'Test Post',
+        subtitle: null,
+        theme_preset: 'dracula',
+        publication_theme_preset: 'nord',
+        first_image_cid: null,
+        handle: 'test.bsky.social',
+        display_name: 'Test User',
+        avatar_url: null,
+        pds_endpoint: null,
+      })
+      // Third query: get tags
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      mockGenerateOGImage.mockClear()
+      await makeRequest(env, '/og/test.bsky.social/123.png')
+
+      expect(mockGenerateOGImage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themePreset: 'dracula',
+          customColors: null,
+        })
+      )
+    })
+
+    it('falls back to publication theme when post has no theme', async () => {
+      // First query: resolve handle to DID
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
+      // Second query: get post without theme_preset but with publication_theme_preset
+      env.DB._statement.first.mockResolvedValueOnce({
+        uri: 'at://did:plc:abc/app.greengale.document/123',
+        title: 'Test Post',
+        subtitle: null,
+        theme_preset: null,
+        publication_theme_preset: 'nord',
+        first_image_cid: null,
+        handle: 'test.bsky.social',
+        display_name: 'Test User',
+        avatar_url: null,
+        pds_endpoint: null,
+      })
+      // Third query: get tags
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      mockGenerateOGImage.mockClear()
+      await makeRequest(env, '/og/test.bsky.social/123.png')
+
+      expect(mockGenerateOGImage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themePreset: 'nord',
+          customColors: null,
+        })
+      )
+    })
+
+    it('falls back to publication custom colors when post has no theme', async () => {
+      const customColors = { background: '#1a1a2e', text: '#ffffff', accent: '#e94560' }
+
+      // First query: resolve handle to DID
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
+      // Second query: get post without theme_preset but with publication custom colors
+      env.DB._statement.first.mockResolvedValueOnce({
+        uri: 'at://did:plc:abc/app.greengale.document/123',
+        title: 'Test Post',
+        subtitle: null,
+        theme_preset: null,
+        publication_theme_preset: JSON.stringify(customColors),
+        first_image_cid: null,
+        handle: 'test.bsky.social',
+        display_name: 'Test User',
+        avatar_url: null,
+        pds_endpoint: null,
+      })
+      // Third query: get tags
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      mockGenerateOGImage.mockClear()
+      await makeRequest(env, '/og/test.bsky.social/123.png')
+
+      expect(mockGenerateOGImage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themePreset: null,
+          customColors,
+        })
+      )
+    })
+
+    it('uses default theme when neither post nor publication has theme', async () => {
+      // First query: resolve handle to DID
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
+      // Second query: get post without any theme
+      env.DB._statement.first.mockResolvedValueOnce({
+        uri: 'at://did:plc:abc/app.greengale.document/123',
+        title: 'Test Post',
+        subtitle: null,
+        theme_preset: null,
+        publication_theme_preset: null,
+        first_image_cid: null,
+        handle: 'test.bsky.social',
+        display_name: 'Test User',
+        avatar_url: null,
+        pds_endpoint: null,
+      })
+      // Third query: get tags
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      mockGenerateOGImage.mockClear()
+      await makeRequest(env, '/og/test.bsky.social/123.png')
+
+      expect(mockGenerateOGImage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          themePreset: null,
+          customColors: null,
+        })
+      )
     })
   })
 

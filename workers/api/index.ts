@@ -328,14 +328,16 @@ app.get('/og/:handle/:filename', async (c) => {
       authorDid = authorRow.did as string
     }
 
-    // Fetch post + author data from D1 (including first_image_cid and pds_endpoint for OG thumbnails)
+    // Fetch post + author + publication data from D1 (including first_image_cid and pds_endpoint for OG thumbnails)
     // Exclude site.standard.document posts since they don't have theme data
     // (dual-published posts share the same rkey, so we want the GreenGale version)
     const post = await c.env.DB.prepare(`
       SELECT p.uri, p.title, p.subtitle, p.theme_preset, p.first_image_cid,
-             a.handle, a.display_name, a.avatar_url, a.pds_endpoint
+             a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+             pub.theme_preset AS publication_theme_preset
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.did
       WHERE p.author_did = ? AND p.rkey = ?
         AND p.uri NOT LIKE '%/site.standard.document/%'
     `).bind(authorDid, rkey).first()
@@ -351,21 +353,25 @@ app.get('/og/:handle/:filename', async (c) => {
     const tags = (tagsResult.results || []).map(r => r.tag as string)
 
     // Parse theme data - could be preset name or JSON custom colors
+    // Falls back to publication theme if post doesn't have its own theme
     let themePreset: string | null = null
     let customColors: { background?: string; text?: string; accent?: string } | null = null
 
     const themeData = post.theme_preset as string | null
-    if (themeData) {
-      if (themeData.startsWith('{')) {
+    const publicationThemeData = post.publication_theme_preset as string | null
+    const effectiveThemeData = themeData || publicationThemeData
+
+    if (effectiveThemeData) {
+      if (effectiveThemeData.startsWith('{')) {
         // JSON custom colors
         try {
-          customColors = JSON.parse(themeData)
+          customColors = JSON.parse(effectiveThemeData)
         } catch {
           // Invalid JSON, ignore
         }
       } else {
         // Preset name
-        themePreset = themeData
+        themePreset = effectiveThemeData
       }
     }
 
