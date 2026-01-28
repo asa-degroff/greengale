@@ -3,6 +3,7 @@ import {
   validateImageFile,
   getBlobUrl,
   generateMarkdownImage,
+  isAnimatedImage,
 } from '../image-upload'
 
 // Helper to create a mock File object
@@ -13,6 +14,17 @@ function createMockFile(
 ): File {
   const content = new ArrayBuffer(size)
   const blob = new Blob([content], { type })
+  return new File([blob], name, { type })
+}
+
+// Helper to create a File from binary data
+function createFileFromBytes(
+  name: string,
+  bytes: number[],
+  type: string
+): File {
+  const buffer = new Uint8Array(bytes)
+  const blob = new Blob([buffer], { type })
   return new File([blob], name, { type })
 }
 
@@ -279,6 +291,222 @@ describe('Image Upload Utilities', () => {
       const url = 'https://example.com/image(1).jpg'
       const result = generateMarkdownImage('Alt', url)
       expect(result).toBe('![Alt](https://example.com/image(1).jpg)')
+    })
+  })
+
+  describe('isAnimatedImage', () => {
+    describe('GIF animation detection', () => {
+      it('detects animated GIF (multiple image descriptors)', async () => {
+        // GIF89a header + two image descriptors (0x2C)
+        const bytes = [
+          // GIF89a signature
+          0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
+          // Logical screen descriptor (7 bytes)
+          0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+          // First image descriptor
+          0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+          // Some data
+          0x02, 0x02, 0x44, 0x01, 0x00,
+          // Second image descriptor (makes it animated)
+          0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+          // Trailer
+          0x3b,
+        ]
+        const file = createFileFromBytes('animated.gif', bytes, 'image/gif')
+        expect(await isAnimatedImage(file)).toBe(true)
+      })
+
+      it('detects static GIF (single image descriptor)', async () => {
+        // GIF89a header + single image descriptor
+        const bytes = [
+          // GIF89a signature
+          0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
+          // Logical screen descriptor
+          0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+          // Single image descriptor
+          0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00,
+          // Trailer
+          0x3b,
+        ]
+        const file = createFileFromBytes('static.gif', bytes, 'image/gif')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+
+      it('returns false for invalid GIF signature', async () => {
+        const bytes = [0x00, 0x00, 0x00, 0x2c, 0x2c] // Not a GIF
+        const file = createFileFromBytes('fake.gif', bytes, 'image/gif')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+    })
+
+    describe('PNG/APNG animation detection', () => {
+      it('detects animated PNG (has acTL chunk)', async () => {
+        // PNG signature + acTL chunk
+        const bytes = [
+          // PNG signature
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+          // IHDR chunk (simplified)
+          0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+          0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde,
+          // acTL chunk (animation control) - makes it APNG
+          0x00, 0x00, 0x00, 0x08, 0x61, 0x63, 0x54, 0x4c,
+          0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00,
+        ]
+        const file = createFileFromBytes('animated.png', bytes, 'image/png')
+        expect(await isAnimatedImage(file)).toBe(true)
+      })
+
+      it('detects static PNG (no acTL chunk)', async () => {
+        // PNG signature without acTL
+        const bytes = [
+          // PNG signature
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+          // IHDR chunk only
+          0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+          0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+          0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde,
+        ]
+        const file = createFileFromBytes('static.png', bytes, 'image/png')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+
+      it('returns false for invalid PNG signature', async () => {
+        const bytes = [0x00, 0x00, 0x00, 0x61, 0x63, 0x54, 0x4c]
+        const file = createFileFromBytes('fake.png', bytes, 'image/png')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+    })
+
+    describe('WebP animation detection', () => {
+      it('detects animated WebP (VP8X with animation flag)', async () => {
+        // RIFF....WEBP + VP8X with animation flag
+        const bytes = [
+          // RIFF header
+          0x52, 0x49, 0x46, 0x46,
+          0x24, 0x00, 0x00, 0x00, // file size
+          0x57, 0x45, 0x42, 0x50, // WEBP
+          // VP8X chunk
+          0x56, 0x50, 0x38, 0x58, // VP8X
+          0x0a, 0x00, 0x00, 0x00, // chunk size
+          0x02, 0x00, 0x00, 0x00, // flags (bit 1 = animation)
+          0x00, 0x00, 0x00, // canvas width
+          0x00, 0x00, 0x00, // canvas height
+        ]
+        const file = createFileFromBytes('animated.webp', bytes, 'image/webp')
+        expect(await isAnimatedImage(file)).toBe(true)
+      })
+
+      it('detects animated WebP (has ANIM chunk)', async () => {
+        // RIFF....WEBP + ANIM chunk
+        const bytes = [
+          // RIFF header
+          0x52, 0x49, 0x46, 0x46,
+          0x20, 0x00, 0x00, 0x00,
+          0x57, 0x45, 0x42, 0x50,
+          // VP8X without animation flag
+          0x56, 0x50, 0x38, 0x58,
+          0x0a, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, // no animation flag
+          0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00,
+          // ANIM chunk
+          0x41, 0x4e, 0x49, 0x4d,
+          0x06, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ]
+        const file = createFileFromBytes('animated.webp', bytes, 'image/webp')
+        expect(await isAnimatedImage(file)).toBe(true)
+      })
+
+      it('detects static WebP (no animation flag or ANIM chunk)', async () => {
+        // RIFF....WEBP + VP8X without animation
+        const bytes = [
+          // RIFF header
+          0x52, 0x49, 0x46, 0x46,
+          0x1a, 0x00, 0x00, 0x00,
+          0x57, 0x45, 0x42, 0x50,
+          // VP8X chunk without animation flag
+          0x56, 0x50, 0x38, 0x58,
+          0x0a, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, // flags = 0 (no animation)
+          0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00,
+        ]
+        const file = createFileFromBytes('static.webp', bytes, 'image/webp')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+
+      it('returns false for invalid WebP signature', async () => {
+        const bytes = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        const file = createFileFromBytes('fake.webp', bytes, 'image/webp')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+    })
+
+    describe('AVIF animation detection', () => {
+      it('detects animated AVIF (has avis brand)', async () => {
+        // ISOBMFF ftyp box with avis brand
+        const bytes = [
+          // ftyp box size (20 bytes)
+          0x00, 0x00, 0x00, 0x14,
+          // ftyp
+          0x66, 0x74, 0x79, 0x70,
+          // major brand: avif
+          0x61, 0x76, 0x69, 0x66,
+          // minor version
+          0x00, 0x00, 0x00, 0x00,
+          // compatible brand: avis (animated)
+          0x61, 0x76, 0x69, 0x73,
+        ]
+        const file = createFileFromBytes('animated.avif', bytes, 'image/avif')
+        expect(await isAnimatedImage(file)).toBe(true)
+      })
+
+      it('detects static AVIF (no avis brand)', async () => {
+        // ISOBMFF ftyp box with avif brand only
+        const bytes = [
+          // ftyp box size (20 bytes)
+          0x00, 0x00, 0x00, 0x14,
+          // ftyp
+          0x66, 0x74, 0x79, 0x70,
+          // major brand: avif
+          0x61, 0x76, 0x69, 0x66,
+          // minor version
+          0x00, 0x00, 0x00, 0x00,
+          // compatible brand: mif1 (not animated)
+          0x6d, 0x69, 0x66, 0x31,
+        ]
+        const file = createFileFromBytes('static.avif', bytes, 'image/avif')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+
+      it('returns false for invalid AVIF structure', async () => {
+        const bytes = [0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00]
+        const file = createFileFromBytes('fake.avif', bytes, 'image/avif')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+    })
+
+    describe('unsupported types', () => {
+      it('returns false for JPEG (never animated)', async () => {
+        const bytes = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]
+        const file = createFileFromBytes('photo.jpg', bytes, 'image/jpeg')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+
+      it('returns false for BMP (never animated)', async () => {
+        const bytes = [0x42, 0x4d, 0x00, 0x00, 0x00, 0x00]
+        const file = createFileFromBytes('image.bmp', bytes, 'image/bmp')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
+
+      it('returns false for unknown type', async () => {
+        const bytes = [0x00, 0x00, 0x00, 0x00]
+        const file = createFileFromBytes('unknown.xyz', bytes, 'image/xyz')
+        expect(await isAnimatedImage(file)).toBe(false)
+      })
     })
   })
 })

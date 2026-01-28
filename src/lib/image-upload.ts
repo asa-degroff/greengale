@@ -21,6 +21,171 @@ const RESIZE_FACTOR = 0.7 // Scale factor when retrying after encoding failure
 const CQ_LEVEL_START = 10 // Starting quality (good balance)
 const CQ_LEVEL_MAX = 24 // Maximum cqLevel (lower quality) to try before failing
 
+// ============================================================================
+// Animation Detection
+// ============================================================================
+
+/**
+ * Check if a GIF file is animated (has multiple frames)
+ */
+function isAnimatedGif(bytes: Uint8Array): boolean {
+  // GIF signature: GIF87a or GIF89a
+  if (bytes[0] !== 0x47 || bytes[1] !== 0x49 || bytes[2] !== 0x46) {
+    return false
+  }
+
+  // Count image descriptors (0x2C) - each frame starts with one
+  let imageCount = 0
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i] === 0x2c) {
+      imageCount++
+      if (imageCount > 1) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Check if a PNG file is an animated PNG (APNG)
+ * APNG files contain an acTL (animation control) chunk
+ */
+function isAnimatedPng(bytes: Uint8Array): boolean {
+  // PNG signature: 0x89 PNG\r\n 0x1A\n
+  if (
+    bytes[0] !== 0x89 ||
+    bytes[1] !== 0x50 ||
+    bytes[2] !== 0x4e ||
+    bytes[3] !== 0x47
+  ) {
+    return false
+  }
+
+  // Look for acTL chunk (animation control)
+  // Chunk structure: 4 bytes length, 4 bytes type, data, 4 bytes CRC
+  // acTL = 0x61 0x63 0x54 0x4C ('acTL')
+  for (let i = 8; i < bytes.length - 4; i++) {
+    if (
+      bytes[i] === 0x61 &&
+      bytes[i + 1] === 0x63 &&
+      bytes[i + 2] === 0x54 &&
+      bytes[i + 3] === 0x4c
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Check if a WebP file is animated
+ * Animated WebP has an ANIM chunk or VP8X with animation flag
+ */
+function isAnimatedWebp(bytes: Uint8Array): boolean {
+  // RIFF....WEBP signature
+  if (
+    bytes[0] !== 0x52 ||
+    bytes[1] !== 0x49 ||
+    bytes[2] !== 0x46 ||
+    bytes[3] !== 0x46
+  ) {
+    return false
+  }
+  if (
+    bytes[8] !== 0x57 ||
+    bytes[9] !== 0x45 ||
+    bytes[10] !== 0x42 ||
+    bytes[11] !== 0x50
+  ) {
+    return false
+  }
+
+  // Check VP8X chunk for animation flag (bit 1 of flags byte)
+  // VP8X chunk: 'VP8X' + 4 bytes size + 1 byte flags + ...
+  if (
+    bytes[12] === 0x56 &&
+    bytes[13] === 0x50 &&
+    bytes[14] === 0x38 &&
+    bytes[15] === 0x58
+  ) {
+    // VP8X flags are at offset 20 (12 + 4 type + 4 size)
+    const flags = bytes[20]
+    if (flags & 0x02) return true // Animation flag is bit 1
+  }
+
+  // Also look for ANIM chunk anywhere in file
+  // ANIM = 0x41 0x4E 0x49 0x4D
+  for (let i = 12; i < bytes.length - 4; i++) {
+    if (
+      bytes[i] === 0x41 &&
+      bytes[i + 1] === 0x4e &&
+      bytes[i + 2] === 0x49 &&
+      bytes[i + 3] === 0x4d
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Check if an AVIF file is animated (AVIF image sequence)
+ * Animated AVIF has 'avis' brand in the ftyp box
+ */
+function isAnimatedAvif(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false
+
+  // ISOBMFF structure - ftyp box starts with size (4 bytes) then 'ftyp'
+  if (
+    bytes[4] !== 0x66 ||
+    bytes[5] !== 0x74 ||
+    bytes[6] !== 0x79 ||
+    bytes[7] !== 0x70
+  ) {
+    return false
+  }
+
+  // Get ftyp box size
+  const ftypSize = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3]
+  const searchEnd = Math.min(ftypSize, bytes.length)
+
+  // Search for 'avis' brand (0x61 0x76 0x69 0x73)
+  // Major brand is at offset 8, compatible brands follow
+  for (let i = 8; i < searchEnd - 3; i += 4) {
+    if (
+      bytes[i] === 0x61 &&
+      bytes[i + 1] === 0x76 &&
+      bytes[i + 2] === 0x69 &&
+      bytes[i + 3] === 0x73
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Detect if a file is an animated image
+ */
+export async function isAnimatedImage(file: File): Promise<boolean> {
+  const buffer = await file.arrayBuffer()
+  const bytes = new Uint8Array(buffer)
+
+  switch (file.type) {
+    case 'image/gif':
+      return isAnimatedGif(bytes)
+    case 'image/png':
+      return isAnimatedPng(bytes)
+    case 'image/webp':
+      return isAnimatedWebp(bytes)
+    case 'image/avif':
+      return isAnimatedAvif(bytes)
+    default:
+      return false
+  }
+}
+
 /** Error thrown when AVIF encoding fails and may benefit from resizing */
 class ResizableEncodingError extends Error {
   constructor(message: string) {
@@ -293,9 +458,50 @@ export async function processAndUploadImage(
   if (!validation.valid) {
     throw new Error(validation.error)
   }
+
+  // Check if this is an animated image
+  const animated = await isAnimatedImage(file)
+
+  if (animated) {
+    // Animated images are uploaded as-is to preserve animation
+    // They cannot be converted to AVIF without losing animation
+    if (file.size > MAX_BLOB_SIZE) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+      throw new Error(
+        `Animated image is too large (${sizeMB}MB). ` +
+          `Maximum size for animated images is ${Math.round(MAX_BLOB_SIZE / 1024)}KB. ` +
+          `Please optimize the image externally (reduce dimensions, colors, or frame count).`
+      )
+    }
+
+    onProgress?.({ stage: 'validating', progress: 100, filename })
+
+    // Upload the original file directly
+    onProgress?.({ stage: 'uploading', progress: 0, filename })
+    const arrayBuffer = await file.arrayBuffer()
+    const { cid, mimeType, size } = await uploadBlobToPds(arrayBuffer, file.type, fetchHandler)
+    onProgress?.({ stage: 'uploading', progress: 100, filename })
+
+    const uploadedBlob: UploadedBlob = {
+      cid,
+      mimeType,
+      size,
+      name: filename,
+      blobRef: {
+        $type: 'blob',
+        ref: { $link: cid },
+        mimeType,
+        size,
+      },
+    }
+
+    const markdownUrl = getBlobUrl(pdsEndpoint, did, cid)
+    return { uploadedBlob, markdownUrl }
+  }
+
   onProgress?.({ stage: 'validating', progress: 100, filename })
 
-  // Stage 2: Load image
+  // Stage 2: Load image (static images only from here)
   onProgress?.({ stage: 'resizing', progress: 0, filename })
   const img = await loadImage(file)
   let { width, height } = calculateResizedDimensions(img.width, img.height)
