@@ -27,6 +27,7 @@ import {
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
 import { getCachedPost, deleteCachedPost } from '@/lib/offline-store'
+import { invalidateFeedCache } from '@/lib/feedCache'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import { useDraftAutoSave, type DraftBlobMetadata } from '@/lib/useDraftAutoSave'
 import { DraftRestorationBanner } from '@/components/DraftRestorationBanner'
@@ -1132,8 +1133,9 @@ export function EditorPage() {
     if (resultRkey) {
       // Clear the draft since we successfully published
       clearDraft()
-      // Invalidate offline cache for this post
+      // Invalidate caches so updated content is shown
       if (handle) deleteCachedPost(handle, resultRkey)
+      invalidateFeedCache()
       // Save custom palette to recent palettes if using custom theme
       if (theme === 'custom' && customColors.background && customColors.text && customColors.accent) {
         saveRecentPalette({
@@ -1143,8 +1145,8 @@ export function EditorPage() {
           codeBackground: customColors.codeBackground || undefined,
         })
       }
-      // Navigate to the post
-      navigate(`/${handle}/${resultRkey}`, { replace: true })
+      // Navigate to the post with a signal to refetch
+      navigate(`/${handle}/${resultRkey}`, { replace: true, state: { refetch: Date.now() } })
     } else {
       // Reset justSaved if save failed so blocker works again
       setJustSaved(false)

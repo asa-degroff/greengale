@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { BlogViewer } from '@/components/BlogViewer'
 import { LoadingCube } from '@/components/LoadingCube'
 import { useAuth } from '@/lib/auth'
@@ -44,7 +44,11 @@ function getThemeWithInheritance(
 export function PostPage() {
   const { handle, rkey } = useParams<{ handle: string; rkey: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { session } = useAuth()
+
+  // Extract refetch signal from navigation state (set by Editor after saving)
+  const refetchSignal = (location.state as { refetch?: number } | null)?.refetch
   const [entry, setEntry] = useState<BlogEntry | null>(null)
   const [author, setAuthor] = useState<AuthorProfile | null>(null)
   const [publication, setPublication] = useState<Publication | null>(null)
@@ -160,7 +164,7 @@ export function PostPage() {
       setActivePostTheme(null) // Reset theme when leaving post
       setActiveCustomColors(null)
     }
-  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor, navigate])
+  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor, navigate, refetchSignal])
 
   // Add app.greengale document verification link tag
   useEffect(() => {
