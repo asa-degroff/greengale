@@ -452,6 +452,7 @@ body {
   margin: 0;
   background-color: var(--site-bg);
   color: var(--site-text);
+  overflow-x: hidden;
 }
 
 /* Grid and vignette colors for default theme (follows site light/dark mode) */
