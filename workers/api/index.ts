@@ -337,7 +337,7 @@ app.get('/og/:handle/:filename', async (c) => {
              pub.theme_preset AS publication_theme_preset
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
-      LEFT JOIN publications pub ON p.author_did = pub.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND p.rkey = ?
         AND p.uri NOT LIKE '%/site.standard.document/%'
     `).bind(authorDid, rkey).first()
