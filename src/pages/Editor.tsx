@@ -52,6 +52,22 @@ const LEXICON_OPTIONS = [
   { value: 'whitewind', label: 'WhiteWind', description: 'Compatible with whtwnd.com' },
 ] as const
 
+type ViewMode = 'edit' | 'preview' | 'split'
+
+const EDITOR_VIEW_MODE_STORAGE_KEY = 'greengale:editor-view-mode'
+
+function getStoredViewMode(): ViewMode {
+  try {
+    const stored = localStorage.getItem(EDITOR_VIEW_MODE_STORAGE_KEY)
+    if (stored === 'edit' || stored === 'preview' || stored === 'split') {
+      return stored
+    }
+  } catch {
+    // localStorage not available
+  }
+  return 'edit'
+}
+
 export function EditorPage() {
   const { rkey } = useParams<{ rkey?: string }>()
   const navigate = useNavigate()
@@ -72,8 +88,7 @@ export function EditorPage() {
   })
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [publishToSiteStandard, setPublishToSiteStandard] = useState(true) // Default enabled, can be overridden per-post
-  type ViewMode = 'edit' | 'preview' | 'split'
-  const [viewMode, setViewMode] = useState<ViewMode>('edit')
+  const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode)
   const [publishing, setPublishing] = useState(false)
   const [publishAttempted, setPublishAttempted] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -567,6 +582,16 @@ export function EditorPage() {
     // Hide the banner
     dismissDraftBanner()
   }, [clearDraft, dismissDraftBanner, isEditing])
+
+  // Persist view mode selection to localStorage
+  const handleViewModeChange = useCallback((newMode: ViewMode) => {
+    setViewMode(newMode)
+    try {
+      localStorage.setItem(EDITOR_VIEW_MODE_STORAGE_KEY, newMode)
+    } catch {
+      // localStorage not available
+    }
+  }, [])
 
   // Block navigation when there are unsaved changes
   const blocker = useBlocker(
@@ -1625,13 +1650,13 @@ export function EditorPage() {
               </button>
             )}
             <button
-              onClick={() => setViewMode(viewMode === 'preview' ? 'edit' : 'preview')}
+              onClick={() => handleViewModeChange(viewMode === 'preview' ? 'edit' : 'preview')}
               className="px-4 py-2 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] transition-colors"
             >
               {viewMode === 'preview' ? 'Back to Editor' : 'Preview'}
             </button>
             <button
-              onClick={() => setViewMode(viewMode === 'split' ? 'edit' : 'split')}
+              onClick={() => handleViewModeChange(viewMode === 'split' ? 'edit' : 'split')}
               className={`hidden lg:flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg border transition-colors ${
                 viewMode === 'split'
                   ? 'border-[var(--site-accent)] bg-[var(--site-accent)]/10 text-[var(--site-accent)]'
