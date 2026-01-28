@@ -139,6 +139,8 @@ export function EditorPage() {
   // Image upload state
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Track last known cursor position (for reliable insertion during drag-drop)
+  const lastCursorPositionRef = useRef<number>(0)
   const [isDragging, setIsDragging] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
@@ -1248,6 +1250,14 @@ export function EditorPage() {
     return false
   }, [])
 
+  // Track cursor position changes in textarea (for reliable insertion during drag-drop)
+  const handleSelectionChange = useCallback(() => {
+    const textarea = textareaRef.current
+    if (textarea && document.activeElement === textarea) {
+      lastCursorPositionRef.current = textarea.selectionStart
+    }
+  }, [])
+
   // Drag and drop handlers for image upload
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -1297,9 +1307,9 @@ export function EditorPage() {
         return
       }
 
-      // Get cursor position from textarea at drop time
-      const textarea = textareaRef.current
-      let cursorPosition = textarea?.selectionStart ?? content.length
+      // Use the last tracked cursor position (more reliable than selectionStart during drop)
+      // During drag operations, the browser may not update selectionStart to the drop location
+      let cursorPosition = lastCursorPositionRef.current
 
       setUploadError(null)
 
@@ -1350,7 +1360,7 @@ export function EditorPage() {
           })
       }
     },
-    [session, pdsEndpoint, content, isWhiteWind, isImageFile]
+    [session, pdsEndpoint, isWhiteWind, isImageFile]
   )
 
   // Handle paste for image upload from clipboard
@@ -1479,9 +1489,8 @@ export function EditorPage() {
         return
       }
 
-      // Get cursor position from textarea at selection time
-      const textarea = textareaRef.current
-      let cursorPosition = textarea?.selectionStart ?? content.length
+      // Use the last tracked cursor position (textarea loses focus when file picker opens)
+      let cursorPosition = lastCursorPositionRef.current
 
       setUploadError(null)
 
@@ -1532,7 +1541,7 @@ export function EditorPage() {
           })
       }
     },
-    [session, pdsEndpoint, content, isImageFile]
+    [session, pdsEndpoint, isImageFile]
   )
 
   // Update metadata (alt text and labels) for an uploaded image
@@ -1897,7 +1906,13 @@ export function EditorPage() {
                 <textarea
                   ref={textareaRef}
                   value={content}
-                  onChange={(e) => setContent(e.target.value)}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    handleSelectionChange()
+                  }}
+                  onSelect={handleSelectionChange}
+                  onClick={handleSelectionChange}
+                  onKeyUp={handleSelectionChange}
                   onDragEnter={handleDragEnter}
                   onDragLeave={handleDragLeave}
                   onDragOver={handleDragOver}
