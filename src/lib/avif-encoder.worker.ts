@@ -76,7 +76,7 @@ async function encodeWithQualityAdjustment(
       return encoded
     }
 
-    cqLevel += 5
+    cqLevel += 3
   }
 
   throw {
