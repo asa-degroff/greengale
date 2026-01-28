@@ -28,12 +28,13 @@ interface ItemPosition {
   width: number
 }
 
-// Get initial column count based on window width (avoids flash on iPad)
+// Get initial column count based on media query (avoids flash on iPad)
 function getInitialColumns(columns: number | ResponsiveColumns): number {
   if (typeof columns === 'number') return columns
   if (typeof window === 'undefined') return columns.default
-  const mdBreakpoint = 768
-  if (columns.md && window.innerWidth >= mdBreakpoint) {
+  // Use matchMedia for consistency with the effect listener
+  const mediaQuery = window.matchMedia('(min-width: 768px)')
+  if (columns.md && mediaQuery.matches) {
     return columns.md
   }
   return columns.default
@@ -67,23 +68,25 @@ export function MasonryGrid({
 
   // Update column count based on viewport
   useEffect(() => {
-    const mdBreakpoint = 768
+    const mediaQuery = window.matchMedia('(min-width: 768px)')
 
     const updateColumns = () => {
-      if (columnConfig.md && window.innerWidth >= mdBreakpoint) {
+      if (columnConfig.md && mediaQuery.matches) {
         setCurrentColumns(columnConfig.md)
       } else {
         setCurrentColumns(columnConfig.default)
       }
     }
 
+    // Sync on mount in case viewport changed since initial render
+    // (can happen on iPad during app launch, Split View, or rotation)
+    updateColumns()
+
     // Use matchMedia for efficient breakpoint listening
-    const mediaQuery = window.matchMedia(`(min-width: ${mdBreakpoint}px)`)
-    const handleChange = () => updateColumns()
-    mediaQuery.addEventListener('change', handleChange)
+    mediaQuery.addEventListener('change', updateColumns)
 
     return () => {
-      mediaQuery.removeEventListener('change', handleChange)
+      mediaQuery.removeEventListener('change', updateColumns)
     }
   }, [columnConfig])
 
