@@ -130,20 +130,20 @@ describe('MarkdownRenderer', () => {
   })
 
   describe('Loading State', () => {
-    it('shows loading skeleton initially', () => {
+    it('returns null while loading (no skeleton flash)', () => {
       const { container } = render(<MarkdownRenderer content="# Test" />)
 
-      // Initially shows loading skeleton
+      // Should not show a skeleton - returns null to avoid jarring flash
       const skeleton = container.querySelector('.animate-pulse')
-      expect(skeleton).not.toBeNull()
+      expect(skeleton).toBeNull()
     })
 
-    it('hides loading skeleton after render', async () => {
+    it('renders content after processing', async () => {
       const { container } = render(<MarkdownRenderer content="# Test" />)
 
       await waitFor(() => {
-        const skeleton = container.querySelector('.animate-pulse')
-        expect(skeleton).toBeNull()
+        const heading = container.querySelector('h1')
+        expect(heading).not.toBeNull()
       }, { timeout: RENDER_TIMEOUT })
     })
   })
