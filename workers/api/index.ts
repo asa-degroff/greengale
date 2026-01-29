@@ -1314,8 +1314,8 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  // Build cache key
-  const cacheKey = `network_posts:${limit}:${cursor || ''}`
+  // Build cache key (v2: filters invalid dates)
+  const cacheKey = `network_posts:v2:${limit}:${cursor || ''}`
 
   try {
     // Check cache first
@@ -1327,6 +1327,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     // Cache miss - query database
     // Use external_url column (pre-computed during indexing)
     // Exclude posts that also have a GreenGale version (dual-published from GreenGale)
+    // Filter out posts with invalid/missing dates (must start with valid year like 19xx or 20xx)
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -1339,6 +1340,8 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
       WHERE p.visibility = 'public'
         AND p.uri LIKE '%/site.standard.document/%'
         AND p.external_url IS NOT NULL
+        AND p.created_at IS NOT NULL
+        AND p.created_at GLOB '[12][0-9][0-9][0-9]-*'
         AND COALESCE(pub.show_in_discover, 1) = 1
         AND NOT EXISTS (
           SELECT 1 FROM posts gg
