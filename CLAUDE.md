@@ -195,7 +195,7 @@ interface UploadedBlob {
 
 Labeled images display blurred with a warning overlay until the user acknowledges.
 
-**Limitation:** Image uploads only work with GreenGale format posts (not WhiteWind compatibility mode).
+**Note:** Images are supported for both GreenGale and WhiteWind formats. Images are uploaded to the user's PDS and referenced via standard markdown syntax, which works on any platform that renders markdown.
 
 **Implementation:** `src/lib/image-upload.ts` (processing), `src/lib/image-labels.ts` (utilities), `src/components/ImageMetadataEditor.tsx` (editor UI).
 

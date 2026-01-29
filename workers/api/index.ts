@@ -928,11 +928,11 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
     const params: (string | number)[] = [normalizedTag]
 
     if (cursor) {
-      query += ` AND p.indexed_at < ?`
+      query += ` AND p.created_at < ?`
       params.push(cursor)
     }
 
-    query += ` ORDER BY p.indexed_at DESC LIMIT ?`
+    query += ` ORDER BY p.created_at DESC LIMIT ?`
     params.push(limit + 1)
 
     const result = await c.env.DB.prepare(query).bind(...params).all()
@@ -944,7 +944,7 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
     const response = {
       tag: normalizedTag,
       posts: returnPosts.map(p => formatPost(p)),
-      cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].created_at : undefined,
     }
 
     // Cache for 5 minutes
@@ -1025,7 +1025,8 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     // Cache miss - query database
     // Use a CTE with window function to limit each author to 3 posts max
     // This prevents very active users from dominating the recents feed
-    const cursorClause = cursor ? 'AND p.indexed_at < ?' : ''
+    // Order by created_at (original publish date) so editing old posts doesn't push them to top
+    const cursorClause = cursor ? 'AND p.created_at < ?' : ''
     const query = `
       WITH ranked_posts AS (
         SELECT
@@ -1033,7 +1034,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
           p.visibility, p.created_at, p.indexed_at,
           a.handle, a.display_name, a.avatar_url,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
-          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank
+          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
         FROM posts p
         LEFT JOIN authors a ON p.author_did = a.did
         LEFT JOIN publications pub ON p.author_did = pub.author_did
@@ -1047,7 +1048,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
              handle, display_name, avatar_url, tags
       FROM ranked_posts
       WHERE author_rank <= 3
-      ORDER BY indexed_at DESC
+      ORDER BY created_at DESC
       LIMIT ?
     `
 
@@ -1065,7 +1066,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
 
     const response = {
       posts: returnPosts.map(p => formatPost(p)),
-      cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].created_at : undefined,
     }
 
     // Store in cache with TTL
@@ -1231,7 +1232,8 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
 
     // Build SQL query with dynamic IN clause
     const placeholders = followingDids.map(() => '?').join(',')
-    const cursorClause = cursor ? 'AND p.indexed_at < ?' : ''
+    // Order by created_at (original publish date) so editing old posts doesn't push them to top
+    const cursorClause = cursor ? 'AND p.created_at < ?' : ''
 
     // Use CTE with window function to limit 3 posts per author
     const query = `
@@ -1241,7 +1243,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
           p.visibility, p.created_at, p.indexed_at, p.external_url,
           a.handle, a.display_name, a.avatar_url,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
-          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank
+          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
         FROM posts p
         LEFT JOIN authors a ON p.author_did = a.did
         WHERE p.author_did IN (${placeholders})
@@ -1267,7 +1269,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
              handle, display_name, avatar_url, tags
       FROM ranked_posts
       WHERE author_rank <= 3
-      ORDER BY indexed_at DESC
+      ORDER BY created_at DESC
       LIMIT ?
     `
 
@@ -1292,7 +1294,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
         }
         return formatted
       }),
-      cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].created_at : undefined,
     }
 
     // Cache feed results for 5 minutes
@@ -1350,11 +1352,11 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     const params: (string | number)[] = []
 
     if (cursor) {
-      query += ` AND p.indexed_at < ?`
+      query += ` AND p.created_at < ?`
       params.push(cursor)
     }
 
-    query += ` ORDER BY p.indexed_at DESC LIMIT ?`
+    query += ` ORDER BY p.created_at DESC LIMIT ?`
     params.push(limit + 1)
 
     const result = await c.env.DB.prepare(query).bind(...params).all()
@@ -1384,7 +1386,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
 
     const response = {
       posts: formattedPosts,
-      cursor: hasMore ? (returnPosts[returnPosts.length - 1] as Record<string, unknown>).indexed_at : undefined,
+      cursor: hasMore ? (returnPosts[returnPosts.length - 1] as Record<string, unknown>).created_at : undefined,
     }
 
     // Store in cache with TTL

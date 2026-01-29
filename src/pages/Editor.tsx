@@ -49,7 +49,7 @@ const GREENGALE_V2_COLLECTION = 'app.greengale.document'
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 
 const LEXICON_OPTIONS = [
-  { value: 'greengale', label: 'GreenGale', description: 'Extended features: themes, images' },
+  { value: 'greengale', label: 'GreenGale', description: 'Extended features: themes, LaTeX' },
   { value: 'whitewind', label: 'WhiteWind', description: 'Compatible with whtwnd.com' },
 ] as const
 
@@ -307,13 +307,7 @@ export function EditorPage() {
   useEffect(() => {
     if (isWhiteWind) {
       setTheme('default')
-      // Clear uploaded images since WhiteWind doesn't support blobs
-      if (uploadedBlobs.length > 0) {
-        setUploadedBlobs([])
-        // Clean up preview URLs
-        previewUrls.forEach((url) => URL.revokeObjectURL(url))
-        setPreviewUrls(new Map())
-      }
+      // Note: Images are now supported for WhiteWind via standard markdown syntax
     }
   }, [isWhiteWind])
 
@@ -1288,12 +1282,6 @@ export function EditorPage() {
       e.stopPropagation()
       setIsDragging(false)
 
-      // WhiteWind format doesn't support image blobs
-      if (isWhiteWind) {
-        setUploadError('Image uploads are not supported in WhiteWind format. Switch to GreenGale format to attach images.')
-        return
-      }
-
       if (!navigator.onLine) {
         setUploadError('Image uploads require an internet connection')
         return
@@ -1362,7 +1350,7 @@ export function EditorPage() {
           })
       }
     },
-    [session, pdsEndpoint, isWhiteWind, isImageFile]
+    [session, pdsEndpoint, isImageFile]
   )
 
   // Handle paste for image upload from clipboard
@@ -1388,12 +1376,6 @@ export function EditorPage() {
 
       // Prevent default paste behavior for images
       e.preventDefault()
-
-      // WhiteWind format doesn't support image blobs
-      if (isWhiteWind) {
-        setUploadError('Image uploads are not supported in WhiteWind format. Switch to GreenGale format to attach images.')
-        return
-      }
 
       if (!navigator.onLine) {
         setUploadError('Image uploads require an internet connection')
@@ -1920,7 +1902,7 @@ export function EditorPage() {
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   onPaste={handlePaste}
-                  placeholder={isWhiteWind ? "Write your post in markdown..." : "Write your post in markdown... (drag, drop, or paste images to upload)"}
+                  placeholder="Write your post in markdown... (drag, drop, or paste images to upload)"
                   rows={40}
                   className={`w-full px-4 py-3 rounded-lg border bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--site-accent)] font-mono text-sm resize-y transition-colors ${
                     isDragging
@@ -1931,13 +1913,9 @@ export function EditorPage() {
 
                 {/* Drag overlay indicator */}
                 {isDragging && (
-                  <div className={`absolute inset-0 flex items-center justify-center rounded-lg border-2 border-dashed pointer-events-none ${
-                    isWhiteWind
-                      ? 'bg-red-500/10 border-red-500/50'
-                      : 'bg-[var(--site-accent)]/10 border-[var(--site-accent)]'
-                  }`}>
-                    <div className={`font-medium text-lg ${isWhiteWind ? 'text-red-500' : 'text-[var(--site-accent)]'}`}>
-                      {isWhiteWind ? 'Image uploads not supported in WhiteWind format' : 'Drop images to upload'}
+                  <div className="absolute inset-0 flex items-center justify-center rounded-lg border-2 border-dashed pointer-events-none bg-[var(--site-accent)]/10 border-[var(--site-accent)]">
+                    <div className="font-medium text-lg text-[var(--site-accent)]">
+                      Drop images to upload
                     </div>
                   </div>
                 )}

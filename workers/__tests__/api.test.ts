@@ -408,6 +408,7 @@ describe('API Endpoints', () => {
         title: `Post ${i}`,
         source: 'greengale',
         visibility: 'public',
+        created_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
         indexed_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
       }))
       env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
@@ -459,7 +460,7 @@ describe('API Endpoints', () => {
       expect(env.DB.prepare).toHaveBeenCalled()
       const query = env.DB.prepare.mock.calls[0][0]
       expect(query).toContain('WITH ranked_posts AS')
-      expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank')
+      expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank')
       expect(query).toContain('WHERE author_rank <= 3')
     })
   })
@@ -675,7 +676,7 @@ describe('API Endpoints', () => {
       // Check that the query uses window function to limit per-author posts
       expect(env.DB.prepare).toHaveBeenCalled()
       const query = env.DB.prepare.mock.calls[1][0]
-      expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.indexed_at DESC) as author_rank')
+      expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank')
       expect(query).toContain('WHERE author_rank <= 3')
     })
   })
@@ -2178,6 +2179,7 @@ describe('API Endpoints', () => {
         title: `Post ${i}`,
         source: 'greengale',
         visibility: 'public',
+        created_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
         indexed_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
         tags: 'test',
       }))
