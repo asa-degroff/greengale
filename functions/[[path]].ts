@@ -121,8 +121,40 @@ const DATACENTER_PATTERNS = [
   /servermania/i,
   /psychz/i,
   /colocation/i,
+  /colo\b/i,       // Colocation abbreviation
   /hosting/i,
+  /\bhost\b/i,     // "Host" as standalone word (Host Wagon, HostGator, etc.)
+  /hostway/i,
+  /hostgator/i,
+  /bluehost/i,
+  /godaddy/i,
+  /namecheap/i,
+  /dreamhost/i,
+  /hostinger/i,
+  /siteground/i,
+  /a2\s*hosting/i,
+  /inmotion/i,
   /server/i,
+  /vps/i,
+  /dedicated/i,
+  /cloud/i,        // Generic "cloud" in org name
+  /\bllc\b.*(?:network|tech|internet|web|data)/i,  // LLC + tech keywords
+  /(?:network|tech|internet|web|data).*\bllc\b/i,  // tech keywords + LLC
+  /wagon/i,        // Host Wagon
+  /m247/i,         // M247 Ltd
+  /zenlayer/i,
+  /cogent/i,
+  /hurricane/i,    // Hurricane Electric
+  /quadranet/i,
+  /fdcservers/i,
+  /buyvm/i,
+  /ramnode/i,
+  /ionos/i,
+  /1\&1/i,         // 1&1 IONOS
+  /strato/i,
+  /aruba/i,
+  /infomaniak/i,
+  /webhosting/i,
 ]
 
 interface CfProperties {
