@@ -317,6 +317,7 @@ export function AuthorPage() {
   }
 
   // Scan for orphaned site.standard.document records
+  // Only considers records that were created by GreenGale (have content.uri pointing to app.greengale.document)
   const handleScanOrphans = async () => {
     if (!session) return
 
@@ -335,13 +336,22 @@ export function AuthorPage() {
       const listData = await listResponse.json()
       const siteStandardRecords = listData.records || []
 
-      // Check each one for a corresponding app.greengale.document (in parallel batches)
+      // Filter to only records created by GreenGale (content.uri points to app.greengale.document)
+      // External posts from other platforms (leaflet.pub, etc.) won't have this reference
+      const greengaleRecords = siteStandardRecords.filter(
+        (record: { value?: { content?: { uri?: string } } }) => {
+          const contentUri = record.value?.content?.uri
+          return contentUri && contentUri.includes('/app.greengale.document/')
+        }
+      )
+
+      // Check each GreenGale-created record for a corresponding app.greengale.document (in parallel batches)
       const BATCH_SIZE = 10
       const orphans: Array<{ rkey: string; title: string }> = []
 
       // Process in batches to avoid overwhelming the server
-      for (let i = 0; i < siteStandardRecords.length; i += BATCH_SIZE) {
-        const batch = siteStandardRecords.slice(i, i + BATCH_SIZE)
+      for (let i = 0; i < greengaleRecords.length; i += BATCH_SIZE) {
+        const batch = greengaleRecords.slice(i, i + BATCH_SIZE)
 
         const results = await Promise.all(
           batch.map(async (record: { uri: string; value?: { title?: string } }) => {
