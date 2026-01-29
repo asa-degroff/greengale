@@ -204,7 +204,7 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
 
       {/* Dropdown */}
       {isOpen && results.length > 0 && (
-        <div ref={listRef} className="absolute z-50 w-full mt-1 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-lg max-h-80 overflow-y-auto">
+        <div ref={listRef} className="search-dropdown absolute z-50 w-full mt-1 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-lg max-h-80 overflow-y-auto">
           {results.map((result, index) => (
             <button
               key={result.post ? `${result.did}:${result.post.rkey}` : result.did}
