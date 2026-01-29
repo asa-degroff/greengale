@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { BlogViewer } from '@/components/BlogViewer'
 import { LoadingCube } from '@/components/LoadingCube'
@@ -70,13 +70,26 @@ export function PostPage() {
     ogType: 'article',
   })
 
+  // Track whether initial load has completed to avoid flashing on background refetches
+  // (e.g., when session?.did changes from undefined to actual value after auth loads)
+  const hasLoadedRef = useRef(false)
+
+  // Reset the loaded flag when navigating to a different post
+  useEffect(() => {
+    hasLoadedRef.current = false
+  }, [handle, rkey])
+
   useEffect(() => {
     if (!handle || !rkey) return
 
     let cancelled = false
 
     async function load() {
-      setLoading(true)
+      // Only show loading state on initial load, not on background refetches
+      // This prevents the UI from flashing blank when session?.did changes
+      if (!hasLoadedRef.current) {
+        setLoading(true)
+      }
       setError(null)
       setFromCache(false)
 
@@ -103,6 +116,7 @@ export function PostPage() {
         setEntry(entryResult)
         setAuthor(authorResult)
         setPublication(publicationResult)
+        hasLoadedRef.current = true
 
         // Cache for offline reading
         cachePost(
@@ -132,6 +146,7 @@ export function PostPage() {
             setAuthor(cached.author)
             setPublication(cached.publication)
             setFromCache(true)
+            hasLoadedRef.current = true
 
             const effectiveTheme = getThemeWithInheritance(
               cached.entry.theme,
