@@ -32,7 +32,7 @@ function formatDate(isoDate: string | undefined): string {
   }
 }
 
-export async function renderPostHtml(options: RenderOptions): Promise<string> {
+export function renderPostHtml(options: RenderOptions): string {
   const { entry, author, handle, rkey } = options
 
   const title = entry.title || 'Untitled'
@@ -43,7 +43,7 @@ export async function renderPostHtml(options: RenderOptions): Promise<string> {
   const ogImageUrl = `https://greengale.asadegroff.workers.dev/og/${handle}/${rkey}.png`
 
   // Render markdown content to HTML
-  const htmlContent = await renderMarkdownToHtml(entry.content)
+  const htmlContent = renderMarkdownToHtml(entry.content)
 
   // Build JSON-LD structured data
   const jsonLd = {

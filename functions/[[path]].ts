@@ -55,8 +55,10 @@ const BOT_PATTERNS = [
   /python-requests/i,
   /python\//i,      // Generic Python UA
   /httpx/i,
+  /aiohttp/i,       // Python async HTTP
   /axios/i,
   /node-fetch/i,
+  /undici/i,        // Node.js HTTP client
   /got\//i,
   /libwww/i,
   /java\//i,
@@ -65,6 +67,19 @@ const BOT_PATTERNS = [
   /ruby/i,
   /perl/i,
   /php\//i,
+
+  // Content extraction / SEO tools
+  /newspaper/i,     // Python newspaper library
+  /readability/i,
+  /mercury/i,       // Mercury Parser
+  /diffbot/i,
+  /embedly/i,
+  /iframely/i,
+  /prerender/i,     // Prerender services
+  /headlesschrome/i,
+  /phantomjs/i,
+  /slimerjs/i,
+  /splash/i,        // Scrapinghub Splash
 ]
 
 // Patterns that indicate a real browser (not a bot)
@@ -76,13 +91,68 @@ const BROWSER_PATTERNS = [
   /opr\//i,              // Opera
 ]
 
-function isBot(userAgent: string | null): boolean {
+// Known datacenter/cloud provider ASN organizations (bots often come from these)
+const DATACENTER_PATTERNS = [
+  /data\s*center/i,
+  /amazon/i,
+  /aws/i,
+  /google\s*cloud/i,
+  /microsoft/i,
+  /azure/i,
+  /digitalocean/i,
+  /linode/i,
+  /vultr/i,
+  /hetzner/i,
+  /ovh/i,
+  /cloudflare/i,
+  /fastly/i,
+  /akamai/i,
+  /oracle\s*cloud/i,
+  /ibm\s*cloud/i,
+  /rackspace/i,
+  /scaleway/i,
+  /upcloud/i,
+  /packet/i,
+  /equinix/i,
+  /leaseweb/i,
+  /contabo/i,
+  /choopa/i,       // Vultr's parent
+  /the\s*constant/i,
+  /servermania/i,
+  /psychz/i,
+  /colocation/i,
+  /hosting/i,
+  /server/i,
+]
+
+interface CfProperties {
+  asOrganization?: string
+  botManagement?: {
+    score?: number
+    verifiedBot?: boolean
+  }
+}
+
+function isBot(userAgent: string | null, cfProperties?: CfProperties): boolean {
   // No User-Agent is suspicious - likely a simple HTTP client
   if (!userAgent) return true
 
   // If it matches a known bot pattern, it's a bot
   if (BOT_PATTERNS.some((pattern) => pattern.test(userAgent))) {
     return true
+  }
+
+  // Check Cloudflare's verified bot flag
+  if (cfProperties?.botManagement?.verifiedBot) {
+    return true
+  }
+
+  // Check if request comes from a known datacenter/cloud provider
+  // Real users typically browse from residential ISPs, not datacenters
+  if (cfProperties?.asOrganization) {
+    if (DATACENTER_PATTERNS.some((pattern) => pattern.test(cfProperties.asOrganization!))) {
+      return true
+    }
   }
 
   // If it looks like a real browser, it's not a bot
@@ -127,6 +197,29 @@ const OAUTH_SCOPE =
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, next } = context
   const url = new URL(request.url)
+
+  console.log(`[Pages Function] Request: ${url.pathname}`)
+
+  // Debug endpoint to verify function is running
+  if (url.pathname === '/__prerender-test') {
+    const userAgent = request.headers.get('user-agent')
+    const cf = (request as Request & { cf?: CfProperties }).cf
+    const isBotResult = isBot(userAgent, cf)
+    return new Response(JSON.stringify({
+      status: 'ok',
+      functionLoaded: true,
+      userAgent,
+      isBot: isBotResult,
+      cfAsOrganization: cf?.asOrganization,
+      cfBotScore: cf?.botManagement?.score,
+      cfVerifiedBot: cf?.botManagement?.verifiedBot,
+      timestamp: new Date().toISOString(),
+    }, null, 2), {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+  }
 
   // Serve dynamic client-metadata.json so each deployment (greengale.app,
   // pwa.greengale-app.pages.dev, etc.) has a client_id matching its own origin.
@@ -209,10 +302,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
-  const isBotRequest = isBot(userAgent)
+  const cf = (request as Request & { cf?: CfProperties }).cf
+  const isBotRequest = isBot(userAgent, cf)
 
   // Log for debugging (visible in Cloudflare dashboard -> Pages -> Functions -> Logs)
-  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | Bot: ${isBotRequest}`)
+  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | ASN: ${cf?.asOrganization || 'unknown'} | Bot: ${isBotRequest}`)
 
   if (!isBotRequest) {
     return next()
@@ -225,6 +319,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
+    console.log(`[Prerender] Fetching data for ${postRoute.handle}/${postRoute.rkey}`)
+
     // Fetch post data from PDS
     const [entry, author] = await Promise.all([
       getBlogEntry(postRoute.handle, postRoute.rkey),
@@ -233,16 +329,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (!entry) {
       // Post not found - let SPA handle the 404
+      console.log(`[Prerender] Post not found: ${postRoute.handle}/${postRoute.rkey}`)
       return next()
     }
 
+    console.log(`[Prerender] Rendering HTML for: ${entry.title || 'Untitled'}`)
+
     // Render HTML for bots
-    const html = await renderPostHtml({
+    const html = renderPostHtml({
       entry,
       author,
       handle: author.handle,
       rkey: postRoute.rkey,
     })
+
+    console.log(`[Prerender] Success: ${postRoute.handle}/${postRoute.rkey} (${html.length} bytes)`)
 
     return new Response(html, {
       headers: {
@@ -252,7 +353,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       },
     })
   } catch (error) {
-    console.error('Bot prerender error:', error)
+    // Log detailed error for debugging
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorStack = error instanceof Error ? error.stack : undefined
+    console.error(`[Prerender] Error for ${postRoute.handle}/${postRoute.rkey}:`, errorMessage)
+    if (errorStack) {
+      console.error(`[Prerender] Stack:`, errorStack)
+    }
     // Fallback to SPA on error
     return next()
   }

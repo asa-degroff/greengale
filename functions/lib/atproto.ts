@@ -1,6 +1,31 @@
 // AT Protocol data fetching for edge runtime (Cloudflare Pages Functions)
 // Adapted from src/lib/atproto.ts - simplified for server-side use without @atproto/api dependency
 
+// Timeout for fetch requests (5 seconds)
+const FETCH_TIMEOUT = 5000
+
+/**
+ * Fetch with timeout support
+ */
+async function fetchWithTimeout(
+  url: string,
+  options?: RequestInit,
+  timeout = FETCH_TIMEOUT
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    return response
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 const WHITEWIND_COLLECTION = 'com.whtwnd.blog.entry'
 const GREENGALE_V1_COLLECTION = 'app.greengale.blog.entry'
 const GREENGALE_V2_COLLECTION = 'app.greengale.document'
@@ -34,13 +59,14 @@ export interface AuthorProfile {
  * Resolve a handle to a DID using Bluesky's public API
  */
 export async function resolveHandle(handle: string): Promise<string> {
-  const response = await fetch(
-    `https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`
-  )
+  const url = `https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`
+  console.log(`[atproto] Resolving handle: ${handle}`)
+  const response = await fetchWithTimeout(url)
   if (!response.ok) {
-    throw new Error(`Failed to resolve handle: ${handle}`)
+    throw new Error(`Failed to resolve handle: ${handle} (status: ${response.status})`)
   }
   const data = await response.json() as { did: string }
+  console.log(`[atproto] Resolved ${handle} -> ${data.did}`)
   return data.did
 }
 
@@ -50,17 +76,18 @@ export async function resolveHandle(handle: string): Promise<string> {
 export async function getPdsEndpoint(did: string): Promise<string> {
   let didDoc: { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
 
+  console.log(`[atproto] Getting PDS endpoint for: ${did}`)
   if (did.startsWith('did:plc:')) {
-    const response = await fetch(`https://plc.directory/${did}`)
+    const response = await fetchWithTimeout(`https://plc.directory/${did}`)
     if (!response.ok) {
-      throw new Error(`Failed to resolve DID: ${did}`)
+      throw new Error(`Failed to resolve DID: ${did} (status: ${response.status})`)
     }
     didDoc = await response.json()
   } else if (did.startsWith('did:web:')) {
     const domain = did.replace('did:web:', '').replace(/%3A/g, ':')
-    const response = await fetch(`https://${domain}/.well-known/did.json`)
+    const response = await fetchWithTimeout(`https://${domain}/.well-known/did.json`)
     if (!response.ok) {
-      throw new Error(`Failed to resolve DID: ${did}`)
+      throw new Error(`Failed to resolve DID: ${did} (status: ${response.status})`)
     }
     didDoc = await response.json()
   } else {
@@ -75,6 +102,7 @@ export async function getPdsEndpoint(did: string): Promise<string> {
     throw new Error(`No PDS service found for DID: ${did}`)
   }
 
+  console.log(`[atproto] PDS endpoint: ${pdsService.serviceEndpoint}`)
   return pdsService.serviceEndpoint
 }
 
@@ -95,10 +123,12 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
   const did = await resolveIdentity(identifier)
 
   try {
-    const response = await fetch(
+    console.log(`[atproto] Getting profile for: ${did}`)
+    const response = await fetchWithTimeout(
       `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
     )
     if (!response.ok) {
+      console.log(`[atproto] Profile not found for ${did} (status: ${response.status})`)
       throw new Error('Profile not found')
     }
     const data = await response.json() as {
@@ -109,6 +139,7 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
       description?: string
     }
 
+    console.log(`[atproto] Got profile: ${data.handle}`)
     return {
       did: data.did,
       handle: data.handle,
@@ -116,8 +147,9 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
       avatar: data.avatar,
       description: data.description,
     }
-  } catch {
+  } catch (error) {
     // Fallback: return minimal profile
+    console.log(`[atproto] Profile fetch failed, using fallback: ${error}`)
     return { did, handle: identifier }
   }
 }
@@ -132,7 +164,7 @@ async function checkSiteStandardDocument(
 ): Promise<string | undefined> {
   try {
     const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(SITE_STANDARD_COLLECTION)}&rkey=${encodeURIComponent(rkey)}`
-    const response = await fetch(url)
+    const response = await fetchWithTimeout(url)
     if (response.ok) {
       const data = await response.json() as { uri: string }
       return data.uri
@@ -160,7 +192,7 @@ async function getSiteStandardPublicationUri(
 ): Promise<string | undefined> {
   try {
     const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`
-    const listRes = await fetch(listUrl)
+    const listRes = await fetchWithTimeout(listUrl)
     if (!listRes.ok) return undefined
 
     const listData = await listRes.json() as {
@@ -195,14 +227,16 @@ export async function getBlogEntry(
   identifier: string,
   rkey: string
 ): Promise<BlogEntry | null> {
+  console.log(`[atproto] Fetching blog entry: ${identifier}/${rkey}`)
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
   // Try V2 document first, then V1 GreenGale, then WhiteWind
   for (const collection of [GREENGALE_V2_COLLECTION, GREENGALE_V1_COLLECTION, WHITEWIND_COLLECTION]) {
     try {
+      console.log(`[atproto] Trying collection: ${collection}`)
       const url = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
-      const response = await fetch(url)
+      const response = await fetchWithTimeout(url)
 
       if (!response.ok) {
         continue
@@ -244,7 +278,7 @@ export async function getBlogEntry(
         }
       }
 
-      return {
+      const entry: BlogEntry = {
         uri: data.uri,
         cid: data.cid,
         authorDid: did,
@@ -258,10 +292,14 @@ export async function getBlogEntry(
         siteStandardUri,
         siteStandardPublicationUri,
       }
-    } catch {
+      console.log(`[atproto] Found entry: ${entry.title || 'Untitled'} (${collection})`)
+      return entry
+    } catch (error) {
       // Continue to next collection
+      console.log(`[atproto] Collection ${collection} failed: ${error}`)
     }
   }
 
+  console.log(`[atproto] No entry found for ${identifier}/${rkey}`)
   return null
 }
