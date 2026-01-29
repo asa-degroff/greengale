@@ -2448,20 +2448,51 @@ async function indexPostsFromPds(
         const siteUri = col.isSiteStandard ? (value.site as string) || null : null
         let externalUrl: string | null = null
         if (col.isSiteStandard && siteUri) {
+          // Check if content indicates this is from an external platform
+          // GreenGale docs have: content: { $type: "app.greengale.document#contentRef", uri: "at://..." }
+          // External docs (Leaflet, etc.) have inline content: content: { $type: "pub.leaflet.content", ... }
+          const contentObj = value.content as Record<string, unknown> | undefined
+          const contentType = contentObj?.$type as string | undefined
+          const contentUri = contentObj?.uri as string | undefined
+
+          // It's external if content has a $type that's NOT GreenGale's contentRef
+          const isExternalContent = contentType && !contentType.startsWith('app.greengale.')
+
+          // It's GreenGale origin if content.uri points to a GreenGale document
+          const isGreenGaleOrigin = contentUri && contentUri.includes('/app.greengale.document/')
+
           // Use documentPath if available, otherwise fall back to rkey
           // (some platforms like leaflet.pub use the rkey as the URL path)
           const pathForUrl = documentPath || `/${rkey}`
+
+          // Resolve the URL
+          let resolvedUrl: string | null = null
 
           // First try the pre-fetched publication map (fast path)
           const pubBaseUrl = publicationUrlMap.get(siteUri)
           if (pubBaseUrl) {
             const normalizedPath = pathForUrl.startsWith('/') ? pathForUrl : `/${pathForUrl}`
-            externalUrl = `${pubBaseUrl}${normalizedPath}`
+            resolvedUrl = `${pubBaseUrl}${normalizedPath}`
           } else {
             // Fallback: resolve publication directly from PDS
             // This handles cases where the publication is in a different repo
             // or wasn't listed properly
-            externalUrl = await resolveExternalUrl(siteUri, pathForUrl)
+            resolvedUrl = await resolveExternalUrl(siteUri, pathForUrl)
+          }
+
+          // Only use the resolved URL if it's appropriate
+          if (resolvedUrl) {
+            if (isExternalContent && resolvedUrl.includes('greengale.app')) {
+              // This is an external document (e.g., Leaflet) that incorrectly references
+              // a GreenGale publication. Don't use greengale.app URL for it.
+              console.log(`Skipping greengale.app URL for external platform document: ${uri}`)
+            } else if (isGreenGaleOrigin || !resolvedUrl.includes('greengale.app')) {
+              externalUrl = resolvedUrl
+            } else {
+              // Ambiguous case: no content.$type and greengale.app URL
+              // This could be an old GreenGale post without content field, so allow it
+              externalUrl = resolvedUrl
+            }
           }
         }
 
@@ -2981,7 +3012,7 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
         }
 
         const record = await recordResponse.json() as {
-          value?: { site?: string }
+          value?: { site?: string; content?: { $type?: string; uri?: string } }
         }
 
         const siteUri = record.value?.site
@@ -2989,6 +3020,18 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
           errors.push(`${uri}: No site URI`)
           continue
         }
+
+        // Check if content indicates this is from an external platform
+        // GreenGale docs have: content: { $type: "app.greengale.document#contentRef", uri: "at://..." }
+        // External docs (Leaflet, etc.) have inline content: content: { $type: "pub.leaflet.content", ... }
+        const contentType = record.value?.content?.$type
+        const contentUri = record.value?.content?.uri
+
+        // It's external if content has a $type that's NOT GreenGale's contentRef
+        const isExternalContent = contentType && !contentType.startsWith('app.greengale.')
+
+        // It's GreenGale origin if content.uri points to a GreenGale document
+        const isGreenGaleOrigin = contentUri && contentUri.includes('/app.greengale.document/')
 
         // Parse the site AT-URI to get publication details
         const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
@@ -3032,15 +3075,29 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
         // Ensure there's exactly one slash between base URL and path
         const baseUrl = pubUrl.replace(/\/$/, '')
         const normalizedPath = path.startsWith('/') ? path : `/${path}`
-        const externalUrl = `${baseUrl}${normalizedPath}`
+        const resolvedUrl = `${baseUrl}${normalizedPath}`
 
-        // Update the post
+        // Only use the resolved URL if it's appropriate
+        let externalUrl: string | null = null
+        if (isExternalContent && resolvedUrl.includes('greengale.app')) {
+          // This is an external document (e.g., Leaflet) that incorrectly references
+          // a GreenGale publication. Clear the external_url.
+          console.log(`Clearing greengale.app URL for external platform document: ${uri}`)
+        } else if (isGreenGaleOrigin || !resolvedUrl.includes('greengale.app')) {
+          externalUrl = resolvedUrl
+        } else {
+          // Ambiguous case: no content.$type and greengale.app URL
+          // This could be an old GreenGale post without content field, so allow it
+          externalUrl = resolvedUrl
+        }
+
+        // Update the post (set to resolved URL or NULL)
         await c.env.DB.prepare(
           'UPDATE posts SET external_url = ? WHERE uri = ?'
         ).bind(externalUrl, uri).run()
 
         updated++
-        console.log(`Backfilled external_url for ${uri}: ${externalUrl}`)
+        console.log(`Backfilled external_url for ${uri}: ${externalUrl || 'NULL'}`)
       } catch (err) {
         errors.push(`${uri}: ${err instanceof Error ? err.message : 'Unknown'}`)
       }
@@ -3060,6 +3117,153 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
   } catch (error) {
     console.error('Error backfilling external URLs:', error)
     return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// Clean up stale site.standard.document records from the database
+// Removes posts where:
+// - The document no longer exists on the PDS
+// - The publication no longer exists
+// - The site URI is invalid (not an AT-URI)
+// Usage: POST /xrpc/app.greengale.admin.cleanupStalePosts?limit=50&dryRun=true
+app.post('/xrpc/app.greengale.admin.cleanupStalePosts', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+  const dryRun = c.req.query('dryRun') !== 'false' // Default to dry run for safety
+
+  try {
+    // Get site.standard.document posts
+    const posts = await c.env.DB.prepare(
+      `SELECT uri, author_did, path FROM posts WHERE uri LIKE '%/site.standard.document/%' LIMIT ?`
+    ).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ success: true, message: 'No posts to check', checked: 0, deleted: 0 })
+    }
+
+    const toDelete: Array<{ uri: string; reason: string }> = []
+    const errors: string[] = []
+
+    for (const post of posts.results) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const rkey = uri.split('/').pop()
+
+      try {
+        // Resolve the PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          toDelete.push({ uri, reason: 'Failed to resolve DID' })
+          continue
+        }
+
+        // Try to fetch the document
+        const docResponse = await fetch(
+          `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=site.standard.document&rkey=${rkey}`
+        )
+
+        if (!docResponse.ok) {
+          const errorData = await docResponse.json().catch(() => ({})) as { error?: string }
+          if (errorData.error === 'RecordNotFound' || errorData.error === 'InvalidRequest') {
+            toDelete.push({ uri, reason: 'Document not found on PDS' })
+            continue
+          }
+          // Other errors (e.g., temporary PDS issues) - skip
+          errors.push(`${uri}: PDS error - ${docResponse.status}`)
+          continue
+        }
+
+        const record = await docResponse.json() as {
+          value?: { site?: string }
+        }
+
+        const siteUri = record.value?.site
+        if (!siteUri) {
+          toDelete.push({ uri, reason: 'No site URI in document' })
+          continue
+        }
+
+        // Check if site URI is valid AT-URI format
+        const atUriMatch = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+        if (!atUriMatch) {
+          toDelete.push({ uri, reason: `Invalid site URI format: ${siteUri}` })
+          continue
+        }
+
+        const [, pubDid, collection, pubRkey] = atUriMatch
+
+        // Resolve publication PDS (may be different DID)
+        let pubPdsEndpoint = pdsEndpoint
+        if (pubDid !== did) {
+          const resolved = await fetchPdsEndpoint(pubDid)
+          if (!resolved) {
+            toDelete.push({ uri, reason: `Failed to resolve publication DID: ${pubDid}` })
+            continue
+          }
+          pubPdsEndpoint = resolved
+        }
+
+        // Try to fetch the publication
+        const pubResponse = await fetch(
+          `${pubPdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(pubRkey)}`
+        )
+
+        if (!pubResponse.ok) {
+          const errorData = await pubResponse.json().catch(() => ({})) as { error?: string }
+          if (errorData.error === 'RecordNotFound' || errorData.error === 'InvalidRequest') {
+            toDelete.push({ uri, reason: 'Publication not found on PDS' })
+            continue
+          }
+          // Other errors - skip
+          errors.push(`${uri}: Publication PDS error - ${pubResponse.status}`)
+          continue
+        }
+
+        // Document and publication both exist - this post is valid
+      } catch (err) {
+        errors.push(`${uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    // Delete stale posts (unless dry run)
+    let deleted = 0
+    if (!dryRun && toDelete.length > 0) {
+      for (const { uri } of toDelete) {
+        try {
+          // Delete from posts table
+          await c.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri).run()
+          // Delete associated tags
+          await c.env.DB.prepare('DELETE FROM post_tags WHERE post_uri = ?').bind(uri).run()
+          deleted++
+        } catch (err) {
+          errors.push(`Failed to delete ${uri}: ${err instanceof Error ? err.message : 'Unknown'}`)
+        }
+      }
+
+      // Clear caches
+      await Promise.all([
+        c.env.CACHE.delete('network_posts:24:'),
+        c.env.CACHE.delete('network_posts:50:'),
+        c.env.CACHE.delete('network_posts:100:'),
+      ])
+    }
+
+    return c.json({
+      success: true,
+      dryRun,
+      checked: posts.results.length,
+      toDelete: toDelete.length,
+      deleted,
+      staleRecords: toDelete.slice(0, 50), // Show first 50
+      errors: errors.slice(0, 20),
+    })
+  } catch (error) {
+    console.error('Error cleaning up stale posts:', error)
+    return c.json({ error: 'Failed to cleanup', details: error instanceof Error ? error.message : 'Unknown' }, 500)
   }
 })
 

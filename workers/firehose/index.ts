@@ -360,12 +360,45 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const siteUri = isSiteStandardDocument ? (record?.site as string) || null : null
 
       // For site.standard.document, resolve the publication to get external URL
+      // But first check if this is a GreenGale-originated document
       let externalUrl: string | null = null
       if (isSiteStandardDocument && siteUri) {
+        // Check if content indicates this is from an external platform
+        // GreenGale docs have: content: { $type: "app.greengale.document#contentRef", uri: "at://..." }
+        // External docs (Leaflet, etc.) have inline content: content: { $type: "pub.leaflet.content", ... }
+        const contentObj = record?.content as Record<string, unknown> | undefined
+        const contentType = contentObj?.$type as string | undefined
+        const contentUri = contentObj?.uri as string | undefined
+
+        // It's external if content has a $type that's NOT GreenGale's contentRef
+        // (e.g., pub.leaflet.content, or any other platform's content type)
+        const isExternalContent = contentType && !contentType.startsWith('app.greengale.')
+
+        // It's GreenGale origin if content.uri points to a GreenGale document
+        const isGreenGaleOrigin = contentUri && contentUri.includes('/app.greengale.document/')
+
         // Use documentPath if available, otherwise fall back to rkey
         // (some platforms like leaflet.pub use the rkey as the URL path)
         const pathForUrl = documentPath || `/${rkey}`
-        externalUrl = await this.resolveExternalUrl(siteUri, pathForUrl)
+        const resolvedUrl = await this.resolveExternalUrl(siteUri, pathForUrl)
+
+        // Only use the resolved URL if:
+        // 1. It's a GreenGale-originated document, OR
+        // 2. The URL doesn't point to greengale.app (i.e., it's a legitimate external platform), OR
+        // 3. It's NOT explicitly external content (for backwards compat with old GreenGale posts without content field)
+        if (resolvedUrl) {
+          if (isExternalContent && resolvedUrl.includes('greengale.app')) {
+            // This is an external document (e.g., Leaflet) that incorrectly references
+            // a GreenGale publication. Don't use greengale.app URL for it.
+            console.log(`Skipping greengale.app URL for external platform document: ${uri}`)
+          } else if (isGreenGaleOrigin || !resolvedUrl.includes('greengale.app')) {
+            externalUrl = resolvedUrl
+          } else {
+            // Ambiguous case: no content.$type and greengale.app URL
+            // This could be an old GreenGale post without content field, so allow it
+            externalUrl = resolvedUrl
+          }
+        }
       }
 
       // Store theme data - either preset name or JSON for custom themes
