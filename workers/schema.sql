@@ -26,6 +26,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author_did);
 CREATE INDEX IF NOT EXISTS idx_posts_author_rkey ON posts(author_did, rkey);
 CREATE INDEX IF NOT EXISTS idx_posts_slug ON posts(author_did, slug);
 CREATE INDEX IF NOT EXISTS idx_posts_indexed_at ON posts(indexed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_posts_author_created ON posts(author_did, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_visibility ON posts(visibility);
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(url);

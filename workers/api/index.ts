@@ -1476,7 +1476,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
     const params: (string | number)[] = [authorDid]
 
     if (cursor) {
-      query += ` AND p.indexed_at < ?`
+      query += ` AND p.created_at < ?`
       params.push(cursor)
     }
 
@@ -1502,7 +1502,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
 
     const response = {
       posts: returnPosts.map(p => formatPost(p)),
-      cursor: hasMore ? returnPosts[returnPosts.length - 1].indexed_at : undefined,
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].created_at : undefined,
     }
 
     // Only cache for public views (not when author is viewing their own profile)
@@ -2974,10 +2974,10 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
   const force = c.req.query('force') === 'true'
 
   try {
-    // Get site.standard posts - either just NULL or all if force=true
+    // Get site.standard posts - either just NULL external_url or all if force=true
     const query = force
-      ? `SELECT uri, author_did, path FROM posts WHERE uri LIKE '%/site.standard.document/%' AND path IS NOT NULL LIMIT ?`
-      : `SELECT uri, author_did, path FROM posts WHERE uri LIKE '%/site.standard.document/%' AND external_url IS NULL AND path IS NOT NULL LIMIT ?`
+      ? `SELECT uri, author_did FROM posts WHERE uri LIKE '%/site.standard.document/%' LIMIT ?`
+      : `SELECT uri, author_did FROM posts WHERE uri LIKE '%/site.standard.document/%' AND external_url IS NULL LIMIT ?`
     const posts = await c.env.DB.prepare(query).bind(limit).all()
 
     if (!posts.results?.length) {
@@ -2990,7 +2990,6 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
     for (const post of posts.results) {
       const uri = post.uri as string
       const did = post.author_did as string
-      const path = post.path as string
 
       try {
         // Resolve the PDS endpoint from DID document (supports did:plc and did:web)
@@ -3012,7 +3011,7 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
         }
 
         const record = await recordResponse.json() as {
-          value?: { site?: string; content?: { $type?: string; uri?: string } }
+          value?: { site?: string; path?: string; content?: { $type?: string; uri?: string } }
         }
 
         const siteUri = record.value?.site
@@ -3020,6 +3019,9 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
           errors.push(`${uri}: No site URI`)
           continue
         }
+
+        // Get path from the record (or fall back to rkey)
+        const path = record.value?.path || `/${docRkey}`
 
         // Check if content indicates this is from an external platform
         // GreenGale docs have: content: { $type: "app.greengale.document#contentRef", uri: "at://..." }
