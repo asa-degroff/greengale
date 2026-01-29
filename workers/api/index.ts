@@ -2306,6 +2306,43 @@ async function fetchPdsEndpoint(did: string): Promise<string | null> {
   return null
 }
 
+/**
+ * Resolve a site.standard.publication AT-URI to get the external URL
+ * This fetches the publication record directly for more robust resolution
+ * @param siteUri AT-URI like at://did/site.standard.publication/rkey
+ * @param documentPath Path component from the document (e.g., "/posts/my-post")
+ * @returns Full external URL or null if resolution fails
+ */
+async function resolveExternalUrl(siteUri: string, documentPath: string): Promise<string | null> {
+  try {
+    // Parse AT-URI: at://did/collection/rkey
+    const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+    if (!match) return null
+
+    const [, pubDid, collection, rkey] = match
+
+    // Get PDS endpoint for the publication owner
+    const pdsEndpoint = await fetchPdsEndpoint(pubDid)
+    if (!pdsEndpoint) return null
+
+    // Fetch the publication record
+    const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+    const response = await fetch(recordUrl)
+    if (!response.ok) return null
+
+    const record = await response.json() as { value?: { url?: string } }
+    const pubUrl = record.value?.url
+    if (!pubUrl) return null
+
+    // Construct full URL
+    const baseUrl = pubUrl.replace(/\/$/, '')
+    const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
+    return `${baseUrl}${normalizedPath}`
+  } catch {
+    return null
+  }
+}
+
 // Fetch blog posts from an author's PDS and index them in D1.
 // Returns the number of posts indexed. Uses KV cache to avoid repeated PDS calls.
 async function indexPostsFromPds(
@@ -2314,7 +2351,10 @@ async function indexPostsFromPds(
 ): Promise<number> {
   // Check if we've already indexed this author's posts recently
   // Version the key so adding new collections invalidates old cache entries
-  const cacheKey = `posts-indexed:v2:${did}`
+  // v3: improved external URL resolution with fallback for site.standard.document
+  // v4: fixed ON CONFLICT to actually update existing records (was DO NOTHING)
+  // v5: fall back to rkey when documentPath is missing for external URL construction
+  const cacheKey = `posts-indexed:v5:${did}`
   const cached = await env.CACHE.get(cacheKey)
   if (cached) return 0
 
@@ -2402,11 +2442,21 @@ async function indexPostsFromPds(
         // site.standard fields
         const siteUri = col.isSiteStandard ? (value.site as string) || null : null
         let externalUrl: string | null = null
-        if (col.isSiteStandard && siteUri && documentPath) {
+        if (col.isSiteStandard && siteUri) {
+          // Use documentPath if available, otherwise fall back to rkey
+          // (some platforms like leaflet.pub use the rkey as the URL path)
+          const pathForUrl = documentPath || `/${rkey}`
+
+          // First try the pre-fetched publication map (fast path)
           const pubBaseUrl = publicationUrlMap.get(siteUri)
           if (pubBaseUrl) {
-            const normalizedPath = documentPath.startsWith('/') ? documentPath : `/${documentPath}`
+            const normalizedPath = pathForUrl.startsWith('/') ? pathForUrl : `/${pathForUrl}`
             externalUrl = `${pubBaseUrl}${normalizedPath}`
+          } else {
+            // Fallback: resolve publication directly from PDS
+            // This handles cases where the publication is in a different repo
+            // or wasn't listed properly
+            externalUrl = await resolveExternalUrl(siteUri, pathForUrl)
           }
         }
 
@@ -2459,7 +2509,19 @@ async function indexPostsFromPds(
         await env.DB.prepare(`
           INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path, site_uri, external_url)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(uri) DO NOTHING
+          ON CONFLICT(uri) DO UPDATE SET
+            title = excluded.title,
+            subtitle = excluded.subtitle,
+            slug = excluded.slug,
+            visibility = excluded.visibility,
+            content_preview = excluded.content_preview,
+            has_latex = excluded.has_latex,
+            theme_preset = excluded.theme_preset,
+            first_image_cid = excluded.first_image_cid,
+            path = excluded.path,
+            site_uri = excluded.site_uri,
+            external_url = excluded.external_url,
+            indexed_at = datetime('now')
         `).bind(
           uri, did, rkey, title, subtitle, slug, col.source, visibility,
           createdAt, createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid, documentPath,

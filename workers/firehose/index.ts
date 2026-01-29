@@ -361,8 +361,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       // For site.standard.document, resolve the publication to get external URL
       let externalUrl: string | null = null
-      if (isSiteStandardDocument && siteUri && documentPath) {
-        externalUrl = await this.resolveExternalUrl(siteUri, documentPath)
+      if (isSiteStandardDocument && siteUri) {
+        // Use documentPath if available, otherwise fall back to rkey
+        // (some platforms like leaflet.pub use the rkey as the URL path)
+        const pathForUrl = documentPath || `/${rkey}`
+        externalUrl = await this.resolveExternalUrl(siteUri, pathForUrl)
       }
 
       // Store theme data - either preset name or JSON for custom themes
