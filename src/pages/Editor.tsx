@@ -1821,60 +1821,58 @@ export function EditorPage() {
                 <label className="block text-sm font-medium text-[var(--site-text-secondary)]">
                   Content (Markdown)
                 </label>
-                {/* Toolbar buttons - only show for GreenGale format */}
-                {!isWhiteWind && (
-                  <div className="flex items-center gap-1">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleFileSelect}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={!session || !pdsEndpoint || !!uploadProgress}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] hover:text-[var(--site-text)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Upload image"
+                {/* Toolbar buttons */}
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!session || !pdsEndpoint || !!uploadProgress}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] hover:text-[var(--site-text)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Upload image"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      <svg
-                        className="w-4 h-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <polyline points="21 15 16 10 5 21" />
-                      </svg>
-                      <span className="hidden sm:inline">Add Image</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={toggleToolbar}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] hover:text-[var(--site-text)] transition-colors"
-                      title={isToolbarCollapsed ? 'Show formatting toolbar' : 'Hide formatting toolbar'}
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      <circle cx="8.5" cy="8.5" r="1.5" />
+                      <polyline points="21 15 16 10 5 21" />
+                    </svg>
+                    <span className="hidden sm:inline">Add Image</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleToolbar}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)] hover:text-[var(--site-text)] transition-colors"
+                    title={isToolbarCollapsed ? 'Show formatting toolbar' : 'Hide formatting toolbar'}
+                  >
+                    <span className="hidden sm:inline">Toolbar</span>
+                    <svg
+                      className={`w-4 h-4 transition-transform ${isToolbarCollapsed ? '' : 'rotate-180'}`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      <span className="hidden sm:inline">Toolbar</span>
-                      <svg
-                        className={`w-4 h-4 transition-transform ${isToolbarCollapsed ? '' : 'rotate-180'}`}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* Markdown Formatting Toolbar */}
