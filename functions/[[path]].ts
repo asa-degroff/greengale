@@ -162,10 +162,13 @@ interface CfProperties {
   botManagement?: {
     score?: number
     verifiedBot?: boolean
+    jsDetection?: {
+      passed?: boolean
+    }
   }
 }
 
-function isBot(userAgent: string | null, cfProperties?: CfProperties): boolean {
+function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: Headers): boolean {
   // No User-Agent is suspicious - likely a simple HTTP client
   if (!userAgent) return true
 
@@ -179,10 +182,25 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties): boolean {
     return true
   }
 
+  // Check if request is coming through another Cloudflare proxy (o2o = orange-to-orange)
+  // This is common for scraping services and proxies, unusual for real users
+  if (headers?.get('cf-connecting-o2o') === '1') {
+    return true
+  }
+
   // Check if request comes from a known datacenter/cloud provider
   // Real users typically browse from residential ISPs, not datacenters
   if (cfProperties?.asOrganization) {
     if (DATACENTER_PATTERNS.some((pattern) => pattern.test(cfProperties.asOrganization!))) {
+      return true
+    }
+  }
+
+  // If UA looks like a browser but JS detection hasn't passed, likely headless
+  // Real browsers would pass JS detection after their first visit
+  if (cfProperties?.botManagement?.jsDetection?.passed === false) {
+    // Only flag as bot if it claims to be a browser (headless Chrome, etc.)
+    if (BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))) {
       return true
     }
   }
@@ -236,7 +254,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   if (url.pathname === '/__prerender-test') {
     const userAgent = request.headers.get('user-agent')
     const cf = (request as Request & { cf?: CfProperties }).cf
-    const isBotResult = isBot(userAgent, cf)
+    const isBotResult = isBot(userAgent, cf, request.headers)
     return new Response(JSON.stringify({
       status: 'ok',
       functionLoaded: true,
@@ -245,6 +263,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       cfAsOrganization: cf?.asOrganization,
       cfBotScore: cf?.botManagement?.score,
       cfVerifiedBot: cf?.botManagement?.verifiedBot,
+      cfJsDetectionPassed: cf?.botManagement?.jsDetection?.passed,
+      cfConnectingO2O: request.headers.get('cf-connecting-o2o'),
       timestamp: new Date().toISOString(),
     }, null, 2), {
       headers: {
@@ -335,10 +355,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
   const cf = (request as Request & { cf?: CfProperties }).cf
-  const isBotRequest = isBot(userAgent, cf)
+  const isBotRequest = isBot(userAgent, cf, request.headers)
+  const o2o = request.headers.get('cf-connecting-o2o')
 
   // Log for debugging (visible in Cloudflare dashboard -> Pages -> Functions -> Logs)
-  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | ASN: ${cf?.asOrganization || 'unknown'} | Bot: ${isBotRequest}`)
+  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | ASN: ${cf?.asOrganization || 'unknown'} | O2O: ${o2o || 'no'} | Bot: ${isBotRequest}`)
 
   if (!isBotRequest) {
     return next()
