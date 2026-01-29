@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
-import { migrateSiteStandardPublication, fixSiteStandardUrls } from './atproto'
+import { migrateSiteStandardPublication } from './atproto'
 import { markFromPWA, tryBridgeSession, isIOSStandalone } from './pwa-session-bridge'
 
 // Minimal OAuth scopes: blog entry collections + V2 document collection + publication + site.standard + blob uploads
@@ -142,25 +142,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem(migrationKey, new Date().toISOString())
           } catch (migrationError) {
             console.error('[Auth] Migration error:', migrationError)
-          }
-        }
-
-        // Fix site.standard URL issues
-        const urlFixKey = `site-standard-url-fix-v1-${did}`
-        if (!localStorage.getItem(urlFixKey) && resolvedHandle) {
-          console.log('[Auth] Checking site.standard URLs...')
-          try {
-            const urlFixResult = await fixSiteStandardUrls(result.session, resolvedHandle)
-            if (urlFixResult.publicationFixed || urlFixResult.documentsFixed > 0) {
-              console.log(`[Auth] URL fix completed: publication=${urlFixResult.publicationFixed}, documents=${urlFixResult.documentsFixed}`)
-            } else if (urlFixResult.error) {
-              console.warn('[Auth] URL fix failed:', urlFixResult.error)
-            } else {
-              console.log('[Auth] No URL fixes needed')
-            }
-            localStorage.setItem(urlFixKey, new Date().toISOString())
-          } catch (urlFixError) {
-            console.error('[Auth] URL fix error:', urlFixError)
           }
         }
 
