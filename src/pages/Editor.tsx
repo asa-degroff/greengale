@@ -211,12 +211,12 @@ export function EditorPage() {
       })
     }
 
-    // Clean up preview URLs
-    previewUrls.forEach((url) => URL.revokeObjectURL(url))
+    // Clean up preview URLs (use ref to avoid dependency on previewUrls)
+    previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     setPreviewUrls(new Map())
-  }, [rkey, previewUrls])
+  }, [rkey])
 
-  // Cleanup object URLs on unmount
+  // Ref to track current preview URLs for cleanup (avoids stale closure issues)
   const previewUrlsRef = useRef<Map<string, string>>(new Map())
   previewUrlsRef.current = previewUrls
   useEffect(() => {
@@ -225,15 +225,21 @@ export function EditorPage() {
     }
   }, [])
 
-  // Compute preview content with local URLs substituted for PDS URLs
-  const previewContent = useMemo(() => {
-    if (previewUrls.size === 0) return content
-    // Build a single regex pattern from all PDS URLs for O(n) replacement
+  // Cache the regex pattern separately - only rebuild when previewUrls changes
+  const previewUrlPattern = useMemo(() => {
+    if (previewUrls.size === 0) return null
     const pdsUrls = Array.from(previewUrls.keys())
     const escapedUrls = pdsUrls.map((url) => url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    const pattern = new RegExp(escapedUrls.join('|'), 'g')
-    return content.replace(pattern, (match) => previewUrls.get(match) || match)
-  }, [content, previewUrls])
+    return new RegExp(escapedUrls.join('|'), 'g')
+  }, [previewUrls])
+
+  // Compute preview content with local URLs substituted for PDS URLs
+  const previewContent = useMemo(() => {
+    if (!previewUrlPattern) return content
+    // Reset regex lastIndex since we're reusing it (global flag maintains state)
+    previewUrlPattern.lastIndex = 0
+    return content.replace(previewUrlPattern, (match) => previewUrls.get(match) || match)
+  }, [content, previewUrlPattern, previewUrls])
 
   // Track initial values to detect changes
   const initialValues = useRef<{
