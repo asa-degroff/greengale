@@ -1,6 +1,6 @@
 // HTML template renderer for bot prerendering
 
-import type { BlogEntry, AuthorProfile } from './atproto'
+import type { BlogEntry, AuthorProfile, PostSummary } from './atproto'
 import { renderMarkdownToHtml, extractText } from './markdown'
 
 interface RenderOptions {
@@ -159,6 +159,227 @@ ${JSON.stringify(jsonLd, null, 2)}
   <article>
 ${htmlContent}
   </article>
+
+  <footer>
+    <p>Read on <a href="${escapeHtml(canonicalUrl)}">GreenGale</a> - A decentralized blogging platform on AT Protocol</p>
+  </footer>
+</body>
+</html>`
+}
+
+/**
+ * Common styles shared between pages
+ */
+const commonStyles = `
+  body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; line-height: 1.2; }
+  a { color: #0066cc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .post-list { list-style: none; padding: 0; }
+  .post-item { padding: 1.5rem 0; border-bottom: 1px solid #eee; }
+  .post-item:last-child { border-bottom: none; }
+  .post-title { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem 0; }
+  .post-subtitle { color: #666; margin: 0 0 0.5rem 0; }
+  .post-meta { color: #888; font-size: 0.875rem; }
+  .author-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid #eee; }
+  .author-avatar { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; }
+  .author-info h1 { margin: 0; }
+  .author-handle { color: #666; margin: 0.25rem 0; }
+  .author-bio { color: #444; margin-top: 0.5rem; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #eee; color: #666; font-size: 0.9rem; }
+`
+
+/**
+ * Render a post item for lists
+ */
+function renderPostItem(post: PostSummary): string {
+  const authorName = post.authorDisplayName || post.authorHandle
+  const postUrl = `https://greengale.app/${post.authorHandle}/${post.rkey}`
+  const authorUrl = `https://greengale.app/${post.authorHandle}`
+  const formattedDate = formatDate(post.createdAt)
+
+  return `
+    <li class="post-item">
+      <h2 class="post-title"><a href="${escapeHtml(postUrl)}">${escapeHtml(post.title || 'Untitled')}</a></h2>
+      ${post.subtitle ? `<p class="post-subtitle">${escapeHtml(post.subtitle)}</p>` : ''}
+      <p class="post-meta">
+        By <a href="${escapeHtml(authorUrl)}">${escapeHtml(authorName)}</a>
+        ${formattedDate ? ` · ${escapeHtml(formattedDate)}` : ''}
+      </p>
+    </li>
+  `
+}
+
+/**
+ * Render the homepage with recent posts
+ */
+export function renderHomepageHtml(posts: PostSummary[]): string {
+  const title = 'GreenGale - Decentralized Blogging'
+  const description = 'A decentralized blogging platform built on AT Protocol. Read and share blog posts with the Bluesky ecosystem.'
+  const canonicalUrl = 'https://greengale.app'
+  const ogImageUrl = 'https://greengale.asadegroff.workers.dev/og/site.png'
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'GreenGale',
+    description,
+    url: canonicalUrl,
+    publisher: {
+      '@type': 'Organization',
+      name: 'GreenGale',
+      url: canonicalUrl,
+    },
+  }
+
+  const postListHtml = posts.length > 0
+    ? `<ul class="post-list">${posts.map(renderPostItem).join('')}</ul>`
+    : '<p>No posts yet. Check back soon!</p>'
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Primary Meta Tags -->
+  <title>${escapeHtml(title)}</title>
+  <meta name="title" content="${escapeHtml(title)}">
+  <meta name="description" content="${escapeHtml(description)}">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:site_name" content="GreenGale">
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="twitter:title" content="${escapeHtml(title)}">
+  <meta property="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+${JSON.stringify(jsonLd, null, 2)}
+  </script>
+
+  <style>${commonStyles}</style>
+</head>
+<body>
+  <header>
+    <h1>GreenGale</h1>
+    <p>A decentralized blogging platform on AT Protocol</p>
+  </header>
+
+  <main>
+    <h2>Recent Posts</h2>
+    ${postListHtml}
+  </main>
+
+  <footer>
+    <p><a href="${escapeHtml(canonicalUrl)}">GreenGale</a> - Decentralized blogging for the Bluesky ecosystem</p>
+  </footer>
+</body>
+</html>`
+}
+
+/**
+ * Render an author's profile page with their posts
+ */
+export function renderProfileHtml(author: AuthorProfile, posts: PostSummary[]): string {
+  const displayName = author.displayName || author.handle
+  const title = `${displayName} (@${author.handle}) - GreenGale`
+  const description = author.description || `Blog posts by ${displayName} on GreenGale`
+  const canonicalUrl = `https://greengale.app/${author.handle}`
+  const ogImageUrl = `https://greengale.asadegroff.workers.dev/og/profile/${author.handle}.png`
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    mainEntity: {
+      '@type': 'Person',
+      name: displayName,
+      identifier: author.did,
+      url: canonicalUrl,
+      description: author.description,
+      image: author.avatar,
+    },
+  }
+
+  const postListHtml = posts.length > 0
+    ? `<ul class="post-list">${posts.map(renderPostItem).join('')}</ul>`
+    : '<p>No posts yet.</p>'
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Primary Meta Tags -->
+  <title>${escapeHtml(title)}</title>
+  <meta name="title" content="${escapeHtml(title)}">
+  <meta name="description" content="${escapeHtml(description)}">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="profile">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:title" content="${escapeHtml(title)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:site_name" content="GreenGale">
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="profile:username" content="${escapeHtml(author.handle)}">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="twitter:title" content="${escapeHtml(title)}">
+  <meta property="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+${JSON.stringify(jsonLd, null, 2)}
+  </script>
+
+  <style>${commonStyles}</style>
+</head>
+<body>
+  <header class="author-header">
+    ${author.avatar ? `<img class="author-avatar" src="${escapeHtml(author.avatar)}" alt="${escapeHtml(displayName)}">` : ''}
+    <div class="author-info">
+      <h1>${escapeHtml(displayName)}</h1>
+      <p class="author-handle">@${escapeHtml(author.handle)}</p>
+      ${author.description ? `<p class="author-bio">${escapeHtml(author.description)}</p>` : ''}
+    </div>
+  </header>
+
+  <main>
+    <h2>Posts</h2>
+    ${postListHtml}
+  </main>
 
   <footer>
     <p>Read on <a href="${escapeHtml(canonicalUrl)}">GreenGale</a> - A decentralized blogging platform on AT Protocol</p>

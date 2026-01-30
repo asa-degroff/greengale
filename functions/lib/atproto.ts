@@ -303,3 +303,68 @@ export async function getBlogEntry(
   console.log(`[atproto] No entry found for ${identifier}/${rkey}`)
   return null
 }
+
+// API base URL for the GreenGale worker
+const API_BASE = 'https://greengale.asadegroff.workers.dev'
+
+/**
+ * Post summary from the API (less data than full BlogEntry)
+ */
+export interface PostSummary {
+  uri: string
+  authorDid: string
+  authorHandle: string
+  authorDisplayName?: string
+  authorAvatar?: string
+  rkey: string
+  title: string
+  subtitle?: string
+  createdAt: string
+  source: string
+}
+
+/**
+ * Get recent posts from the API
+ */
+export async function getRecentPosts(limit = 10): Promise<PostSummary[]> {
+  try {
+    console.log(`[atproto] Fetching recent posts (limit: ${limit})`)
+    const url = `${API_BASE}/xrpc/app.greengale.feed.getRecentPosts?limit=${limit}`
+    const response = await fetchWithTimeout(url)
+
+    if (!response.ok) {
+      console.log(`[atproto] Recent posts API failed: ${response.status}`)
+      return []
+    }
+
+    const data = await response.json() as { posts: PostSummary[] }
+    console.log(`[atproto] Got ${data.posts?.length || 0} recent posts`)
+    return data.posts || []
+  } catch (error) {
+    console.error(`[atproto] Error fetching recent posts: ${error}`)
+    return []
+  }
+}
+
+/**
+ * Get posts by a specific author from the API
+ */
+export async function getAuthorPosts(author: string, limit = 20): Promise<PostSummary[]> {
+  try {
+    console.log(`[atproto] Fetching posts for author: ${author}`)
+    const url = `${API_BASE}/xrpc/app.greengale.feed.getAuthorPosts?author=${encodeURIComponent(author)}&limit=${limit}`
+    const response = await fetchWithTimeout(url)
+
+    if (!response.ok) {
+      console.log(`[atproto] Author posts API failed: ${response.status}`)
+      return []
+    }
+
+    const data = await response.json() as { posts: PostSummary[] }
+    console.log(`[atproto] Got ${data.posts?.length || 0} posts for ${author}`)
+    return data.posts || []
+  } catch (error) {
+    console.error(`[atproto] Error fetching author posts: ${error}`)
+    return []
+  }
+}
