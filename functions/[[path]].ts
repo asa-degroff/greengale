@@ -1,8 +1,8 @@
 // Bot detection middleware for Cloudflare Pages Functions
 // Serves pre-rendered HTML to bots/AI agents while regular users get the SPA
 
-import { getBlogEntry, getAuthorProfile } from './lib/atproto'
-import { renderPostHtml } from './lib/render-html'
+import { getBlogEntry, getAuthorProfile, getRecentPosts, getAuthorPosts } from './lib/atproto'
+import { renderPostHtml, renderHomepageHtml, renderProfileHtml } from './lib/render-html'
 
 interface Env {
   // D1 binding (optional - we use PDS directly for now)
@@ -172,7 +172,7 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: 
   // No User-Agent is suspicious - likely a simple HTTP client
   if (!userAgent) return true
 
-  // If it matches a known bot pattern, it's a bot
+  // If it matches a known bot pattern, it's definitely a bot
   if (BOT_PATTERNS.some((pattern) => pattern.test(userAgent))) {
     return true
   }
@@ -182,8 +182,24 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: 
     return true
   }
 
+  // If user has cookies, they're likely a real user with a session
+  // Bots typically don't carry cookies across requests
+  const hasCookies = !!headers?.get('cookie')
+
+  // If navigating from same origin, likely a real user browsing the site
+  const isSameOrigin = headers?.get('sec-fetch-site') === 'same-origin'
+
+  // Real users with cookies or same-origin navigation should not be treated as bots
+  if (hasCookies || isSameOrigin) {
+    // But still check for explicit bot patterns in UA (already done above)
+    // If they look like a browser and have cookies/same-origin, they're real
+    if (BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+      return false
+    }
+  }
+
   // Check if request is coming through another Cloudflare proxy (o2o = orange-to-orange)
-  // This is common for scraping services and proxies, unusual for real users
+  // This is common for scraping services, but only flag if no cookies/same-origin
   if (headers?.get('cf-connecting-o2o') === '1') {
     return true
   }
@@ -215,12 +231,24 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: 
   return true
 }
 
+// Reserved paths that are not handles or posts
+const RESERVED_PATHS = ['auth', 'new', 'edit', 'api', 'xrpc', '_next', 'assets', 'favicon.ico', 'favicon.png', 'manifest.webmanifest', 'sw.js', 'robots.txt']
+
+/**
+ * Normalize pathname by removing trailing slashes (except for root)
+ */
+function normalizePath(pathname: string): string {
+  if (pathname === '/') return pathname
+  return pathname.replace(/\/+$/, '')
+}
+
 // Parse post routes: /:handle/:rkey
 function parsePostRoute(
   pathname: string
 ): { handle: string; rkey: string } | null {
-  // Remove leading slash and split
-  const parts = pathname.slice(1).split('/')
+  // Normalize and remove leading slash, then split (filter removes empty strings from trailing slashes)
+  const normalized = normalizePath(pathname)
+  const parts = normalized.slice(1).split('/').filter(Boolean)
 
   // Must be exactly 2 parts
   if (parts.length !== 2) return null
@@ -228,13 +256,35 @@ function parsePostRoute(
   const [handle, rkey] = parts
 
   // Exclude known non-post routes
-  const reservedPaths = ['auth', 'new', 'edit', 'api', 'xrpc', '_next', 'assets']
-  if (reservedPaths.includes(handle)) return null
+  if (RESERVED_PATHS.includes(handle)) return null
+
+  // Exclude .well-known paths
+  if (handle === '.well-known' || rkey === '.well-known') return null
 
   // Basic validation
   if (!handle || !rkey) return null
 
   return { handle, rkey }
+}
+
+// Parse profile routes: /:handle (single segment, not reserved)
+function parseProfileRoute(pathname: string): string | null {
+  // Normalize and remove leading slash, then split (filter removes empty strings from trailing slashes)
+  const normalized = normalizePath(pathname)
+  const parts = normalized.slice(1).split('/').filter(Boolean)
+
+  // Must be exactly 1 part
+  if (parts.length !== 1) return null
+
+  const handle = parts[0]
+
+  // Exclude reserved paths
+  if (!handle || RESERVED_PATHS.includes(handle)) return null
+
+  // Exclude paths with common static file extensions
+  if (/\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|json|xml|txt)$/i.test(handle)) return null
+
+  return handle
 }
 
 // GreenGale platform account DID for site.standard verification
@@ -255,11 +305,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const userAgent = request.headers.get('user-agent')
     const cf = (request as Request & { cf?: CfProperties }).cf
     const isBotResult = isBot(userAgent, cf, request.headers)
+    const hasCookies = !!request.headers.get('cookie')
+    const secFetchSite = request.headers.get('sec-fetch-site')
     return new Response(JSON.stringify({
       status: 'ok',
       functionLoaded: true,
       userAgent,
       isBot: isBotResult,
+      hasCookies,
+      secFetchSite,
       cfAsOrganization: cf?.asOrganization,
       cfBotScore: cf?.botManagement?.score,
       cfVerifiedBot: cf?.botManagement?.verifiedBot,
@@ -357,15 +411,66 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const cf = (request as Request & { cf?: CfProperties }).cf
   const isBotRequest = isBot(userAgent, cf, request.headers)
   const o2o = request.headers.get('cf-connecting-o2o')
+  const hasCookies = !!request.headers.get('cookie')
+  const secFetchSite = request.headers.get('sec-fetch-site')
 
   // Log for debugging (visible in Cloudflare dashboard -> Pages -> Functions -> Logs)
-  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | ASN: ${cf?.asOrganization || 'unknown'} | O2O: ${o2o || 'no'} | Bot: ${isBotRequest}`)
+  console.log(`[Prerender] ${url.pathname} | UA: ${userAgent?.substring(0, 100) || 'none'} | ASN: ${cf?.asOrganization || 'unknown'} | O2O: ${o2o || 'no'} | Cookies: ${hasCookies ? 'yes' : 'no'} | Fetch: ${secFetchSite || 'none'} | Bot: ${isBotRequest}`)
 
   if (!isBotRequest) {
     return next()
   }
 
-  // Only intercept post routes
+  // Handle homepage
+  if (url.pathname === '/') {
+    try {
+      console.log('[Prerender] Rendering homepage')
+      const posts = await getRecentPosts(20)
+      const html = renderHomepageHtml(posts)
+      console.log(`[Prerender] Homepage success (${html.length} bytes, ${posts.length} posts)`)
+
+      return new Response(html, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=300, s-maxage=600', // Shorter cache for homepage
+          'X-Robots-Tag': 'index, follow',
+        },
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`[Prerender] Homepage error:`, errorMessage)
+      return next()
+    }
+  }
+
+  // Handle profile routes: /:handle
+  const profileHandle = parseProfileRoute(url.pathname)
+  if (profileHandle) {
+    try {
+      console.log(`[Prerender] Rendering profile: ${profileHandle}`)
+      const [author, posts] = await Promise.all([
+        getAuthorProfile(profileHandle),
+        getAuthorPosts(profileHandle, 20),
+      ])
+
+      const html = renderProfileHtml(author, posts)
+      console.log(`[Prerender] Profile success: ${profileHandle} (${html.length} bytes, ${posts.length} posts)`)
+
+      return new Response(html, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=600, s-maxage=1800',
+          'X-Robots-Tag': 'index, follow',
+        },
+      })
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`[Prerender] Profile error for ${profileHandle}:`, errorMessage)
+      return next()
+    }
+  }
+
+  // Handle post routes: /:handle/:rkey
   const postRoute = parsePostRoute(url.pathname)
   if (!postRoute) {
     return next()
