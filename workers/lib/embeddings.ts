@@ -62,6 +62,54 @@ export interface VectorizeVectorMutationResult {
 const EMBEDDING_MODEL = '@cf/baai/bge-m3'
 const EMBEDDING_DIMENSIONS = 1024
 const MAX_TEXT_LENGTH = 8000 // Characters, roughly 2000 tokens
+const MAX_VECTOR_ID_LENGTH = 64 // Vectorize limit
+
+/**
+ * Generate a short hash ID from a URI for use as Vectorize vector ID.
+ * Vectorize has a 64-byte limit for IDs, but AT-URIs can be 80+ bytes.
+ * We use a base64url-encoded hash to get a fixed-length ID.
+ *
+ * Format: First 40 chars of base64url(SHA-256(uri)) = ~30 bytes of entropy
+ * This leaves room for chunk suffixes like ":chunk0" (7 chars)
+ */
+export async function hashUriToId(uri: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(uri)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = new Uint8Array(hashBuffer)
+
+  // Convert to base64url (URL-safe base64 without padding)
+  const base64 = btoa(String.fromCharCode(...hashArray))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+
+  // Take first 40 chars (leaves room for :chunk## suffix)
+  return base64.slice(0, 40)
+}
+
+/**
+ * Generate vector ID for a post or chunk
+ */
+export async function getVectorId(uri: string, chunkIndex?: number): Promise<string> {
+  const baseId = await hashUriToId(uri)
+  if (chunkIndex !== undefined && chunkIndex > 0) {
+    return `${baseId}:c${chunkIndex}`
+  }
+  return baseId
+}
+
+/**
+ * Generate all possible vector IDs for a post (main + chunks)
+ */
+export async function getAllVectorIds(uri: string, maxChunks: number = 20): Promise<string[]> {
+  const baseId = await hashUriToId(uri)
+  const ids = [baseId]
+  for (let i = 1; i < maxChunks; i++) {
+    ids.push(`${baseId}:c${i}`)
+  }
+  return ids
+}
 
 export interface EmbeddingMetadata {
   /** Original post URI (for chunks, this is the parent post) */
@@ -263,12 +311,8 @@ export async function deletePostEmbeddings(
   postUri: string,
   maxChunks: number = 20
 ): Promise<number> {
-  // Generate all possible IDs for this post
-  const ids = [postUri]
-  for (let i = 0; i < maxChunks; i++) {
-    ids.push(`${postUri}:chunk${i}`)
-  }
-
+  // Generate all possible hashed IDs for this post
+  const ids = await getAllVectorIds(postUri, maxChunks)
   return deleteEmbeddings(vectorize, ids)
 }
 
@@ -311,14 +355,18 @@ export async function getPostEmbeddings(
   vectorize: VectorizeIndex,
   postUri: string
 ): Promise<VectorizeVector[]> {
-  // Try to get the single embedding first
-  const single = await vectorize.getByIds([postUri])
+  // Get all possible hashed IDs for this post
+  const allIds = await getAllVectorIds(postUri, 20)
+
+  // Try to get the main embedding first
+  const baseId = allIds[0]
+  const single = await vectorize.getByIds([baseId])
   if (single.length > 0) {
     return single
   }
 
   // Try chunks
-  const chunkIds = Array.from({ length: 20 }, (_, i) => `${postUri}:chunk${i}`)
+  const chunkIds = allIds.slice(1)
   const chunks = await vectorize.getByIds(chunkIds)
   return chunks.filter(c => c.values && c.values.length > 0)
 }

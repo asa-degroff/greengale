@@ -58,7 +58,7 @@ database_id = "81ee3700-f80c-45fc-ac0b-37b6cdcd23e3"
 # Separate KV for staging cache
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
-id = "STAGING_KV_ID_PLACEHOLDER"  # Create with: npx wrangler kv namespace create CACHE --env staging
+id = "a5c0be5098ce4752b5f1075a72245531"
 
 # Workers AI (shared)
 [env.staging.ai]

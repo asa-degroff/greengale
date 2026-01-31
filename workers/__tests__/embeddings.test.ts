@@ -9,6 +9,9 @@ import {
   querySimilar,
   getPostEmbeddings,
   reciprocalRankFusion,
+  hashUriToId,
+  getVectorId,
+  getAllVectorIds,
   type Ai,
   type VectorizeIndex,
   type EmbeddingMetadata,
@@ -248,16 +251,18 @@ describe('deleteEmbeddings', () => {
 })
 
 describe('deletePostEmbeddings', () => {
-  it('deletes main embedding and chunks', async () => {
+  it('deletes main embedding and chunks using hashed IDs', async () => {
     const vectorize = createMockVectorize()
     const uri = 'at://did:plc:test/app.greengale.document/abc123'
+    const hashedId = await hashUriToId(uri)
 
     await deletePostEmbeddings(vectorize, uri)
 
     const call = (vectorize.deleteByIds as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(call[0]).toContain(uri)
-    expect(call[0]).toContain(`${uri}:chunk0`)
-    expect(call[0]).toContain(`${uri}:chunk19`)
+    // Should contain hashed base ID and chunk IDs
+    expect(call[0]).toContain(hashedId)
+    expect(call[0]).toContain(`${hashedId}:c1`)
+    expect(call[0]).toContain(`${hashedId}:c19`)
   })
 })
 
@@ -309,24 +314,26 @@ describe('getPostEmbeddings', () => {
   it('gets single post embedding', async () => {
     const vectorize = createMockVectorize()
     const uri = 'at://test/post'
-    await vectorize.upsert([{ id: uri, values: new Array(1024).fill(0.5), metadata: {} }])
+    const hashedId = await hashUriToId(uri)
+    await vectorize.upsert([{ id: hashedId, values: new Array(1024).fill(0.5), metadata: {} }])
 
     const embeddings = await getPostEmbeddings(vectorize, uri)
 
     expect(embeddings).toHaveLength(1)
-    expect(embeddings[0].id).toBe(uri)
+    expect(embeddings[0].id).toBe(hashedId)
   })
 
   it('gets chunked post embeddings', async () => {
     const vectorize = createMockVectorize()
     const uri = 'at://test/post'
+    const hashedId = await hashUriToId(uri)
 
     // Simulate chunked embeddings (no main, only chunks)
     const mockGetByIds = vi.fn()
-      .mockResolvedValueOnce([]) // First call for main URI returns empty
+      .mockResolvedValueOnce([]) // First call for main ID returns empty
       .mockResolvedValueOnce([ // Second call for chunks
-        { id: `${uri}:chunk0`, values: new Array(1024).fill(0.5), metadata: {} },
-        { id: `${uri}:chunk1`, values: new Array(1024).fill(0.6), metadata: {} },
+        { id: `${hashedId}:c1`, values: new Array(1024).fill(0.5), metadata: {} },
+        { id: `${hashedId}:c2`, values: new Array(1024).fill(0.6), metadata: {} },
       ])
 
     vectorize.getByIds = mockGetByIds
@@ -394,5 +401,76 @@ describe('reciprocalRankFusion', () => {
     expect(fused[0].id).toBe('a')
     expect(fused[1].id).toBe('b')
     expect(fused[2].id).toBe('c')
+  })
+})
+
+describe('hashUriToId', () => {
+  it('produces consistent hashes', async () => {
+    const uri = 'at://did:plc:test/app.greengale.document/abc123'
+    const hash1 = await hashUriToId(uri)
+    const hash2 = await hashUriToId(uri)
+
+    expect(hash1).toBe(hash2)
+  })
+
+  it('produces different hashes for different URIs', async () => {
+    const hash1 = await hashUriToId('at://did:plc:test/collection/rkey1')
+    const hash2 = await hashUriToId('at://did:plc:test/collection/rkey2')
+
+    expect(hash1).not.toBe(hash2)
+  })
+
+  it('produces IDs under 64 bytes', async () => {
+    // Long URI that would exceed 64 bytes
+    const longUri = 'at://did:plc:verylongdididentifier12345/com.whtwnd.blog.entry/verylongrkey123'
+    const hash = await hashUriToId(longUri)
+
+    expect(hash.length).toBeLessThanOrEqual(40)
+    expect(hash.length + ':c99'.length).toBeLessThanOrEqual(64)
+  })
+
+  it('uses URL-safe base64 characters', async () => {
+    const hash = await hashUriToId('at://test/collection/rkey')
+
+    // Should only contain base64url characters (no +, /, or =)
+    expect(hash).toMatch(/^[A-Za-z0-9_-]+$/)
+  })
+})
+
+describe('getVectorId', () => {
+  it('returns base ID for chunk 0 or undefined', async () => {
+    const uri = 'at://did:plc:test/app.greengale.document/abc123'
+    const baseId = await hashUriToId(uri)
+
+    expect(await getVectorId(uri)).toBe(baseId)
+    expect(await getVectorId(uri, 0)).toBe(baseId)
+  })
+
+  it('appends chunk suffix for non-zero chunks', async () => {
+    const uri = 'at://did:plc:test/app.greengale.document/abc123'
+    const baseId = await hashUriToId(uri)
+
+    expect(await getVectorId(uri, 1)).toBe(`${baseId}:c1`)
+    expect(await getVectorId(uri, 5)).toBe(`${baseId}:c5`)
+  })
+})
+
+describe('getAllVectorIds', () => {
+  it('returns base ID plus chunk IDs', async () => {
+    const uri = 'at://did:plc:test/collection/rkey'
+    const ids = await getAllVectorIds(uri, 3)
+
+    expect(ids).toHaveLength(3)
+    const baseId = await hashUriToId(uri)
+    expect(ids[0]).toBe(baseId)
+    expect(ids[1]).toBe(`${baseId}:c1`)
+    expect(ids[2]).toBe(`${baseId}:c2`)
+  })
+
+  it('defaults to 20 chunks', async () => {
+    const uri = 'at://test/collection/rkey'
+    const ids = await getAllVectorIds(uri)
+
+    expect(ids).toHaveLength(20)
   })
 })

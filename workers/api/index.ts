@@ -11,6 +11,7 @@ import {
   upsertEmbeddings,
   querySimilar,
   getPostEmbeddings,
+  getVectorId,
   reciprocalRankFusion,
   type Ai,
   type VectorizeIndex,
@@ -1934,12 +1935,11 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         })
 
         for (const match of vectorResults) {
-          // Extract URI from chunk ID (remove :chunkN suffix if present)
-          const uri = match.id.includes(':chunk')
-            ? match.id.replace(/:chunk\d+$/, '')
-            : match.id
+          // Get URI from metadata (IDs are hashed for Vectorize's 64-byte limit)
+          const uri = match.metadata.uri as string
+          if (!uri) continue
 
-          // Deduplicate by URI
+          // Deduplicate by URI (multiple chunks may match for the same post)
           if (!semanticResults.some(r => r.id === uri)) {
             semanticResults.push({ id: uri, score: match.score })
           }
@@ -4045,20 +4045,22 @@ app.post('/xrpc/app.greengale.admin.backfillEmbeddings', async (c) => {
         const texts = chunks.map(c => c.text)
         const embeddings = await generateEmbeddings(c.env.AI, texts)
 
-        // Prepare for Vectorize
-        const vectorEmbeddings = chunks.map((chunk, i) => {
-          const id = chunks.length === 1 ? uri : `${uri}:chunk${chunk.chunkIndex}`
-          const metadata: EmbeddingMetadata = {
-            uri,
-            authorDid: did,
-            title: title || undefined,
-            createdAt: createdAt || undefined,
-            chunkIndex: chunk.chunkIndex,
-            totalChunks: chunk.totalChunks,
-            isChunk: chunks.length > 1,
-          }
-          return { id, vector: embeddings[i], metadata }
-        })
+        // Prepare for Vectorize (use hashed IDs to fit 64-byte limit)
+        const vectorEmbeddings = await Promise.all(
+          chunks.map(async (chunk, i) => {
+            const id = await getVectorId(uri, chunk.chunkIndex)
+            const metadata: EmbeddingMetadata = {
+              uri,
+              authorDid: did,
+              title: title || undefined,
+              createdAt: createdAt || undefined,
+              chunkIndex: chunk.chunkIndex,
+              totalChunks: chunk.totalChunks,
+              isChunk: chunks.length > 1,
+            }
+            return { id, vector: embeddings[i], metadata }
+          })
+        )
 
         // Upsert to Vectorize
         await upsertEmbeddings(c.env.VECTORIZE, vectorEmbeddings)

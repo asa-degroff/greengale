@@ -8,6 +8,7 @@ import {
   generateEmbeddings,
   upsertEmbeddings,
   deletePostEmbeddings,
+  getVectorId,
   type Ai,
   type VectorizeIndex,
   type EmbeddingMetadata,
@@ -1070,24 +1071,26 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const texts = chunks.map(c => c.text)
       const embeddings = await generateEmbeddings(this.env.AI, texts)
 
-      // Prepare embeddings for Vectorize upsert
-      const vectorEmbeddings = chunks.map((chunk, i) => {
-        const id = chunks.length === 1 ? uri : `${uri}:chunk${chunk.chunkIndex}`
-        const metadata: EmbeddingMetadata = {
-          uri,
-          authorDid: did,
-          title: title || undefined,
-          createdAt: createdAt || undefined,
-          chunkIndex: chunk.chunkIndex,
-          totalChunks: chunk.totalChunks,
-          isChunk: chunks.length > 1,
-        }
-        return {
-          id,
-          vector: embeddings[i],
-          metadata,
-        }
-      })
+      // Prepare embeddings for Vectorize upsert (use hashed IDs to fit 64-byte limit)
+      const vectorEmbeddings = await Promise.all(
+        chunks.map(async (chunk, i) => {
+          const id = await getVectorId(uri, chunk.chunkIndex)
+          const metadata: EmbeddingMetadata = {
+            uri,
+            authorDid: did,
+            title: title || undefined,
+            createdAt: createdAt || undefined,
+            chunkIndex: chunk.chunkIndex,
+            totalChunks: chunk.totalChunks,
+            isChunk: chunks.length > 1,
+          }
+          return {
+            id,
+            vector: embeddings[i],
+            metadata,
+          }
+        })
+      )
 
       // Upsert to Vectorize
       await upsertEmbeddings(this.env.VECTORIZE, vectorEmbeddings)
