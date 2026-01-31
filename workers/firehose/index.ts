@@ -13,6 +13,10 @@ import {
   type VectorizeIndex,
   type EmbeddingMetadata,
 } from '../lib/embeddings'
+import {
+  extractLeafletContent,
+  isLeafletContent,
+} from '../lib/leaflet-parser'
 
 interface Env {
   DB: D1Database
@@ -162,6 +166,60 @@ export class FirehoseConsumer extends DurableObject<Env> {
       }), {
         headers: { 'Content-Type': 'application/json' },
       })
+    }
+
+    // Handle reindex requests for individual posts
+    if (url.pathname === '/reindex' && request.method === 'POST') {
+      try {
+        const { uri } = await request.json() as { uri: string }
+
+        // Parse URI: at://did/collection/rkey
+        const match = uri.match(/^at:\/\/(did:[^/]+)\/([^/]+)\/([^/]+)$/)
+        if (!match) {
+          return new Response(JSON.stringify({ error: 'Invalid URI' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+
+        const [, did, collection, rkey] = match
+
+        // Resolve PDS endpoint from DID document
+        const pdsEndpoint = await this.resolvePdsEndpoint(did)
+        if (!pdsEndpoint) {
+          return new Response(JSON.stringify({ error: 'Could not resolve PDS endpoint' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+
+        // Fetch the record from PDS
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (!response.ok) {
+          return new Response(JSON.stringify({ error: 'Record not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+
+        const data = await response.json() as { value: Record<string, unknown> }
+
+        // Re-index the post
+        const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
+        await this.indexPost(uri, did, rkey, source, data.value, collection)
+
+        return new Response(JSON.stringify({ success: true, uri }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+      } catch (error) {
+        console.error('Reindex error:', error)
+        return new Response(JSON.stringify({ error: 'Reindex failed' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     return new Response('Not found', { status: 404 })
@@ -358,10 +416,23 @@ export class FirehoseConsumer extends DurableObject<Env> {
         ? (record?.description as string) || null
         : (record?.subtitle as string) || null
       const visibility = (record?.visibility as string) || 'public'
-      // site.standard uses 'textContent' for plaintext, or content may be a ref object
-      const content = isSiteStandardDocument
-        ? (record?.textContent as string) || ''
-        : (record?.content as string) || ''
+
+      // Extract content based on document type
+      let content = ''
+      if (isSiteStandardDocument) {
+        // First try textContent (standard.site spec)
+        content = (record?.textContent as string) || ''
+
+        // If no textContent, check for Leaflet content structure
+        if (!content && record?.content) {
+          if (isLeafletContent(record.content)) {
+            content = extractLeafletContent(record.content)
+          }
+        }
+      } else {
+        content = (record?.content as string) || ''
+      }
+
       const hasLatex = source === 'greengale' && !isSiteStandardDocument && (record?.latex === true)
 
       // Handle date field - V2 and site.standard use publishedAt, V1/WhiteWind uses createdAt
@@ -446,11 +517,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
           )].slice(0, 100)
         : []
 
-      // Create content preview (first 300 chars, strip markdown)
+      // Create content preview (first 1000 chars, strip markdown)
       const contentPreview = content
         .replace(/[#*`\[\]()!]/g, '')
         .replace(/\n+/g, ' ')
-        .slice(0, 300)
+        .trim()
+        .slice(0, 1000)
 
       // Create slug from title
       const slug = title
@@ -878,6 +950,43 @@ export class FirehoseConsumer extends DurableObject<Env> {
         pdsEndpoint,
       }
     } catch {
+      return null
+    }
+  }
+
+  /**
+   * Resolve PDS endpoint from DID document
+   * Used for reindexing posts by fetching them from the author's PDS
+   */
+  private async resolvePdsEndpoint(did: string): Promise<string | null> {
+    try {
+      let didDocUrl: string
+      if (did.startsWith('did:web:')) {
+        const parts = did.slice('did:web:'.length).split(':')
+        const host = decodeURIComponent(parts[0])
+        const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
+        didDocUrl = `https://${host}${path}/did.json`
+      } else {
+        didDocUrl = `https://plc.directory/${did}`
+      }
+
+      const didDocResponse = await fetch(didDocUrl)
+      if (!didDocResponse.ok) {
+        console.error(`Failed to fetch DID document for ${did}`)
+        return null
+      }
+
+      const didDoc = await didDocResponse.json() as {
+        service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+      }
+
+      const pdsService = didDoc.service?.find(
+        s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+      )
+
+      return pdsService?.serviceEndpoint || null
+    } catch (error) {
+      console.error(`Error resolving PDS endpoint for ${did}:`, error)
       return null
     }
   }

@@ -3,13 +3,23 @@ import type { PostSearchResult as PostSearchResultType } from '@/lib/appview'
 
 interface PostSearchResultProps {
   result: PostSearchResultType
+  onExternalPostClick?: (post: PostSearchResultType) => void
 }
 
-export function PostSearchResult({ result }: PostSearchResultProps) {
+export function PostSearchResult({ result, onExternalPostClick }: PostSearchResultProps) {
   const navigate = useNavigate()
 
   function handleClick() {
-    navigate(`/${result.handle}/${result.rkey}`)
+    // Posts with externalUrl use callback if provided (for slide-in panel)
+    if (result.externalUrl && onExternalPostClick) {
+      onExternalPostClick(result)
+    } else if (result.externalUrl) {
+      // Fallback: open external URL directly if no callback
+      window.open(result.externalUrl, '_blank', 'noopener,noreferrer')
+    } else {
+      // Native GreenGale and WhiteWind posts navigate to the in-app post page
+      navigate(`/${result.handle}/${result.rkey}`)
+    }
   }
 
   function getMatchTypeBadge(matchType: PostSearchResultType['matchType']) {
@@ -69,6 +79,14 @@ export function PostSearchResult({ result }: PostSearchResultProps) {
           <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${badge.className}`}>
             {badge.label}
           </span>
+          {result.externalUrl && (
+            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              External
+            </span>
+          )}
         </div>
 
         {result.subtitle && (

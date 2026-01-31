@@ -1923,8 +1923,11 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       title: string
       subtitle: string | null
       createdAt: string | null
+      contentPreview: string | null
       score: number
       matchType: 'semantic' | 'keyword' | 'both'
+      source: 'whitewind' | 'greengale' | 'network'
+      externalUrl: string | null
     }> = []
 
     const semanticResults: Array<{ id: string; score: number }> = []
@@ -2057,6 +2060,9 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         p.title,
         p.subtitle,
         p.created_at,
+        p.content_preview,
+        p.source,
+        p.external_url,
         a.handle,
         a.display_name,
         a.avatar_url
@@ -2108,9 +2114,12 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         title: row.title as string,
         subtitle: row.subtitle as string | null,
         createdAt: row.created_at as string | null,
+        contentPreview: row.content_preview as string | null,
         score: semanticResults.find(r => r.id === uri)?.score ||
                keywordResults.find(r => r.id === uri)?.score || 0,
         matchType: inSemantic && inKeyword ? 'both' : inSemantic ? 'semantic' : 'keyword',
+        source: (row.source as 'whitewind' | 'greengale' | 'network') || 'greengale',
+        externalUrl: row.external_url as string | null,
       })
     }
 
@@ -2688,6 +2697,74 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
   } catch (error) {
     console.error('Error re-indexing post:', error)
     return c.json({ error: 'Failed to re-index post', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// Re-index posts with empty content previews (admin only)
+// This is useful for Leaflet posts that weren't properly indexed initially
+// Usage: POST /xrpc/app.greengale.admin.reindexEmptyPreviews?limit=50
+app.post('/xrpc/app.greengale.admin.reindexEmptyPreviews', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+
+  try {
+    // Find posts with empty content_preview (mainly site.standard.document from Leaflet)
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey
+      FROM posts
+      WHERE (content_preview IS NULL OR content_preview = '')
+        AND deleted_at IS NULL
+      ORDER BY indexed_at DESC
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ message: 'No posts with empty previews found', processed: 0 })
+    }
+
+    // Get the firehose DO to trigger re-indexing
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    let processed = 0
+    let failed = 0
+    const errors: string[] = []
+
+    for (const post of posts.results) {
+      try {
+        const response = await firehose.fetch('http://internal/reindex', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uri: post.uri }),
+        })
+
+        if (response.ok) {
+          processed++
+        } else {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown' })) as { error?: string }
+          failed++
+          errors.push(`${post.uri}: ${errorData.error || response.statusText}`)
+        }
+      } catch (err) {
+        failed++
+        errors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      success: true,
+      total: posts.results.length,
+      processed,
+      failed,
+      errors: errors.slice(0, 10), // Only return first 10 errors
+    })
+  } catch (error) {
+    console.error('Error reindexing empty previews:', error)
+    return c.json({ error: 'Failed to reindex', details: error instanceof Error ? error.message : 'Unknown' }, 500)
   }
 })
 

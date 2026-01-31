@@ -303,8 +303,11 @@ export interface PostSearchResult {
   title: string
   subtitle: string | null
   createdAt: string | null
+  contentPreview: string | null
   score: number
   matchType: 'semantic' | 'keyword' | 'both'
+  source: 'whitewind' | 'greengale' | 'network'
+  externalUrl: string | null
 }
 
 export interface SearchPostsResponse {

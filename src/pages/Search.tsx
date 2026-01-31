@@ -9,6 +9,7 @@ import {
 } from '@/lib/appview'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { SearchFilters, dateRangeToAfter, type DateRange } from '@/components/SearchFilters'
+import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
 
 type SearchTab = 'posts' | 'authors'
 
@@ -36,6 +37,9 @@ export function SearchPage() {
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
   const [fallbackUsed, setFallbackUsed] = useState(false)
+
+  // External post preview panel state
+  const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResultType | null>(null)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -303,7 +307,11 @@ export function SearchPage() {
       {activeTab === 'posts' && postResults.length > 0 && (
         <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)]">
           {postResults.map((result) => (
-            <PostSearchResult key={result.uri} result={result} />
+            <PostSearchResult
+              key={result.uri}
+              result={result}
+              onExternalPostClick={result.externalUrl ? setSelectedExternalPost : undefined}
+            />
           ))}
         </div>
       )}
@@ -397,6 +405,12 @@ export function SearchPage() {
           </p>
         </div>
       )}
+
+      {/* External Post Preview Panel */}
+      <ExternalPreviewPanel
+        post={selectedExternalPost}
+        onClose={() => setSelectedExternalPost(null)}
+      />
     </div>
   )
 }
