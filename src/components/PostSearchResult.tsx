@@ -27,17 +27,17 @@ export function PostSearchResult({ result, onExternalPostClick }: PostSearchResu
       case 'semantic':
         return {
           label: 'Semantic',
-          className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+          className: 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300',
         }
       case 'keyword':
         return {
           label: 'Keyword',
-          className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+          className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
         }
       case 'both':
         return {
           label: 'Both',
-          className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+          className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
         }
     }
   }
@@ -61,7 +61,7 @@ export function PostSearchResult({ result, onExternalPostClick }: PostSearchResu
   return (
     <button
       onClick={handleClick}
-      className="w-full px-4 py-4 flex items-start gap-4 text-left transition-colors hover:bg-[var(--site-bg-secondary)]"
+      className="w-full px-4 py-4 flex items-start gap-4 text-left transition-colors bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]"
     >
       {/* Post icon */}
       <div className="w-12 h-12 rounded-lg bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">
@@ -80,7 +80,7 @@ export function PostSearchResult({ result, onExternalPostClick }: PostSearchResu
             {badge.label}
           </span>
           {result.externalUrl && (
-            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 flex items-center gap-1">
+            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300 flex items-center gap-1">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>

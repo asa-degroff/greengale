@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Configure Tailwind dark mode to use data-site-theme attribute */
+@custom-variant dark (&:where([data-site-theme="dark"], [data-site-theme="dark"] *));
+
 /* KaTeX styles */
 @import "katex/dist/katex.min.css";
 
@@ -1768,6 +1771,17 @@ html {
 
 .slide-in-from-right {
   animation-name: slide-in-from-right;
+}
+
+/* Responsive slide-in: bottom on mobile, right on desktop */
+.slide-in-responsive {
+  animation-name: slide-in-from-bottom;
+}
+
+@media (min-width: 768px) {
+  .slide-in-responsive {
+    animation-name: slide-in-from-right;
+  }
 }
 
 .duration-300 {

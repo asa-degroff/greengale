@@ -193,17 +193,17 @@ export function SearchPage() {
   function getMatchTypeColor(matchType: SearchResult['matchType']): string {
     switch (matchType) {
       case 'handle':
-        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+        return 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300'
       case 'displayName':
-        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+        return 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300'
       case 'publicationName':
-        return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+        return 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300'
       case 'publicationUrl':
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+        return 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300'
       case 'postTitle':
-        return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+        return 'bg-cyan-600 text-white dark:bg-cyan-900/30 dark:text-cyan-300'
       case 'tag':
-        return 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300'
+        return 'bg-pink-600 text-white dark:bg-pink-900/30 dark:text-pink-300'
     }
   }
 
@@ -305,7 +305,7 @@ export function SearchPage() {
 
       {/* Post Results */}
       {activeTab === 'posts' && postResults.length > 0 && (
-        <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)]">
+        <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)] bg-[var(--site-bg)]">
           {postResults.map((result) => (
             <PostSearchResult
               key={result.uri}
@@ -318,12 +318,12 @@ export function SearchPage() {
 
       {/* Author Results */}
       {activeTab === 'authors' && authorResults.length > 0 && (
-        <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)]">
+        <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)] bg-[var(--site-bg)]">
           {authorResults.map((result) => (
             <button
               key={result.post ? `${result.did}:${result.post.rkey}` : `${result.did}:${result.matchType}`}
               onClick={() => handleAuthorResultClick(result)}
-              className="w-full px-4 py-4 flex items-center gap-4 text-left transition-colors hover:bg-[var(--site-bg-secondary)]"
+              className="w-full px-4 py-4 flex items-center gap-4 text-left transition-colors bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]"
             >
               {/* Avatar or Post/Tag icon */}
               {result.matchType === 'postTitle' ? (

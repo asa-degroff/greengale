@@ -154,17 +154,17 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
   function getMatchTypeColor(matchType: SearchResult['matchType']): string {
     switch (matchType) {
       case 'handle':
-        return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+        return 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300'
       case 'displayName':
-        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+        return 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300'
       case 'publicationName':
-        return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+        return 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300'
       case 'publicationUrl':
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+        return 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300'
       case 'postTitle':
-        return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+        return 'bg-cyan-600 text-white dark:bg-cyan-900/30 dark:text-cyan-300'
       case 'tag':
-        return 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300'
+        return 'bg-pink-600 text-white dark:bg-pink-900/30 dark:text-pink-300'
     }
   }
 
