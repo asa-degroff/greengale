@@ -320,6 +320,13 @@ export interface SearchPostsResponse {
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid'
 
 /**
+ * Unified search result combining author/publication and post results
+ */
+export type UnifiedSearchResult =
+  | { type: 'author'; data: SearchResult }
+  | { type: 'post'; data: PostSearchResult }
+
+/**
  * Search for posts using semantic, keyword, or hybrid search
  */
 export async function searchPosts(

@@ -7,9 +7,10 @@ interface PublicationSearchProps {
   className?: string
   onQueryChange?: (query: string) => void  // Called when query changes (debounced, >= 2 chars)
   onClear?: () => void                      // Called when search is cleared or Escape pressed
+  disableDropdown?: boolean                 // Don't show dropdown when true (for inline search mode)
 }
 
-export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '', onQueryChange, onClear }: PublicationSearchProps) {
+export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '', onQueryChange, onClear, disableDropdown = false }: PublicationSearchProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -33,6 +34,13 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
       return
     }
 
+    // Skip API call if dropdown is disabled (parent handles search)
+    if (disableDropdown) {
+      setResults([])
+      setIsOpen(false)
+      return
+    }
+
     setLoading(true)
     try {
       const response = await searchPublications(searchQuery, 10)
@@ -45,7 +53,7 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [disableDropdown])
 
   useEffect(() => {
     if (debounceRef.current) {
@@ -225,8 +233,8 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
         )}
       </div>
 
-      {/* Dropdown */}
-      {isOpen && results.length > 0 && (
+      {/* Dropdown - hidden when disableDropdown is true */}
+      {!disableDropdown && isOpen && results.length > 0 && (
         <div ref={listRef} className="search-dropdown absolute z-50 w-full mt-1 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-lg max-h-80 overflow-y-auto">
           {results.map((result, index) => (
             <button

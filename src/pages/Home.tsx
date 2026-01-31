@@ -11,9 +11,11 @@ import {
   getNetworkPosts,
   getFollowingPosts,
   searchPosts,
+  searchPublications,
   type AppViewPost,
   type PostSearchResult,
   type SearchMode,
+  type UnifiedSearchResult,
 } from '@/lib/appview'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
 import {
@@ -138,7 +140,7 @@ export function HomePage() {
   // Search state
   const [searchActive, setSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<PostSearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<UnifiedSearchResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
@@ -357,9 +359,22 @@ export function HomePage() {
     setSearchLoading(true)
     setSearchFallbackUsed(false)
     try {
-      const response = await searchPosts(query, { mode, limit: 30 })
-      setSearchResults(response.posts)
-      if (response.fallback === 'keyword') {
+      // Call both APIs in parallel
+      const [pubResponse, postResponse] = await Promise.all([
+        searchPublications(query, 5),  // Top 5 authors/publications
+        searchPosts(query, { mode, limit: 25 })
+      ])
+
+      // Merge: authors first (excluding post/tag matches since posts are in main results), then posts
+      const unified: UnifiedSearchResult[] = [
+        ...pubResponse.results
+          .filter(r => r.matchType !== 'postTitle' && r.matchType !== 'tag')
+          .map(r => ({ type: 'author' as const, data: r })),
+        ...postResponse.posts.map(p => ({ type: 'post' as const, data: p }))
+      ]
+
+      setSearchResults(unified)
+      if (postResponse.fallback === 'keyword') {
         setSearchFallbackUsed(true)
       }
     } catch {
@@ -422,6 +437,7 @@ export function HomePage() {
             className="w-full"
             onQueryChange={handleSearchQueryChange}
             onClear={handleClearSearch}
+            disableDropdown={true}
           />
         </div>
 

@@ -1,8 +1,9 @@
 import { PostSearchResult } from '@/components/PostSearchResult'
-import type { PostSearchResult as PostSearchResultType, SearchMode } from '@/lib/appview'
+import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
+import type { PostSearchResult as PostSearchResultType, SearchMode, UnifiedSearchResult } from '@/lib/appview'
 
 interface InlineSearchResultsProps {
-  results: PostSearchResultType[]
+  results: UnifiedSearchResult[]
   loading: boolean
   query: string
   mode: SearchMode
@@ -94,11 +95,18 @@ export function InlineSearchResults({
       {!loading && results.length > 0 && (
         <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)] bg-[var(--site-bg)]">
           {results.map((result) => (
-            <PostSearchResult
-              key={result.uri}
-              result={result}
-              onExternalPostClick={result.externalUrl ? onExternalPostClick : undefined}
-            />
+            result.type === 'author' ? (
+              <AuthorSearchResultRow
+                key={`author-${result.data.did}`}
+                result={result.data}
+              />
+            ) : (
+              <PostSearchResult
+                key={result.data.uri}
+                result={result.data}
+                onExternalPostClick={result.data.externalUrl ? onExternalPostClick : undefined}
+              />
+            )
           ))}
         </div>
       )}
