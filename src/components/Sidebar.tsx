@@ -9,6 +9,7 @@ import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
 import { LoadingCubeInline } from '@/components/LoadingCube'
 import { TextLogo } from '@/components/TextLogo'
+import { SidebarSearch } from '@/components/SidebarSearch'
 import { checkWebGPUSupport, type RGB } from '@/lib/webgpu-grid'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import logoImage from '/grey-logo.avif?url'
@@ -571,6 +572,11 @@ export function Sidebar({ children }: SidebarProps) {
             </svg>
           )}
         </Link>
+      </div>
+
+      {/* Search */}
+      <div className="px-4 pt-4">
+        <SidebarSearch onMobileClose={() => setMobileOpen(false)} />
       </div>
 
       {/* Navigation */}

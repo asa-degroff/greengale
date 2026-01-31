@@ -291,6 +291,64 @@ export async function getPostsByTag(
 }
 
 /**
+ * Post search result from semantic/keyword/hybrid search
+ */
+export interface PostSearchResult {
+  uri: string
+  authorDid: string
+  handle: string
+  displayName: string | null
+  avatarUrl: string | null
+  rkey: string
+  title: string
+  subtitle: string | null
+  createdAt: string | null
+  score: number
+  matchType: 'semantic' | 'keyword' | 'both'
+}
+
+export interface SearchPostsResponse {
+  posts: PostSearchResult[]
+  query: string
+  mode: 'keyword' | 'semantic' | 'hybrid'
+  fallback?: 'keyword'
+}
+
+export type SearchMode = 'keyword' | 'semantic' | 'hybrid'
+
+/**
+ * Search for posts using semantic, keyword, or hybrid search
+ */
+export async function searchPosts(
+  query: string,
+  options?: {
+    limit?: number
+    mode?: SearchMode
+    author?: string
+    after?: string
+    before?: string
+  }
+): Promise<SearchPostsResponse> {
+  const params = new URLSearchParams({ q: query })
+
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.mode) params.set('mode', options.mode)
+  if (options?.author) params.set('author', options.author)
+  if (options?.after) params.set('after', options.after)
+  if (options?.before) params.set('before', options.before)
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.search.posts?${params}`
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to search posts: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
  * Popular tag with count
  */
 export interface PopularTag {

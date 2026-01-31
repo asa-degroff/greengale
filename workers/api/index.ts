@@ -1898,8 +1898,13 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 50)
   const mode = (c.req.query('mode') || 'hybrid') as 'keyword' | 'semantic' | 'hybrid'
 
-  // Cache key includes mode
-  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}`
+  // Filter parameters
+  const authorFilter = c.req.query('author')?.trim() || undefined
+  const afterFilter = c.req.query('after')?.trim() || undefined
+  const beforeFilter = c.req.query('before')?.trim() || undefined
+
+  // Cache key includes mode and filters
+  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}`
 
   try {
     // Check cache first
@@ -1930,8 +1935,10 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
     if (mode === 'semantic' || mode === 'hybrid') {
       try {
         const queryEmbedding = await generateEmbedding(c.env.AI, searchTerm)
+        // Vectorize has a topK limit of 50
+        const topK = Math.min(limit * 2, 50)
         const vectorResults = await querySimilar(c.env.VECTORIZE, queryEmbedding, {
-          topK: limit * 2, // Get extra for deduplication
+          topK,
         })
 
         for (const match of vectorResults) {
@@ -1955,7 +1962,9 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
     if (mode === 'keyword' || mode === 'hybrid' || (mode === 'semantic' && semanticFailed)) {
       const escapedTerm = escapeLikePattern(searchTerm.toLowerCase())
       const containsPattern = `%${escapedTerm}%`
-      const keywordQuery = await c.env.DB.prepare(`
+
+      // Build dynamic query with filters
+      let keywordSql = `
         SELECT DISTINCT
           p.uri,
           p.title,
@@ -1965,20 +1974,45 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
             WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.6
           END as score
         FROM posts p
+        JOIN authors a ON p.author_did = a.did
         WHERE p.visibility = 'public'
           AND p.deleted_at IS NULL
           AND (
             LOWER(p.title) LIKE ? ESCAPE '\\'
             OR LOWER(p.subtitle) LIKE ? ESCAPE '\\'
             OR LOWER(p.content_preview) LIKE ? ESCAPE '\\'
-          )
-        ORDER BY score DESC
-        LIMIT ?
-      `).bind(
+          )`
+
+      const keywordBindings: (string | number)[] = [
         containsPattern, containsPattern, containsPattern,
         containsPattern, containsPattern, containsPattern,
-        limit * 2
-      ).all()
+      ]
+
+      // Author filter (handle or DID)
+      if (authorFilter) {
+        if (authorFilter.startsWith('did:')) {
+          keywordSql += ` AND p.author_did = ?`
+          keywordBindings.push(authorFilter)
+        } else {
+          keywordSql += ` AND a.handle = ?`
+          keywordBindings.push(authorFilter.replace(/^@/, ''))
+        }
+      }
+
+      // Date filters
+      if (afterFilter) {
+        keywordSql += ` AND p.created_at >= ?`
+        keywordBindings.push(afterFilter)
+      }
+      if (beforeFilter) {
+        keywordSql += ` AND p.created_at <= ?`
+        keywordBindings.push(beforeFilter)
+      }
+
+      keywordSql += ` ORDER BY score DESC LIMIT ?`
+      keywordBindings.push(limit * 2)
+
+      const keywordQuery = await c.env.DB.prepare(keywordSql).bind(...keywordBindings).all()
 
       for (const row of keywordQuery.results || []) {
         keywordResults.push({
@@ -2012,9 +2046,10 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       return c.json(response)
     }
 
-    // Fetch post details from D1
+    // Fetch post details from D1 with filters
     const placeholders = finalIds.map(() => '?').join(',')
-    const postsResult = await c.env.DB.prepare(`
+
+    let postsSql = `
       SELECT
         p.uri,
         p.author_did,
@@ -2029,8 +2064,32 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       JOIN authors a ON p.author_did = a.did
       WHERE p.uri IN (${placeholders})
         AND p.visibility = 'public'
-        AND p.deleted_at IS NULL
-    `).bind(...finalIds).all()
+        AND p.deleted_at IS NULL`
+
+    const postsBindings: (string | number)[] = [...finalIds]
+
+    // Author filter (handle or DID)
+    if (authorFilter) {
+      if (authorFilter.startsWith('did:')) {
+        postsSql += ` AND p.author_did = ?`
+        postsBindings.push(authorFilter)
+      } else {
+        postsSql += ` AND a.handle = ?`
+        postsBindings.push(authorFilter.replace(/^@/, ''))
+      }
+    }
+
+    // Date filters
+    if (afterFilter) {
+      postsSql += ` AND p.created_at >= ?`
+      postsBindings.push(afterFilter)
+    }
+    if (beforeFilter) {
+      postsSql += ` AND p.created_at <= ?`
+      postsBindings.push(beforeFilter)
+    }
+
+    const postsResult = await c.env.DB.prepare(postsSql).bind(...postsBindings).all()
 
     // Build result map for ordering
     const postMap = new Map<string, typeof results[0]>()

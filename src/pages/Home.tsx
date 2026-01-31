@@ -352,6 +352,12 @@ export function HomePage() {
             Search by handle, display name, publication name, title, tag, or URL:
           </p>
           <PublicationSearch className="w-full" />
+          <a
+            href="/search?type=posts"
+            className="inline-block mt-3 text-sm text-[var(--site-accent)] hover:underline"
+          >
+            Search post content with AI
+          </a>
         </div>
 
         {/* Posts Section with Tabs */}

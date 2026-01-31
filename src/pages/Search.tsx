@@ -1,44 +1,101 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { searchPublications, type SearchResult } from '@/lib/appview'
+import {
+  searchPublications,
+  searchPosts,
+  type SearchResult,
+  type PostSearchResult as PostSearchResultType,
+  type SearchMode,
+} from '@/lib/appview'
+import { PostSearchResult } from '@/components/PostSearchResult'
+import { SearchFilters, dateRangeToAfter, type DateRange } from '@/components/SearchFilters'
+
+type SearchTab = 'posts' | 'authors'
 
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
+
+  // URL state
   const query = searchParams.get('q') || ''
+  const tabParam = searchParams.get('type') as SearchTab | null
+  const modeParam = searchParams.get('mode') as SearchMode | null
+  const authorParam = searchParams.get('author') || ''
+  const dateParam = searchParams.get('date') as DateRange | null
+
+  // Local state
   const [inputValue, setInputValue] = useState(query)
-  const [results, setResults] = useState<SearchResult[]>([])
+  const [activeTab, setActiveTab] = useState<SearchTab>(tabParam === 'authors' ? 'authors' : 'posts')
+  const [mode, setMode] = useState<SearchMode>(modeParam || 'hybrid')
+  const [author, setAuthor] = useState(authorParam)
+  const [dateRange, setDateRange] = useState<DateRange>(dateParam || 'any')
+
+  // Results state
+  const [authorResults, setAuthorResults] = useState<SearchResult[]>([])
+  const [postResults, setPostResults] = useState<PostSearchResultType[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
+  const [fallbackUsed, setFallbackUsed] = useState(false)
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // Minimum query length before searching
   const MIN_QUERY_LENGTH = 2
 
+  // Update URL when filters change
+  const updateUrl = useCallback((updates: Record<string, string | undefined>) => {
+    const newParams = new URLSearchParams(searchParams)
+    for (const [key, value] of Object.entries(updates)) {
+      if (value) {
+        newParams.set(key, value)
+      } else {
+        newParams.delete(key)
+      }
+    }
+    setSearchParams(newParams, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  // Perform search based on active tab
   const performSearch = useCallback(async (searchQuery: string) => {
     const trimmed = searchQuery.trim()
     if (trimmed.length < MIN_QUERY_LENGTH) {
-      setResults([])
+      setAuthorResults([])
+      setPostResults([])
       setSearched(trimmed.length > 0)
       return
     }
 
     setLoading(true)
     setSearched(true)
+    setFallbackUsed(false)
+
     try {
-      const response = await searchPublications(searchQuery, 50)
-      setResults(response.results)
+      if (activeTab === 'posts') {
+        const afterDate = dateRangeToAfter(dateRange)
+        const response = await searchPosts(trimmed, {
+          limit: 50,
+          mode,
+          author: author || undefined,
+          after: afterDate,
+        })
+        setPostResults(response.posts)
+        if (response.fallback === 'keyword') {
+          setFallbackUsed(true)
+        }
+      } else {
+        const response = await searchPublications(trimmed, 50)
+        setAuthorResults(response.results)
+      }
     } catch {
-      setResults([])
+      setAuthorResults([])
+      setPostResults([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeTab, mode, author, dateRange])
 
-  // Search when query param changes
+  // Search when query or filters change
   useEffect(() => {
     if (query) {
-      setInputValue(query)
       performSearch(query)
     }
   }, [query, performSearch])
@@ -49,14 +106,14 @@ export function SearchPage() {
       clearTimeout(debounceRef.current)
     }
 
-    // Only update URL if input differs from current query param
     if (inputValue !== query) {
       debounceRef.current = setTimeout(() => {
         if (inputValue.trim()) {
-          setSearchParams({ q: inputValue.trim() }, { replace: true })
+          updateUrl({ q: inputValue.trim() })
         } else {
-          setSearchParams({}, { replace: true })
-          setResults([])
+          updateUrl({ q: undefined })
+          setAuthorResults([])
+          setPostResults([])
           setSearched(false)
         }
       }, 300)
@@ -67,19 +124,44 @@ export function SearchPage() {
         clearTimeout(debounceRef.current)
       }
     }
-  }, [inputValue, query, setSearchParams])
+  }, [inputValue, query, updateUrl])
 
   function handleKeyDown(event: React.KeyboardEvent) {
     if (event.key === 'Enter' && inputValue.trim()) {
-      // Immediately search on Enter
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
       }
-      setSearchParams({ q: inputValue.trim() }, { replace: true })
+      updateUrl({ q: inputValue.trim() })
     }
   }
 
-  function handleResultClick(result: SearchResult) {
+  function handleTabChange(tab: SearchTab) {
+    setActiveTab(tab)
+    updateUrl({ type: tab === 'posts' ? undefined : tab })
+    // Clear results and re-search
+    setAuthorResults([])
+    setPostResults([])
+    if (query.trim().length >= MIN_QUERY_LENGTH) {
+      setSearched(false) // Trigger re-search via effect
+    }
+  }
+
+  function handleModeChange(newMode: SearchMode) {
+    setMode(newMode)
+    updateUrl({ mode: newMode === 'hybrid' ? undefined : newMode })
+  }
+
+  function handleAuthorChange(newAuthor: string) {
+    setAuthor(newAuthor)
+    updateUrl({ author: newAuthor || undefined })
+  }
+
+  function handleDateRangeChange(newRange: DateRange) {
+    setDateRange(newRange)
+    updateUrl({ date: newRange === 'any' ? undefined : newRange })
+  }
+
+  function handleAuthorResultClick(result: SearchResult) {
     if ((result.matchType === 'postTitle' || result.matchType === 'tag') && result.post) {
       navigate(`/${result.handle}/${result.post.rkey}`)
     } else {
@@ -121,10 +203,12 @@ export function SearchPage() {
     }
   }
 
+  const results = activeTab === 'posts' ? postResults : authorResults
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       {/* Search Input */}
-      <div className="relative mb-6">
+      <div className="relative mb-4">
         <input
           type="text"
           value={inputValue}
@@ -151,12 +235,61 @@ export function SearchPage() {
         )}
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-4 border-b border-[var(--site-border)]">
+        <button
+          onClick={() => handleTabChange('posts')}
+          className={`px-4 py-2 font-medium transition-colors relative ${
+            activeTab === 'posts'
+              ? 'text-[var(--site-accent)]'
+              : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+          }`}
+        >
+          Posts
+          {activeTab === 'posts' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
+          )}
+        </button>
+        <button
+          onClick={() => handleTabChange('authors')}
+          className={`px-4 py-2 font-medium transition-colors relative ${
+            activeTab === 'authors'
+              ? 'text-[var(--site-accent)]'
+              : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+          }`}
+        >
+          Authors
+          {activeTab === 'authors' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
+          )}
+        </button>
+      </div>
+
+      {/* Filters (Posts tab only) */}
+      {activeTab === 'posts' && (
+        <div className="mb-6">
+          <SearchFilters
+            mode={mode}
+            onModeChange={handleModeChange}
+            author={author}
+            onAuthorChange={handleAuthorChange}
+            dateRange={dateRange}
+            onDateRangeChange={handleDateRangeChange}
+          />
+        </div>
+      )}
+
       {/* Results Header */}
       {searched && !loading && (
         <div className="mb-4 text-[var(--site-text-secondary)]">
           {results.length > 0 ? (
             <span>
               {results.length} result{results.length !== 1 ? 's' : ''} for "{query}"
+              {fallbackUsed && activeTab === 'posts' && (
+                <span className="ml-2 text-amber-600 dark:text-amber-400">
+                  (using keyword search - semantic unavailable)
+                </span>
+              )}
             </span>
           ) : query.length < MIN_QUERY_LENGTH ? (
             <span>Enter at least {MIN_QUERY_LENGTH} characters to search</span>
@@ -166,13 +299,22 @@ export function SearchPage() {
         </div>
       )}
 
-      {/* Results List */}
-      {results.length > 0 && (
+      {/* Post Results */}
+      {activeTab === 'posts' && postResults.length > 0 && (
         <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)]">
-          {results.map((result) => (
+          {postResults.map((result) => (
+            <PostSearchResult key={result.uri} result={result} />
+          ))}
+        </div>
+      )}
+
+      {/* Author Results */}
+      {activeTab === 'authors' && authorResults.length > 0 && (
+        <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)]">
+          {authorResults.map((result) => (
             <button
               key={result.post ? `${result.did}:${result.post.rkey}` : `${result.did}:${result.matchType}`}
-              onClick={() => handleResultClick(result)}
+              onClick={() => handleAuthorResultClick(result)}
               className="w-full px-4 py-4 flex items-center gap-4 text-left transition-colors hover:bg-[var(--site-bg-secondary)]"
             >
               {/* Avatar or Post/Tag icon */}
@@ -249,7 +391,9 @@ export function SearchPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <p className="text-[var(--site-text-secondary)]">
-            No posts, authors, or publications match your search.
+            {activeTab === 'posts'
+              ? 'No posts match your search and filters.'
+              : 'No authors or publications match your search.'}
           </p>
         </div>
       )}
