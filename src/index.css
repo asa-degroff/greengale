@@ -1106,18 +1106,39 @@ html {
   }
 }
 
-/* Adjust for list items - keep layout intact, just highlight content */
+/* Adjust for list items - use pseudo-element for accent bar to avoid layout issues */
 .markdown-body li.tts-highlight {
+  position: relative;
   border-left: none;
   margin-left: 0;
   padding-left: 0;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--theme-link) 12%, transparent);
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--theme-link) 15%, transparent),
+    color-mix(in srgb, var(--theme-link) 10%, transparent)
+  );
+}
+
+/* Accent bar for list items - positioned at the content start */
+.markdown-body li.tts-highlight::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--theme-link);
+  border-radius: 2px;
 }
 
 @supports not (background: color-mix(in srgb, red 50%, blue)) {
   .markdown-body li.tts-highlight {
-    background: rgba(59, 130, 246, 0.12);
+    background: linear-gradient(
+      to right,
+      rgba(59, 130, 246, 0.15),
+      rgba(59, 130, 246, 0.1)
+    );
   }
 }
 

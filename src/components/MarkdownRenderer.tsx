@@ -313,9 +313,24 @@ export function MarkdownRenderer({
 
     // Find block-level elements that could contain the sentence
     // Convert to array for index-based proximity tracking
-    const blockElements = Array.from(
-      container.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd')
-    )
+    const selector = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dt, dd'
+    const allBlockElements = Array.from(container.querySelectorAll(selector))
+
+    // Filter out nested elements that have the same content as their parent
+    // This prevents issues with "loose" lists where <p> is inside <li>
+    // e.g., <li><p>text</p></li> - we want to highlight <li>, not <p>
+    const blockElements = allBlockElements.filter((el) => {
+      const parent = el.parentElement?.closest(selector)
+      if (parent && container.contains(parent)) {
+        // If parent has the same text content, skip this nested element
+        const parentText = normalizeText(parent.textContent || '')
+        const thisText = normalizeText(el.textContent || '')
+        if (parentText === thisText) {
+          return false
+        }
+      }
+      return true
+    })
 
     let bestMatch: Element | null = null
     let bestMatchIndex = -1
