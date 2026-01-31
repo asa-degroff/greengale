@@ -31,9 +31,6 @@ export function SidebarSearch({ onMobileClose }: SidebarSearchProps) {
 
   // Hide on home page (which has its own search)
   const isHomePage = location.pathname === '/'
-  if (isHomePage) {
-    return null
-  }
 
   function handleExpand() {
     setIsExpanded(true)
@@ -66,6 +63,11 @@ export function SidebarSearch({ onMobileClose }: SidebarSearchProps) {
   useEffect(() => {
     handleCollapse()
   }, [location.pathname])
+
+  // Early return AFTER all hooks
+  if (isHomePage) {
+    return null
+  }
 
   if (!isExpanded) {
     return (
