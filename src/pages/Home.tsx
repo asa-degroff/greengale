@@ -3,8 +3,18 @@ import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
+import { InlineSearchResults } from '@/components/InlineSearchResults'
+import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
 import { LoadingCube } from '@/components/LoadingCube'
-import { getRecentPosts, getNetworkPosts, getFollowingPosts, type AppViewPost } from '@/lib/appview'
+import {
+  getRecentPosts,
+  getNetworkPosts,
+  getFollowingPosts,
+  searchPosts,
+  type AppViewPost,
+  type PostSearchResult,
+  type SearchMode,
+} from '@/lib/appview'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
 import {
   getCachedGreengaleFeed,
@@ -124,6 +134,15 @@ export function HomePage() {
 
   const [feedFromCache, setFeedFromCache] = useState(false)
   const { isOnline } = useNetworkStatus()
+
+  // Search state
+  const [searchActive, setSearchActive] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<PostSearchResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
+  const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
+  const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResult | null>(null)
 
   // Set document metadata (title, canonical URL, OG tags)
   useDocumentMeta({
@@ -333,6 +352,54 @@ export function HomePage() {
     }
   }
 
+  // Search functions - wrapped in useCallback for stable references
+  const performSearch = useCallback(async (query: string, mode: SearchMode) => {
+    setSearchLoading(true)
+    setSearchFallbackUsed(false)
+    try {
+      const response = await searchPosts(query, { mode, limit: 30 })
+      setSearchResults(response.posts)
+      if (response.fallback === 'keyword') {
+        setSearchFallbackUsed(true)
+      }
+    } catch {
+      setSearchResults([])
+    } finally {
+      setSearchLoading(false)
+    }
+  }, [])
+
+  const handleClearSearch = useCallback(() => {
+    setSearchActive(false)
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchFallbackUsed(false)
+  }, [])
+
+  const handleSearchQueryChange = useCallback((query: string) => {
+    setSearchActive(true)
+    setSearchQuery(query)
+    performSearch(query, searchMode)
+  }, [performSearch, searchMode])
+
+  const handleSearchModeChange = useCallback((mode: SearchMode) => {
+    setSearchMode(mode)
+    if (searchQuery) {
+      performSearch(searchQuery, mode)
+    }
+  }, [performSearch, searchQuery])
+
+  // Page-level Escape handler for search
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && searchActive && !selectedExternalPost) {
+        handleClearSearch()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [searchActive, selectedExternalPost, handleClearSearch])
+
   return (
     <div>
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -351,17 +418,28 @@ export function HomePage() {
           <p className="text-[var(--site-text-secondary)] mb-4">
             Search by handle, display name, publication name, title, tag, or URL:
           </p>
-          <PublicationSearch className="w-full" />
-          <a
-            href="/search?type=posts"
-            className="inline-block mt-3 text-sm text-[var(--site-accent)] hover:underline"
-          >
-            Search post content with AI
-          </a>
+          <PublicationSearch
+            className="w-full"
+            onQueryChange={handleSearchQueryChange}
+            onClear={handleClearSearch}
+          />
         </div>
 
-        {/* Posts Section with Tabs */}
-        {appViewAvailable && (
+        {/* Search Results or Posts Section with Tabs */}
+        {searchActive ? (
+          <div className="mb-12">
+            <InlineSearchResults
+              results={searchResults}
+              loading={searchLoading}
+              query={searchQuery}
+              mode={searchMode}
+              onModeChange={handleSearchModeChange}
+              onClear={handleClearSearch}
+              onExternalPostClick={setSelectedExternalPost}
+              fallbackUsed={searchFallbackUsed}
+            />
+          </div>
+        ) : appViewAvailable && (
           <div className="mb-12 min-h-[400px]">
             {/* Tab navigation */}
             <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
@@ -565,7 +643,7 @@ export function HomePage() {
           </div>
         )}
 
-        {loading && (
+        {loading && !searchActive && (
           <div className="mb-12 min-h-[400px]">
             <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
               <div className="px-4 py-2 font-medium text-[var(--site-accent)] relative">
@@ -642,6 +720,12 @@ export function HomePage() {
           </p>
         </div>
       </div>
+
+      {/* External Post Preview Panel */}
+      <ExternalPreviewPanel
+        post={selectedExternalPost}
+        onClose={() => setSelectedExternalPost(null)}
+      />
     </div>
   )
 }

@@ -5,9 +5,11 @@ import { searchPublications, type SearchResult } from '@/lib/appview'
 interface PublicationSearchProps {
   placeholder?: string
   className?: string
+  onQueryChange?: (query: string) => void  // Called when query changes (debounced, >= 2 chars)
+  onClear?: () => void                      // Called when search is cleared or Escape pressed
 }
 
-export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '' }: PublicationSearchProps) {
+export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '', onQueryChange, onClear }: PublicationSearchProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -52,6 +54,13 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
 
     debounceRef.current = setTimeout(() => {
       performSearch(query)
+      // Notify parent of query change (only for meaningful queries)
+      const trimmed = query.trim()
+      if (trimmed.length >= MIN_QUERY_LENGTH) {
+        onQueryChange?.(trimmed)
+      } else if (trimmed.length === 0) {
+        onClear?.()
+      }
     }, 300)
 
     return () => {
@@ -59,7 +68,7 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
         clearTimeout(debounceRef.current)
       }
     }
-  }, [query, performSearch])
+  }, [query, performSearch, onQueryChange, onClear])
 
   // Click outside to close
   useEffect(() => {
@@ -99,7 +108,11 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
   function handleKeyDown(event: React.KeyboardEvent) {
     if (!isOpen) {
       if (event.key === 'Enter' && query.trim()) {
-        // If dropdown not open but query exists, navigate to search page
+        // If using inline search (onQueryChange provided), don't navigate - let inline search handle it
+        if (onQueryChange) {
+          return
+        }
+        // Otherwise navigate to search page
         navigate(`/search?q=${encodeURIComponent(query.trim())}`)
       }
       return
@@ -119,7 +132,12 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
         if (selectedIndex >= 0 && results[selectedIndex]) {
           selectResult(results[selectedIndex])
         } else if (query.trim()) {
-          // No selection, navigate to search page
+          // If using inline search (onQueryChange provided), don't navigate
+          if (onQueryChange) {
+            setIsOpen(false)
+            return
+          }
+          // Otherwise navigate to search page
           setIsOpen(false)
           setQuery('')
           navigate(`/search?q=${encodeURIComponent(query.trim())}`)
@@ -128,6 +146,11 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
       case 'Escape':
         event.preventDefault()
         setIsOpen(false)
+        // Also clear and notify parent
+        if (query.trim()) {
+          setQuery('')
+          onClear?.()
+        }
         break
     }
   }
