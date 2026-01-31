@@ -1,9 +1,24 @@
 import { DurableObject } from 'cloudflare:workers'
+import {
+  extractContent,
+  hashContent,
+  chunkByHeadings,
+} from '../lib/content-extraction'
+import {
+  generateEmbeddings,
+  upsertEmbeddings,
+  deletePostEmbeddings,
+  type Ai,
+  type VectorizeIndex,
+  type EmbeddingMetadata,
+} from '../lib/embeddings'
 
 interface Env {
   DB: D1Database
   CACHE: KVNamespace
   JETSTREAM_URL: string
+  AI: Ai
+  VECTORIZE: VectorizeIndex
 }
 
 // Collections we're interested in
@@ -557,6 +572,35 @@ export class FirehoseConsumer extends DurableObject<Env> {
       }
 
       console.log(`Indexed ${source} post: ${uri}`)
+
+      // Phase 5: Handle embeddings for semantic search
+      // Check if post was previously public (had embedding) but is now non-public
+      const existingPost = await this.env.DB.prepare(
+        'SELECT has_embedding, visibility FROM posts WHERE uri = ?'
+      ).bind(uri).first()
+      const hadEmbedding = existingPost?.has_embedding === 1
+
+      if (visibility === 'public' && record) {
+        // Delete old chunks first if this is an update (to handle re-chunking)
+        if (hadEmbedding) {
+          deletePostEmbeddings(this.env.VECTORIZE, uri)
+            .catch(err => console.error(`Failed to delete old embeddings for ${uri}:`, err))
+        }
+        // Generate new embedding (async, don't block indexing)
+        this.generateAndStoreEmbedding(uri, did, record, collection || '', title, createdAt)
+          .catch(err => console.error(`Embedding failed for ${uri}:`, err))
+      } else if (hadEmbedding) {
+        // Visibility changed from public to non-public - delete embeddings
+        deletePostEmbeddings(this.env.VECTORIZE, uri)
+          .then(count => {
+            if (count > 0) console.log(`Deleted ${count} embedding(s) for non-public ${uri}`)
+          })
+          .catch(err => console.error(`Failed to delete embeddings for ${uri}:`, err))
+        // Mark as no longer embedded
+        this.env.DB.prepare('UPDATE posts SET has_embedding = 0 WHERE uri = ?')
+          .bind(uri).run()
+          .catch(err => console.error(`Failed to update has_embedding for ${uri}:`, err))
+      }
     } catch (error) {
       console.error(`Failed to index post ${uri}:`, error)
       throw error
@@ -619,6 +663,13 @@ export class FirehoseConsumer extends DurableObject<Env> {
           WHERE did = ?
         `).bind(authorDid, authorDid),
       ])
+
+      // Phase 3: Delete embeddings from Vectorize (async, don't block)
+      deletePostEmbeddings(this.env.VECTORIZE, uri)
+        .then(count => {
+          if (count > 0) console.log(`Deleted ${count} embedding(s) for ${uri}`)
+        })
+        .catch(err => console.error(`Failed to delete embeddings for ${uri}:`, err))
 
       console.log(`Deleted post: ${uri}`)
     } catch (error) {
@@ -958,6 +1009,101 @@ export class FirehoseConsumer extends DurableObject<Env> {
     } catch (error) {
       console.error(`Failed to index publication for ${did}:`, error)
       throw error
+    }
+  }
+
+  /**
+   * Generate and store embedding for a post
+   * This runs async after indexing to not block the firehose
+   */
+  private async generateAndStoreEmbedding(
+    uri: string,
+    did: string,
+    record: Record<string, unknown>,
+    collection: string,
+    title: string | null,
+    createdAt: string | null
+  ): Promise<void> {
+    try {
+      // Extract content based on collection type
+      const extracted = extractContent(record, collection)
+
+      if (!extracted.success) {
+        console.log(`Skipping embedding for ${uri}: content extraction failed`)
+        await this.env.DB.prepare(
+          'UPDATE posts SET has_embedding = -1 WHERE uri = ?'
+        ).bind(uri).run()
+        return
+      }
+
+      // Skip very short content (< 20 words)
+      if (extracted.wordCount < 20) {
+        console.log(`Skipping embedding for ${uri}: too short (${extracted.wordCount} words)`)
+        await this.env.DB.prepare(
+          'UPDATE posts SET has_embedding = -1 WHERE uri = ?'
+        ).bind(uri).run()
+        return
+      }
+
+      // Generate content hash for change detection
+      const contentHash = await hashContent(extracted.text)
+
+      // Check if content has changed (if we already have an embedding)
+      const existing = await this.env.DB.prepare(
+        'SELECT content_hash, has_embedding FROM posts WHERE uri = ?'
+      ).bind(uri).first()
+
+      if (existing?.has_embedding === 1 && existing?.content_hash === contentHash) {
+        console.log(`Skipping embedding for ${uri}: content unchanged`)
+        return
+      }
+
+      // Get subtitle for context
+      const subtitle = collection === 'site.standard.document'
+        ? (record?.description as string) || undefined
+        : (record?.subtitle as string) || undefined
+
+      // Chunk long content by headings
+      const chunks = chunkByHeadings(extracted, title || undefined, subtitle)
+
+      // Generate embeddings for all chunks
+      const texts = chunks.map(c => c.text)
+      const embeddings = await generateEmbeddings(this.env.AI, texts)
+
+      // Prepare embeddings for Vectorize upsert
+      const vectorEmbeddings = chunks.map((chunk, i) => {
+        const id = chunks.length === 1 ? uri : `${uri}:chunk${chunk.chunkIndex}`
+        const metadata: EmbeddingMetadata = {
+          uri,
+          authorDid: did,
+          title: title || undefined,
+          createdAt: createdAt || undefined,
+          chunkIndex: chunk.chunkIndex,
+          totalChunks: chunk.totalChunks,
+          isChunk: chunks.length > 1,
+        }
+        return {
+          id,
+          vector: embeddings[i],
+          metadata,
+        }
+      })
+
+      // Upsert to Vectorize
+      await upsertEmbeddings(this.env.VECTORIZE, vectorEmbeddings)
+
+      // Update D1 with embedding status and content hash
+      await this.env.DB.prepare(
+        'UPDATE posts SET has_embedding = 1, content_hash = ? WHERE uri = ?'
+      ).bind(contentHash, uri).run()
+
+      console.log(`Generated ${chunks.length} embedding(s) for ${uri}`)
+    } catch (error) {
+      console.error(`Failed to generate embedding for ${uri}:`, error)
+      // Mark as failed (-2) to distinguish from skipped (-1)
+      await this.env.DB.prepare(
+        'UPDATE posts SET has_embedding = -2 WHERE uri = ?'
+      ).bind(uri).run()
     }
   }
 

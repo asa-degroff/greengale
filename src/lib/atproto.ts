@@ -1062,6 +1062,22 @@ function isGreenGalePublication(record: Record<string, unknown>): boolean {
 }
 
 /**
+ * Check if a site.standard.publication record is an orphaned GreenGale record
+ * These are records that have a greengale.app URL but are missing preferences.greengale
+ * This can happen when another platform (like Leaflet) edits the record and strips
+ * the platform-specific preferences
+ */
+function isOrphanedGreenGalePublication(record: Record<string, unknown>): boolean {
+  // Already has greengale marker - not orphaned
+  if (isGreenGalePublication(record)) {
+    return false
+  }
+  // Check if URL points to greengale.app
+  const url = record.url as string | undefined
+  return url !== undefined && url.includes('greengale.app')
+}
+
+/**
  * Save site.standard.publication record (dual-publish)
  * Uses TID-based keys as required by site.standard schema
  * Only manages GreenGale's own records (identified by preferences.greengale)
@@ -1082,25 +1098,39 @@ export async function saveSiteStandardPublication(
       { method: 'GET' }
     )
 
+    let orphanedRkey: string | undefined
+
     if (listResponse.ok) {
       const listData = await listResponse.json() as { records?: Array<{ uri: string; value: Record<string, unknown> }> }
       if (listData.records && listData.records.length > 0) {
         // Look for a GreenGale record (has preferences.greengale)
+        // Also track orphaned records (greengale.app URL but missing preferences.greengale)
         for (const item of listData.records) {
-          // Only consider records that belong to GreenGale
-          if (!isGreenGalePublication(item.value)) {
-            continue
-          }
-
           const existingRkey = item.uri.split('/').pop() || ''
-          if (isValidTid(existingRkey)) {
-            // Found a GreenGale record with valid TID
-            rkey = existingRkey
-            break
-          } else {
-            // Found a GreenGale record with invalid rkey (like 'self'), mark for deletion
-            oldInvalidRkey = existingRkey
+
+          // First priority: records that explicitly belong to GreenGale
+          if (isGreenGalePublication(item.value)) {
+            if (isValidTid(existingRkey)) {
+              // Found a GreenGale record with valid TID
+              rkey = existingRkey
+              break
+            } else {
+              // Found a GreenGale record with invalid rkey (like 'self'), mark for deletion
+              oldInvalidRkey = existingRkey
+            }
           }
+          // Second priority: orphaned records (greengale.app URL but stripped preferences)
+          // These can be reclaimed by re-adding preferences.greengale
+          else if (isOrphanedGreenGalePublication(item.value) && isValidTid(existingRkey)) {
+            orphanedRkey = existingRkey
+            // Don't break - keep looking for explicit GreenGale records
+          }
+        }
+
+        // If no explicit GreenGale record found but we found an orphaned one, reclaim it
+        if (!rkey && orphanedRkey) {
+          console.log(`Reclaiming orphaned GreenGale publication: ${orphanedRkey}`)
+          rkey = orphanedRkey
         }
       }
     }
@@ -1254,8 +1284,9 @@ export async function saveSiteStandardDocument(
 
 /**
  * Get a user's GreenGale site.standard.publication from their PDS
- * Only returns records that belong to GreenGale (have preferences.greengale)
- * and have a valid TID rkey
+ * Returns records that belong to GreenGale (have preferences.greengale) or
+ * orphaned records (greengale.app URL but missing preferences.greengale)
+ * Must have a valid TID rkey
  */
 export async function getSiteStandardPublication(
   identifier: string
@@ -1282,31 +1313,49 @@ export async function getSiteStandardPublication(
       return null
     }
 
+    // Track orphaned records as fallback
+    let orphanedRecord: SiteStandardPublication | null = null
+
     // Find a GreenGale record with a valid TID rkey
     for (const item of response.data.records) {
       const record = item.value as Record<string, unknown>
+      const rkey = item.uri.split('/').pop() || ''
 
-      // Only consider records that belong to GreenGale
-      const preferences = record.preferences as Record<string, unknown> | undefined
-      if (!preferences?.greengale) {
+      if (!isValidTidRkey(rkey)) {
         continue
       }
 
-      const rkey = item.uri.split('/').pop() || ''
-      if (isValidTidRkey(rkey)) {
+      // First priority: records that explicitly belong to GreenGale
+      if (isGreenGalePublication(record)) {
         return {
           url: (record.url as string) || '',
           name: (record.name as string) || '',
           description: record.description as string | undefined,
           basicTheme: record.basicTheme as SiteStandardPublication['basicTheme'],
+          theme: record.theme as SiteStandardPublication['theme'],
+          preferences: record.preferences,
+          rkey,
+        }
+      }
+
+      // Track orphaned records (greengale.app URL but missing preferences.greengale)
+      // These can be reclaimed when the user saves their publication
+      if (!orphanedRecord && isOrphanedGreenGalePublication(record)) {
+        orphanedRecord = {
+          url: (record.url as string) || '',
+          name: (record.name as string) || '',
+          description: record.description as string | undefined,
+          basicTheme: record.basicTheme as SiteStandardPublication['basicTheme'],
+          theme: record.theme as SiteStandardPublication['theme'],
           preferences: record.preferences,
           rkey,
         }
       }
     }
 
-    // No valid GreenGale publication found
-    return null
+    // Return orphaned record if no explicit GreenGale record found
+    // The next save will reclaim it by adding preferences.greengale
+    return orphanedRecord
   } catch {
     return null
   }

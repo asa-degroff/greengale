@@ -21,7 +21,11 @@
     "db:migrate": "wrangler d1 execute greengale --remote --file=./workers/schema.sql",
     "db:migrate:local": "wrangler d1 execute greengale --local --file=./workers/schema.sql",
     "pages:deploy": "wrangler pages deploy dist --project-name greengale-app",
-    "deploy": "npm run build && npm run worker:deploy && npm run pages:deploy"
+    "deploy": "npm run build && npm run worker:deploy && npm run pages:deploy",
+    "staging:setup": "echo 'Run the commands in DEPLOYMENT.md to set up staging'",
+    "staging:deploy": "wrangler deploy --env staging",
+    "staging:tail": "wrangler tail --env staging",
+    "staging:dev": "wrangler dev --env staging"
   },
   "dependencies": {
     "@atproto/api": "^0.18.4",

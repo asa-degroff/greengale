@@ -13,6 +13,15 @@ database_id = "81ee3700-f80c-45fc-ac0b-37b6cdcd23e3"
 binding = "CACHE"
 id = "fffa62967ac248d59085cc895ddd7044"
 
+# Workers AI for embeddings
+[ai]
+binding = "AI"
+
+# Vectorize for semantic search
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "greengale-posts"
+
 # Durable Objects for firehose consumer
 [[durable_objects.bindings]]
 name = "FIREHOSE"
@@ -22,10 +31,57 @@ class_name = "FirehoseConsumer"
 tag = "v1"
 new_sqlite_classes = ["FirehoseConsumer"]
 
-# Cron triggers for firehose watchdog
+# Cron triggers for firehose watchdog and reconciliation
 [triggers]
-crons = ["*/5 * * * *"]  # Every 5 minutes
+crons = ["*/5 * * * *", "0 3 * * *"]  # Every 5 minutes + daily at 3 AM UTC
 
 # Environment variables
 [vars]
 RELAY_URL = "wss://bsky.network"
+JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network"
+
+# =============================================================================
+# Staging Environment
+# =============================================================================
+# Deploy with: npx wrangler deploy --env staging
+# Access at: https://greengale-staging.<your-subdomain>.workers.dev
+
+[env.staging]
+name = "greengale-staging"
+
+# Use same D1 database (new columns are additive/safe)
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "greengale"
+database_id = "81ee3700-f80c-45fc-ac0b-37b6cdcd23e3"
+
+# Separate KV for staging cache
+[[env.staging.kv_namespaces]]
+binding = "CACHE"
+id = "STAGING_KV_ID_PLACEHOLDER"  # Create with: npx wrangler kv namespace create CACHE --env staging
+
+# Workers AI (shared)
+[env.staging.ai]
+binding = "AI"
+
+# Separate Vectorize index for staging
+[[env.staging.vectorize]]
+binding = "VECTORIZE"
+index_name = "greengale-posts-staging"  # Create with: npx wrangler vectorize create greengale-posts-staging --dimensions=1024 --metric=cosine
+
+# Durable Objects (staging uses its own instance)
+[[env.staging.durable_objects.bindings]]
+name = "FIREHOSE"
+class_name = "FirehoseConsumer"
+
+[[env.staging.migrations]]
+tag = "v1"
+new_sqlite_classes = ["FirehoseConsumer"]
+
+# No cron triggers for staging (avoid duplicate firehose consumers)
+# [env.staging.triggers]
+# crons = []
+
+[env.staging.vars]
+RELAY_URL = "wss://bsky.network"
+JETSTREAM_URL = "wss://jetstream2.us-east.bsky.network"

@@ -5,12 +5,31 @@ import { generateOGImage, generateHomepageOGImage, generateProfileOGImage } from
 
 export { FirehoseConsumer }
 
+import {
+  generateEmbedding,
+  generateEmbeddings,
+  upsertEmbeddings,
+  querySimilar,
+  getPostEmbeddings,
+  reciprocalRankFusion,
+  type Ai,
+  type VectorizeIndex,
+  type EmbeddingMetadata,
+} from '../lib/embeddings'
+import {
+  extractContent,
+  hashContent,
+  chunkByHeadings,
+} from '../lib/content-extraction'
+
 type Bindings = {
   DB: D1Database
   CACHE: KVNamespace
   FIREHOSE: DurableObjectNamespace
   RELAY_URL: string
   ADMIN_SECRET?: string
+  AI: Ai
+  VECTORIZE: VectorizeIndex
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -51,6 +70,17 @@ function jsonWithCache<T>(c: { json: (data: T, status?: number) => Response }, d
   const response = c.json(data)
   response.headers.set('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=${swr}`)
   return response
+}
+
+/**
+ * Escape special characters in LIKE patterns
+ * SQLite LIKE uses % and _ as wildcards, and \ as escape
+ */
+function escapeLikePattern(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
 }
 
 // Health check
@@ -1689,8 +1719,9 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       return c.json(cached)
     }
 
-    const prefixPattern = `${searchTerm}%`
-    const containsPattern = `%${searchTerm}%`
+    const escapedTerm = escapeLikePattern(searchTerm)
+    const prefixPattern = `${escapedTerm}%`
+    const containsPattern = `%${escapedTerm}%`
 
     // Search with priority ranking using UNION:
     // 1. Exact handle match
@@ -1715,27 +1746,27 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           NULL as matched_tag,
           CASE
             WHEN LOWER(a.handle) = ?1 THEN 1
-            WHEN LOWER(a.handle) LIKE ?2 THEN 2
-            WHEN LOWER(a.display_name) LIKE ?3 THEN 3
-            WHEN LOWER(p.name) LIKE ?3 THEN 4
-            WHEN LOWER(p.url) LIKE ?3 THEN 5
+            WHEN LOWER(a.handle) LIKE ?2 ESCAPE '\\' THEN 2
+            WHEN LOWER(a.display_name) LIKE ?3 ESCAPE '\\' THEN 3
+            WHEN LOWER(p.name) LIKE ?3 ESCAPE '\\' THEN 4
+            WHEN LOWER(p.url) LIKE ?3 ESCAPE '\\' THEN 5
           END as match_priority,
           CASE
             WHEN LOWER(a.handle) = ?1 THEN 'handle'
-            WHEN LOWER(a.handle) LIKE ?2 THEN 'handle'
-            WHEN LOWER(a.display_name) LIKE ?3 THEN 'displayName'
-            WHEN LOWER(p.name) LIKE ?3 THEN 'publicationName'
-            WHEN LOWER(p.url) LIKE ?3 THEN 'publicationUrl'
+            WHEN LOWER(a.handle) LIKE ?2 ESCAPE '\\' THEN 'handle'
+            WHEN LOWER(a.display_name) LIKE ?3 ESCAPE '\\' THEN 'displayName'
+            WHEN LOWER(p.name) LIKE ?3 ESCAPE '\\' THEN 'publicationName'
+            WHEN LOWER(p.url) LIKE ?3 ESCAPE '\\' THEN 'publicationUrl'
           END as match_type,
           a.posts_count
         FROM authors a
         LEFT JOIN publications p ON a.did = p.author_did
         WHERE
           LOWER(a.handle) = ?1
-          OR LOWER(a.handle) LIKE ?2
-          OR LOWER(a.display_name) LIKE ?3
-          OR LOWER(p.name) LIKE ?3
-          OR LOWER(p.url) LIKE ?3
+          OR LOWER(a.handle) LIKE ?2 ESCAPE '\\'
+          OR LOWER(a.display_name) LIKE ?3 ESCAPE '\\'
+          OR LOWER(p.name) LIKE ?3 ESCAPE '\\'
+          OR LOWER(p.url) LIKE ?3 ESCAPE '\\'
 
         UNION ALL
 
@@ -1759,7 +1790,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           SELECT author_did, rkey, MIN(uri) as uri, title
           FROM posts
           WHERE visibility = 'public'
-            AND LOWER(title) LIKE ?3
+            AND LOWER(title) LIKE ?3 ESCAPE '\\'
           GROUP BY author_did, rkey
         ) posts
         JOIN authors a ON posts.author_did = a.did
@@ -1786,7 +1817,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           JOIN post_tags pt ON p.uri = pt.post_uri
           WHERE p.visibility = 'public'
             AND p.uri NOT LIKE '%/site.standard.document/%'
-            AND LOWER(pt.tag) LIKE ?3
+            AND LOWER(pt.tag) LIKE ?3 ESCAPE '\\'
           GROUP BY p.author_did, p.rkey, pt.tag
         ) tagged_posts
         JOIN authors a ON tagged_posts.author_did = a.did
@@ -1841,6 +1872,332 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
   } catch (error) {
     console.error('Error searching publications:', error)
     return c.json({ error: 'Failed to search publications' }, 500)
+  }
+})
+
+// =============================================================================
+// Semantic Search
+// =============================================================================
+
+/**
+ * Semantic search for posts
+ * Supports keyword, semantic, or hybrid (default) search modes
+ */
+app.get('/xrpc/app.greengale.search.posts', async (c) => {
+  const query = c.req.query('q')
+  if (!query || query.trim().length === 0) {
+    return c.json({ error: 'Missing or empty q parameter' }, 400)
+  }
+
+  const searchTerm = query.trim()
+  if (searchTerm.length < 2) {
+    return c.json({ error: 'Query must be at least 2 characters' }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 50)
+  const mode = (c.req.query('mode') || 'hybrid') as 'keyword' | 'semantic' | 'hybrid'
+
+  // Cache key includes mode
+  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    const results: Array<{
+      uri: string
+      authorDid: string
+      handle: string
+      displayName: string | null
+      avatarUrl: string | null
+      rkey: string
+      title: string
+      subtitle: string | null
+      createdAt: string | null
+      score: number
+      matchType: 'semantic' | 'keyword' | 'both'
+    }> = []
+
+    const semanticResults: Array<{ id: string; score: number }> = []
+    const keywordResults: Array<{ id: string; score: number }> = []
+    let semanticFailed = false
+
+    // Semantic search
+    if (mode === 'semantic' || mode === 'hybrid') {
+      try {
+        const queryEmbedding = await generateEmbedding(c.env.AI, searchTerm)
+        const vectorResults = await querySimilar(c.env.VECTORIZE, queryEmbedding, {
+          topK: limit * 2, // Get extra for deduplication
+        })
+
+        for (const match of vectorResults) {
+          // Extract URI from chunk ID (remove :chunkN suffix if present)
+          const uri = match.id.includes(':chunk')
+            ? match.id.replace(/:chunk\d+$/, '')
+            : match.id
+
+          // Deduplicate by URI
+          if (!semanticResults.some(r => r.id === uri)) {
+            semanticResults.push({ id: uri, score: match.score })
+          }
+        }
+      } catch (error) {
+        console.error('Semantic search failed:', error)
+        semanticFailed = true
+        // Fall back to keyword search if semantic-only mode
+      }
+    }
+
+    // Keyword search (also runs as fallback if semantic-only mode failed)
+    if (mode === 'keyword' || mode === 'hybrid' || (mode === 'semantic' && semanticFailed)) {
+      const escapedTerm = escapeLikePattern(searchTerm.toLowerCase())
+      const containsPattern = `%${escapedTerm}%`
+      const keywordQuery = await c.env.DB.prepare(`
+        SELECT DISTINCT
+          p.uri,
+          p.title,
+          CASE
+            WHEN LOWER(p.title) LIKE ? ESCAPE '\\' THEN 1.0
+            WHEN LOWER(p.subtitle) LIKE ? ESCAPE '\\' THEN 0.8
+            WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.6
+          END as score
+        FROM posts p
+        WHERE p.visibility = 'public'
+          AND p.deleted_at IS NULL
+          AND (
+            LOWER(p.title) LIKE ? ESCAPE '\\'
+            OR LOWER(p.subtitle) LIKE ? ESCAPE '\\'
+            OR LOWER(p.content_preview) LIKE ? ESCAPE '\\'
+          )
+        ORDER BY score DESC
+        LIMIT ?
+      `).bind(
+        containsPattern, containsPattern, containsPattern,
+        containsPattern, containsPattern, containsPattern,
+        limit * 2
+      ).all()
+
+      for (const row of keywordQuery.results || []) {
+        keywordResults.push({
+          id: row.uri as string,
+          score: row.score as number,
+        })
+      }
+    }
+
+    // Combine results based on mode
+    let finalIds: string[] = []
+
+    if (mode === 'hybrid' && semanticResults.length > 0 && keywordResults.length > 0) {
+      // Reciprocal Rank Fusion for hybrid
+      const fused = reciprocalRankFusion([semanticResults, keywordResults])
+      finalIds = fused.slice(0, limit).map(r => r.id)
+    } else if (mode === 'semantic' || (mode === 'hybrid' && semanticResults.length > 0)) {
+      finalIds = semanticResults.slice(0, limit).map(r => r.id)
+    } else {
+      finalIds = keywordResults.slice(0, limit).map(r => r.id)
+    }
+
+    if (finalIds.length === 0) {
+      const response = {
+        posts: [],
+        query: searchTerm,
+        mode,
+        ...(semanticFailed && mode === 'semantic' && { fallback: 'keyword' }),
+      }
+      await c.env.CACHE.put(cacheKey, JSON.stringify(response), { expirationTtl: 300 })
+      return c.json(response)
+    }
+
+    // Fetch post details from D1
+    const placeholders = finalIds.map(() => '?').join(',')
+    const postsResult = await c.env.DB.prepare(`
+      SELECT
+        p.uri,
+        p.author_did,
+        p.rkey,
+        p.title,
+        p.subtitle,
+        p.created_at,
+        a.handle,
+        a.display_name,
+        a.avatar_url
+      FROM posts p
+      JOIN authors a ON p.author_did = a.did
+      WHERE p.uri IN (${placeholders})
+        AND p.visibility = 'public'
+        AND p.deleted_at IS NULL
+    `).bind(...finalIds).all()
+
+    // Build result map for ordering
+    const postMap = new Map<string, typeof results[0]>()
+    for (const row of postsResult.results || []) {
+      const uri = row.uri as string
+      const inSemantic = semanticResults.some(r => r.id === uri)
+      const inKeyword = keywordResults.some(r => r.id === uri)
+
+      postMap.set(uri, {
+        uri,
+        authorDid: row.author_did as string,
+        handle: row.handle as string,
+        displayName: row.display_name as string | null,
+        avatarUrl: row.avatar_url as string | null,
+        rkey: row.rkey as string,
+        title: row.title as string,
+        subtitle: row.subtitle as string | null,
+        createdAt: row.created_at as string | null,
+        score: semanticResults.find(r => r.id === uri)?.score ||
+               keywordResults.find(r => r.id === uri)?.score || 0,
+        matchType: inSemantic && inKeyword ? 'both' : inSemantic ? 'semantic' : 'keyword',
+      })
+    }
+
+    // Order by finalIds
+    for (const id of finalIds) {
+      const post = postMap.get(id)
+      if (post) results.push(post)
+    }
+
+    const response = {
+      posts: results,
+      query: searchTerm,
+      mode,
+      ...(semanticFailed && mode === 'semantic' && { fallback: 'keyword' }),
+    }
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), { expirationTtl: 300 })
+    return c.json(response)
+  } catch (error) {
+    console.error('Error searching posts:', error)
+    return c.json({ error: 'Failed to search posts' }, 500)
+  }
+})
+
+/**
+ * Get similar posts (recommendations)
+ */
+app.get('/xrpc/app.greengale.feed.getSimilarPosts', async (c) => {
+  const uri = c.req.query('uri')
+  if (!uri) {
+    return c.json({ error: 'Missing uri parameter' }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '5'), 20)
+  const cacheKey = `similar_posts:${uri}:${limit}`
+
+  try {
+    // Check cache first (1 hour TTL for recommendations)
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return c.json(cached)
+    }
+
+    // Get the post's embedding
+    const postEmbeddings = await getPostEmbeddings(c.env.VECTORIZE, uri)
+    if (postEmbeddings.length === 0) {
+      return c.json({ posts: [], message: 'Post has no embedding' })
+    }
+
+    // Get the post's author DID to exclude same-author results
+    const postRow = await c.env.DB.prepare(
+      'SELECT author_did FROM posts WHERE uri = ?'
+    ).bind(uri).first()
+    const authorDid = postRow?.author_did as string | undefined
+
+    // Use first chunk/embedding for similarity query
+    const queryVector = postEmbeddings[0].values
+
+    // Query for similar posts (get extra to filter out same author and self)
+    const similarResults = await querySimilar(c.env.VECTORIZE, queryVector, {
+      topK: limit * 3,
+    })
+
+    // Filter and deduplicate results
+    const seenUris = new Set<string>([uri])
+    const filteredIds: string[] = []
+
+    for (const match of similarResults) {
+      // Extract URI from chunk ID
+      const matchUri = match.id.includes(':chunk')
+        ? match.id.replace(/:chunk\d+$/, '')
+        : match.id
+
+      // Skip self and duplicates
+      if (seenUris.has(matchUri)) continue
+      seenUris.add(matchUri)
+
+      // Check if same author (exclude)
+      if (match.metadata?.authorDid === authorDid) continue
+
+      filteredIds.push(matchUri)
+      if (filteredIds.length >= limit) break
+    }
+
+    if (filteredIds.length === 0) {
+      const response = { posts: [] }
+      await c.env.CACHE.put(cacheKey, JSON.stringify(response), { expirationTtl: 3600 })
+      return c.json(response)
+    }
+
+    // Fetch post details from D1
+    const placeholders = filteredIds.map(() => '?').join(',')
+    const postsResult = await c.env.DB.prepare(`
+      SELECT
+        p.uri,
+        p.author_did,
+        p.rkey,
+        p.title,
+        p.subtitle,
+        p.created_at,
+        a.handle,
+        a.display_name,
+        a.avatar_url
+      FROM posts p
+      JOIN authors a ON p.author_did = a.did
+      WHERE p.uri IN (${placeholders})
+        AND p.visibility = 'public'
+        AND p.deleted_at IS NULL
+    `).bind(...filteredIds).all()
+
+    // Build ordered results
+    const postMap = new Map<string, {
+      uri: string
+      authorDid: string
+      handle: string
+      displayName: string | null
+      avatarUrl: string | null
+      rkey: string
+      title: string
+      subtitle: string | null
+      createdAt: string | null
+    }>()
+
+    for (const row of postsResult.results || []) {
+      postMap.set(row.uri as string, {
+        uri: row.uri as string,
+        authorDid: row.author_did as string,
+        handle: row.handle as string,
+        displayName: row.display_name as string | null,
+        avatarUrl: row.avatar_url as string | null,
+        rkey: row.rkey as string,
+        title: row.title as string,
+        subtitle: row.subtitle as string | null,
+        createdAt: row.created_at as string | null,
+      })
+    }
+
+    const posts = filteredIds
+      .map(id => postMap.get(id))
+      .filter((p): p is NonNullable<typeof p> => p !== undefined)
+
+    const response = { posts }
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), { expirationTtl: 3600 })
+    return c.json(response)
+  } catch (error) {
+    console.error('Error getting similar posts:', error)
+    return c.json({ error: 'Failed to get similar posts' }, 500)
   }
 })
 
@@ -3422,6 +3779,319 @@ app.post('/xrpc/app.greengale.admin.clearFeedCache', async (c) => {
   }
 })
 
+// Fix corrupted created_at dates (BLOB instead of TEXT)
+// Some posts have dates stored as byte arrays instead of strings
+// This endpoint re-fetches the date from PDS and stores it correctly
+// Usage: POST /xrpc/app.greengale.admin.fixCorruptedDates?limit=50
+app.post('/xrpc/app.greengale.admin.fixCorruptedDates', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+
+  try {
+    // Find posts where created_at doesn't match the expected date format
+    // SQLite stores BLOBs and TEXT differently - BLOB types won't match the pattern
+    // Also find posts where created_at is NULL or empty
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey, created_at, source
+      FROM posts
+      WHERE uri LIKE '%/site.standard.document/%'
+        AND (
+          created_at IS NULL
+          OR created_at = ''
+          OR typeof(created_at) = 'blob'
+          OR (typeof(created_at) = 'text' AND created_at NOT GLOB '[12][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9]*')
+        )
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ success: true, message: 'No corrupted dates found', checked: 0, fixed: 0 })
+    }
+
+    let fixed = 0
+    const errors: string[] = []
+
+    for (const post of posts.results) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const rkey = post.rkey as string
+
+      try {
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          errors.push(`${uri}: Failed to resolve DID`)
+          continue
+        }
+
+        // Determine collection from URI
+        const collectionMatch = uri.match(/\/([^/]+)\/[^/]+$/)
+        const collection = collectionMatch ? collectionMatch[1] : 'site.standard.document'
+
+        // Fetch the record from PDS
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (!response.ok) {
+          errors.push(`${uri}: Failed to fetch record (${response.status})`)
+          continue
+        }
+
+        const data = await response.json() as {
+          value?: { publishedAt?: string; createdAt?: string }
+        }
+
+        // Get the date - V2/site.standard use publishedAt, V1/WhiteWind use createdAt
+        const dateValue = data.value?.publishedAt || data.value?.createdAt
+        if (!dateValue || typeof dateValue !== 'string') {
+          errors.push(`${uri}: No valid date in record`)
+          continue
+        }
+
+        // Update the database with the correct date string
+        await c.env.DB.prepare(
+          'UPDATE posts SET created_at = ? WHERE uri = ?'
+        ).bind(dateValue, uri).run()
+
+        fixed++
+        console.log(`Fixed created_at for ${uri}: ${dateValue}`)
+      } catch (err) {
+        errors.push(`${uri}: ${err instanceof Error ? err.message : 'Unknown'}`)
+      }
+    }
+
+    // Clear caches if we fixed anything
+    if (fixed > 0) {
+      await Promise.all([
+        c.env.CACHE.delete('network_posts:24:'),
+        c.env.CACHE.delete('network_posts:50:'),
+        c.env.CACHE.delete('network_posts:100:'),
+      ])
+    }
+
+    return c.json({
+      success: true,
+      postsChecked: posts.results.length,
+      postsFixed: fixed,
+      errors: errors.slice(0, 20),
+    })
+  } catch (error) {
+    console.error('Error fixing corrupted dates:', error)
+    return c.json({ error: 'Failed to fix dates', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// =============================================================================
+// Embedding Management
+// =============================================================================
+
+/**
+ * Get embedding statistics
+ */
+app.get('/xrpc/app.greengale.admin.getEmbeddingStats', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const stats = await c.env.DB.prepare(`
+      SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN has_embedding = 1 THEN 1 ELSE 0 END) as embedded,
+        SUM(CASE WHEN has_embedding = 0 AND visibility = 'public' AND deleted_at IS NULL THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN has_embedding = -1 THEN 1 ELSE 0 END) as skipped,
+        SUM(CASE WHEN has_embedding = -2 THEN 1 ELSE 0 END) as failed,
+        SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) as soft_deleted
+      FROM posts
+    `).first()
+
+    return c.json({
+      total: stats?.total ?? 0,
+      embedded: stats?.embedded ?? 0,
+      pending: stats?.pending ?? 0,
+      skipped: stats?.skipped ?? 0,
+      failed: stats?.failed ?? 0,
+      softDeleted: stats?.soft_deleted ?? 0,
+    })
+  } catch (error) {
+    console.error('Error getting embedding stats:', error)
+    return c.json({ error: 'Failed to get stats' }, 500)
+  }
+})
+
+/**
+ * Backfill embeddings for existing posts
+ * Processes posts that don't have embeddings yet
+ */
+app.post('/xrpc/app.greengale.admin.backfillEmbeddings', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
+  const dryRun = c.req.query('dryRun') === 'true'
+
+  try {
+    // Get posts needing embeddings
+    const posts = await c.env.DB.prepare(`
+      SELECT
+        p.uri,
+        p.author_did,
+        p.title,
+        p.created_at
+      FROM posts p
+      WHERE p.visibility = 'public'
+        AND p.deleted_at IS NULL
+        AND (p.has_embedding = 0 OR p.has_embedding = -2)
+      ORDER BY p.created_at DESC
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ success: true, processed: 0, message: 'No posts need embeddings' })
+    }
+
+    if (dryRun) {
+      return c.json({
+        success: true,
+        dryRun: true,
+        wouldProcess: posts.results.length,
+        posts: posts.results.map(p => ({
+          uri: p.uri,
+          title: p.title,
+        })),
+      })
+    }
+
+    let processed = 0
+    let skipped = 0
+    let failed = 0
+    const errors: Array<{ uri: string; error: string }> = []
+
+    for (const post of posts.results) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const title = post.title as string | null
+      const createdAt = post.created_at as string | null
+
+      try {
+        // Parse URI to get collection and rkey
+        const uriMatch = uri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+        if (!uriMatch) {
+          errors.push({ uri, error: 'Invalid URI format' })
+          failed++
+          continue
+        }
+
+        const [, , collection, rkey] = uriMatch
+
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          errors.push({ uri, error: 'Failed to resolve DID' })
+          failed++
+          continue
+        }
+
+        // Fetch record from PDS
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            // Post deleted from PDS - soft delete it
+            await c.env.DB.prepare(
+              'UPDATE posts SET deleted_at = datetime("now") WHERE uri = ?'
+            ).bind(uri).run()
+            skipped++
+            continue
+          }
+          errors.push({ uri, error: `PDS fetch failed: ${response.status}` })
+          failed++
+          continue
+        }
+
+        const data = await response.json() as { value: Record<string, unknown> }
+        const record = data.value
+
+        // Extract content
+        const extracted = extractContent(record, collection)
+        if (!extracted.success || extracted.wordCount < 20) {
+          await c.env.DB.prepare(
+            'UPDATE posts SET has_embedding = -1 WHERE uri = ?'
+          ).bind(uri).run()
+          skipped++
+          continue
+        }
+
+        // Hash content
+        const contentHash = await hashContent(extracted.text)
+
+        // Get subtitle for context
+        const subtitle = collection === 'site.standard.document'
+          ? (record?.description as string) || undefined
+          : (record?.subtitle as string) || undefined
+
+        // Chunk content
+        const chunks = chunkByHeadings(extracted, title || undefined, subtitle)
+
+        // Generate embeddings
+        const texts = chunks.map(c => c.text)
+        const embeddings = await generateEmbeddings(c.env.AI, texts)
+
+        // Prepare for Vectorize
+        const vectorEmbeddings = chunks.map((chunk, i) => {
+          const id = chunks.length === 1 ? uri : `${uri}:chunk${chunk.chunkIndex}`
+          const metadata: EmbeddingMetadata = {
+            uri,
+            authorDid: did,
+            title: title || undefined,
+            createdAt: createdAt || undefined,
+            chunkIndex: chunk.chunkIndex,
+            totalChunks: chunk.totalChunks,
+            isChunk: chunks.length > 1,
+          }
+          return { id, vector: embeddings[i], metadata }
+        })
+
+        // Upsert to Vectorize
+        await upsertEmbeddings(c.env.VECTORIZE, vectorEmbeddings)
+
+        // Update D1
+        await c.env.DB.prepare(
+          'UPDATE posts SET has_embedding = 1, content_hash = ? WHERE uri = ?'
+        ).bind(contentHash, uri).run()
+
+        processed++
+      } catch (err) {
+        errors.push({ uri, error: err instanceof Error ? err.message : 'Unknown' })
+        failed++
+        // Mark as failed to retry later
+        await c.env.DB.prepare(
+          'UPDATE posts SET has_embedding = -2 WHERE uri = ?'
+        ).bind(uri).run()
+      }
+    }
+
+    return c.json({
+      success: true,
+      processed,
+      skipped,
+      failed,
+      errors: errors.slice(0, 10),
+    })
+  } catch (error) {
+    console.error('Error backfilling embeddings:', error)
+    return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Format post from DB row to API response
 // Tags can be passed directly or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
 function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
@@ -3455,11 +4125,27 @@ function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
   }
 }
 
-// Scheduled handler for cron-based firehose watchdog
+// Scheduled handler for cron-based tasks
+// Crons: */5 * * * * (watchdog), 0 3 * * * (reconciliation)
 async function scheduled(
-  _event: ScheduledEvent,
-  env: { DB: D1Database; CACHE: KVNamespace; FIREHOSE: DurableObjectNamespace },
+  event: ScheduledEvent,
+  env: { DB: D1Database; CACHE: KVNamespace; FIREHOSE: DurableObjectNamespace; VECTORIZE: VectorizeIndex },
   _ctx: ExecutionContext
+) {
+  // Check if this is the daily reconciliation (3 AM UTC)
+  const scheduledDate = new Date(event.scheduledTime)
+  const isReconciliation = scheduledDate.getUTCHours() === 3 && scheduledDate.getUTCMinutes() === 0
+
+  if (isReconciliation) {
+    await runReconciliation(env)
+  } else {
+    await runFirehoseWatchdog(env)
+  }
+}
+
+// Firehose watchdog - runs every 5 minutes
+async function runFirehoseWatchdog(
+  env: { FIREHOSE: DurableObjectNamespace }
 ) {
   console.log('Firehose watchdog cron triggered')
 
@@ -3516,6 +4202,87 @@ async function scheduled(
     } catch (restartError) {
       console.error('Failed to restart firehose:', restartError)
     }
+  }
+}
+
+// Daily reconciliation - runs at 3 AM UTC
+// Verifies embeddings are in sync with D1, cleans up stale data
+async function runReconciliation(
+  env: { DB: D1Database; VECTORIZE: VectorizeIndex }
+) {
+  console.log('Reconciliation cron triggered')
+
+  try {
+    // 1. Find posts not verified in 7 days and verify they still exist
+    const staleThreshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const stalePosts = await env.DB.prepare(`
+      SELECT uri, author_did, has_embedding
+      FROM posts
+      WHERE visibility = 'public'
+        AND deleted_at IS NULL
+        AND (last_verified_at IS NULL OR last_verified_at < ?)
+      LIMIT 50
+    `).bind(staleThreshold).all()
+
+    let verified = 0
+    let softDeleted = 0
+
+    for (const post of stalePosts.results || []) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const hasEmbedding = post.has_embedding as number
+
+      try {
+        // Parse URI to get collection and rkey
+        const uriMatch = uri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+        if (!uriMatch) continue
+
+        const [, , collection, rkey] = uriMatch
+
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          // Can't verify - skip for now
+          continue
+        }
+
+        // Check if post still exists
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (response.status === 404) {
+          // Post deleted from PDS - soft delete and remove embedding
+          await env.DB.prepare(
+            'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
+          ).bind(uri).run()
+
+          if (hasEmbedding === 1) {
+            const { deletePostEmbeddings } = await import('../lib/embeddings')
+            await deletePostEmbeddings(env.VECTORIZE, uri)
+          }
+          softDeleted++
+        } else if (response.ok) {
+          // Post still exists - update verified timestamp
+          await env.DB.prepare(
+            'UPDATE posts SET last_verified_at = datetime("now") WHERE uri = ?'
+          ).bind(uri).run()
+          verified++
+        }
+        // If 5xx or timeout, skip - will retry next run
+      } catch (err) {
+        console.error(`Reconciliation error for ${uri}:`, err)
+      }
+    }
+
+    // 2. Hard delete posts that have been soft-deleted for over 30 days
+    const hardDeleteThreshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const hardDeleteResult = await env.DB.prepare(`
+      DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < ?
+    `).bind(hardDeleteThreshold).run()
+
+    console.log(`Reconciliation complete: verified=${verified}, softDeleted=${softDeleted}, hardDeleted=${hardDeleteResult.meta.changes}`)
+  } catch (error) {
+    console.error('Reconciliation error:', error)
   }
 }
 
