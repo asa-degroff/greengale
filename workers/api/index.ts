@@ -1314,8 +1314,8 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  // Build cache key (v2: filters invalid dates)
-  const cacheKey = `network_posts:v2:${limit}:${cursor || ''}`
+  // Build cache key (v3: fixes avatar field name)
+  const cacheKey = `network_posts:v3:${limit}:${cursor || ''}`
 
   try {
     // Check cache first
@@ -1375,7 +1375,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
         did: row.author_did,
         handle: row.handle || '',
         displayName: row.display_name || null,
-        avatarUrl: row.avatar_url || null,
+        avatar: row.avatar_url || null,
       },
       rkey: row.rkey,
       title: row.title || null,
