@@ -39,3 +39,6 @@ dist-ssr
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Agent skills
+.agents/skills/*
