@@ -155,8 +155,8 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
               <h3 className="text-xs font-medium text-[var(--site-text-secondary)] uppercase tracking-wide mb-2">
                 Preview
               </h3>
-              <div className="p-3 rounded-lg bg-[var(--site-bg-secondary)] border border-[var(--site-border)]">
-                <p className="text-sm text-[var(--site-text)] whitespace-pre-wrap line-clamp-6">
+              <div className="external-preview-content p-3 rounded-lg bg-[var(--site-bg-secondary)] border border-[var(--site-border)] max-h-[60vh] overflow-y-auto">
+                <p className="text-sm text-[var(--site-text)] whitespace-pre-wrap">
                   {post.contentPreview}
                 </p>
               </div>

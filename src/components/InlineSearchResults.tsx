@@ -1,13 +1,11 @@
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
-import type { PostSearchResult as PostSearchResultType, SearchMode, UnifiedSearchResult } from '@/lib/appview'
+import type { PostSearchResult as PostSearchResultType, UnifiedSearchResult } from '@/lib/appview'
 
 interface InlineSearchResultsProps {
   results: UnifiedSearchResult[]
   loading: boolean
   query: string
-  mode: SearchMode
-  onModeChange: (mode: SearchMode) => void
   onClear: () => void
   onExternalPostClick: (result: PostSearchResultType) => void
   fallbackUsed?: boolean
@@ -17,42 +15,14 @@ export function InlineSearchResults({
   results,
   loading,
   query,
-  mode,
-  onModeChange,
   onClear,
   onExternalPostClick,
   fallbackUsed,
 }: InlineSearchResultsProps) {
-  const modes: { value: SearchMode; label: string }[] = [
-    { value: 'hybrid', label: 'Hybrid' },
-    { value: 'semantic', label: 'Semantic' },
-    { value: 'keyword', label: 'Keyword' },
-  ]
-
   return (
     <div className="min-h-[400px]">
-      {/* Options row */}
+      {/* Results header row */}
       <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--site-border)]">
-        {/* Mode selector */}
-        <div className="flex gap-1">
-          {modes.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => onModeChange(value)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                mode === value
-                  ? 'bg-[var(--site-accent)] text-white'
-                  : 'bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)] hover:text-[var(--site-text)] border border-[var(--site-border)]'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
         {/* Result count */}
         {!loading && (
           <span className="text-sm text-[var(--site-text-secondary)]">
@@ -64,6 +34,9 @@ export function InlineSearchResults({
             )}
           </span>
         )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
 
         {/* Close button */}
         <button

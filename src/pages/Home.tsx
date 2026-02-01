@@ -17,6 +17,7 @@ import {
   type SearchMode,
   type UnifiedSearchResult,
 } from '@/lib/appview'
+import { SearchFilters, dateRangeToParams, type DateRange, type CustomDateRange } from '@/components/SearchFilters'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
 import {
   getCachedGreengaleFeed,
@@ -143,6 +144,9 @@ export function HomePage() {
   const [searchResults, setSearchResults] = useState<UnifiedSearchResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
+  const [searchAuthor, setSearchAuthor] = useState('')
+  const [searchDateRange, setSearchDateRange] = useState<DateRange>('any')
+  const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>({})
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
   const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResult | null>(null)
 
@@ -355,14 +359,22 @@ export function HomePage() {
   }
 
   // Search functions - wrapped in useCallback for stable references
-  const performSearch = useCallback(async (query: string, mode: SearchMode) => {
+  const performSearch = useCallback(async (query: string, mode: SearchMode, author: string, dateRange: DateRange, customDates: CustomDateRange) => {
     setSearchLoading(true)
     setSearchFallbackUsed(false)
     try {
+      const dateParams = dateRangeToParams(dateRange, customDates)
+
       // Call both APIs in parallel
       const [pubResponse, postResponse] = await Promise.all([
         searchPublications(query, 5),  // Top 5 authors/publications
-        searchPosts(query, { mode, limit: 25 })
+        searchPosts(query, {
+          mode,
+          limit: 25,
+          author: author || undefined,
+          after: dateParams.after,
+          before: dateParams.before,
+        })
       ])
 
       // Merge: authors first (excluding post/tag matches since posts are in main results), then posts
@@ -389,20 +401,44 @@ export function HomePage() {
     setSearchQuery('')
     setSearchResults([])
     setSearchFallbackUsed(false)
+    setSearchAuthor('')
+    setSearchDateRange('any')
+    setSearchCustomDates({})
   }, [])
 
   const handleSearchQueryChange = useCallback((query: string) => {
     setSearchActive(true)
     setSearchQuery(query)
-    performSearch(query, searchMode)
-  }, [performSearch, searchMode])
+    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates)
+  }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates])
 
   const handleSearchModeChange = useCallback((mode: SearchMode) => {
     setSearchMode(mode)
     if (searchQuery) {
-      performSearch(searchQuery, mode)
+      performSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates)
     }
-  }, [performSearch, searchQuery])
+  }, [performSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates])
+
+  const handleSearchAuthorChange = useCallback((author: string) => {
+    setSearchAuthor(author)
+    if (searchQuery) {
+      performSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates)
+    }
+  }, [performSearch, searchQuery, searchMode, searchDateRange, searchCustomDates])
+
+  const handleSearchDateRangeChange = useCallback((dateRange: DateRange) => {
+    setSearchDateRange(dateRange)
+    if (searchQuery) {
+      performSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates)
+    }
+  }, [performSearch, searchQuery, searchMode, searchAuthor, searchCustomDates])
+
+  const handleSearchCustomDatesChange = useCallback((customDates: CustomDateRange) => {
+    setSearchCustomDates(customDates)
+    if (searchQuery && searchDateRange === 'custom') {
+      performSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates)
+    }
+  }, [performSearch, searchQuery, searchMode, searchAuthor, searchDateRange])
 
   // Page-level Escape handler for search
   useEffect(() => {
@@ -439,6 +475,20 @@ export function HomePage() {
             onClear={handleClearSearch}
             disableDropdown={true}
           />
+          {searchActive && (
+            <div className="mt-4">
+              <SearchFilters
+                mode={searchMode}
+                onModeChange={handleSearchModeChange}
+                author={searchAuthor}
+                onAuthorChange={handleSearchAuthorChange}
+                dateRange={searchDateRange}
+                onDateRangeChange={handleSearchDateRangeChange}
+                customDates={searchCustomDates}
+                onCustomDatesChange={handleSearchCustomDatesChange}
+              />
+            </div>
+          )}
         </div>
 
         {/* Search Results or Posts Section with Tabs */}
@@ -448,8 +498,6 @@ export function HomePage() {
               results={searchResults}
               loading={searchLoading}
               query={searchQuery}
-              mode={searchMode}
-              onModeChange={handleSearchModeChange}
               onClear={handleClearSearch}
               onExternalPostClick={setSelectedExternalPost}
               fallbackUsed={searchFallbackUsed}
