@@ -409,6 +409,17 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const isV2Document = collection === 'app.greengale.document'
       const isSiteStandardDocument = collection === 'site.standard.document'
 
+      // Skip indexing site.standard.document records that are GreenGale-originated
+      // These are dual-published posts that already exist as app.greengale.document
+      if (isSiteStandardDocument && record?.content) {
+        const contentObj = record.content as Record<string, unknown>
+        const contentUri = contentObj?.uri as string | undefined
+        if (contentUri && contentUri.includes('/app.greengale.document/')) {
+          console.log(`Skipping dual-published GreenGale post in site.standard: ${uri}`)
+          return
+        }
+      }
+
       // Extract metadata from record (handle site.standard field differences)
       const title = (record?.title as string) || null
       // site.standard uses 'description' instead of 'subtitle'

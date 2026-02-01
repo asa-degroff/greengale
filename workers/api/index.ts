@@ -3990,6 +3990,115 @@ app.post('/xrpc/app.greengale.admin.clearFeedCache', async (c) => {
   }
 })
 
+// Delete duplicate site.standard.document posts that are GreenGale-originated
+// These are dual-published posts where both app.greengale.document and site.standard.document exist
+// Usage: POST /xrpc/app.greengale.admin.cleanupDualPublishedDuplicates?limit=100&dryRun=true
+app.post('/xrpc/app.greengale.admin.cleanupDualPublishedDuplicates', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500)
+  const dryRun = c.req.query('dryRun') !== 'false'
+
+  try {
+    // Find site.standard.document posts that have a corresponding app.greengale.document
+    // by matching author_did and rkey
+    const duplicates = await c.env.DB.prepare(`
+      SELECT
+        ssd.uri as duplicate_uri,
+        ssd.author_did,
+        ssd.rkey,
+        ssd.title,
+        agd.uri as original_uri
+      FROM posts ssd
+      JOIN posts agd ON ssd.author_did = agd.author_did AND ssd.rkey = agd.rkey
+      WHERE ssd.uri LIKE '%/site.standard.document/%'
+        AND agd.uri LIKE '%/app.greengale.document/%'
+      LIMIT ?
+    `).bind(limit).all<{
+      duplicate_uri: string
+      author_did: string
+      rkey: string
+      title: string
+      original_uri: string
+    }>()
+
+    if (!duplicates.results || duplicates.results.length === 0) {
+      return c.json({
+        success: true,
+        message: 'No duplicate entries found',
+        dryRun,
+        duplicatesFound: 0,
+        duplicatesDeleted: 0,
+      })
+    }
+
+    const duplicateUris = duplicates.results.map(d => d.duplicate_uri)
+
+    if (dryRun) {
+      return c.json({
+        success: true,
+        dryRun: true,
+        duplicatesFound: duplicates.results.length,
+        duplicatesToDelete: duplicates.results.map(d => ({
+          duplicateUri: d.duplicate_uri,
+          originalUri: d.original_uri,
+          title: d.title,
+        })),
+      })
+    }
+
+    // Delete the duplicate posts
+    const placeholders = duplicateUris.map(() => '?').join(',')
+    await c.env.DB.prepare(`DELETE FROM posts WHERE uri IN (${placeholders})`)
+      .bind(...duplicateUris)
+      .run()
+
+    // Delete associated tags
+    await c.env.DB.prepare(`DELETE FROM post_tags WHERE post_uri IN (${placeholders})`)
+      .bind(...duplicateUris)
+      .run()
+
+    // Delete embeddings from Vectorize
+    try {
+      await c.env.VECTORIZE_INDEX.deleteByIds(duplicateUris)
+    } catch (e) {
+      console.log('Error deleting embeddings (may not exist):', e)
+    }
+
+    // Clear feed caches (non-critical, don't fail if rate limited)
+    let cacheCleared = false
+    try {
+      await Promise.all([
+        c.env.CACHE.delete('recent_posts:12:'),
+        c.env.CACHE.delete('recent_posts:24:'),
+        c.env.CACHE.delete('recent_posts:50:'),
+        c.env.CACHE.delete('recent_posts:100:'),
+      ])
+      cacheCleared = true
+    } catch (e) {
+      console.log('Cache clear failed (rate limited), will expire naturally:', e)
+    }
+
+    return c.json({
+      success: true,
+      dryRun: false,
+      duplicatesFound: duplicates.results.length,
+      duplicatesDeleted: duplicates.results.length,
+      deletedUris: duplicateUris,
+      cacheCleared,
+    })
+  } catch (error) {
+    console.error('Error cleaning up duplicates:', error)
+    return c.json({
+      error: 'Failed to clean up duplicates',
+      details: error instanceof Error ? error.message : 'Unknown',
+    }, 500)
+  }
+})
+
 // Fix corrupted created_at dates (BLOB instead of TEXT)
 // Some posts have dates stored as byte arrays instead of strings
 // This endpoint re-fetches the date from PDS and stores it correctly
