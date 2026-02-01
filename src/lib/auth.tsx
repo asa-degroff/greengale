@@ -64,6 +64,9 @@ async function getOAuthClient(): Promise<BrowserOAuthClient> {
     oauthClient = await BrowserOAuthClient.load({
       clientId: CLIENT_ID,
       handleResolver,
+      // Use query response mode instead of fragment for better Firefox compatibility.
+      // Fragment mode can have issues with how Firefox handles URL hash changes.
+      responseMode: 'query',
     })
     console.log('[Auth] BrowserOAuthClient loaded successfully')
   }

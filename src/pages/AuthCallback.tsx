@@ -97,12 +97,17 @@ export function AuthCallbackPage() {
       }
     }
 
+    // Log auth state changes for debugging
+    console.log('[AuthCallback] Auth state:', { isAuthenticated, isLoading, fromPWA, state })
+
     if (isAuthenticated && !isLoading) {
+      console.log('[AuthCallback] Auth successful, completing flow')
       hasHandledAuth.current = true
       handleAuthComplete(false)
     } else if (!isAuthenticated && !isLoading && fromPWA !== null) {
       // Auth finished but not authenticated - wait a bit for IndexedDB sync
       // On iOS, the OAuth client might still be processing
+      console.log('[AuthCallback] Not authenticated yet, waiting for OAuth processing...')
       const timeout = setTimeout(async () => {
         if (!hasHandledAuth.current) {
           hasHandledAuth.current = true
@@ -114,13 +119,14 @@ export function AuthCallbackPage() {
             // Check if there's an OAuth code in the URL - if not, it was likely cancelled
             const params = new URLSearchParams(window.location.search)
             const hasCode = params.has('code') || params.has('iss')
+            console.log('[AuthCallback] Timeout reached, hasCode:', hasCode, 'search:', window.location.search)
             if (!hasCode) {
               // No OAuth response params - user likely cancelled or navigated away
               console.log('[AuthCallback] No OAuth params found, redirecting to home')
               navigate('/', { replace: true })
             } else {
               // Had OAuth params but auth still failed - show error
-              console.error('[AuthCallback] OAuth callback failed')
+              console.error('[AuthCallback] OAuth callback failed - had params but auth not completed')
               setError('Login failed. Please try again.')
               setState('error')
             }
