@@ -70,9 +70,9 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
 
   return (
     <>
-      {/* Backdrop - visible on both mobile and desktop */}
+      {/* Backdrop - visible on mobile/medium screens, hidden on wide screens where content slides over */}
       <div
-        className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300"
+        className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 2xl:hidden"
         onClick={handleBackdropClick}
         aria-hidden="true"
       />

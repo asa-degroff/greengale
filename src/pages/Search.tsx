@@ -223,7 +223,10 @@ export function SearchPage() {
   const results = activeTab === 'posts' ? postResults : authorResults
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div
+      className="max-w-3xl mx-auto px-4 py-8 search-content-slide"
+      data-panel-open={selectedExternalPost ? 'true' : 'false'}
+    >
       {/* Search Input */}
       <div className="relative mb-4">
         <input

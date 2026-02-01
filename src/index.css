@@ -1864,3 +1864,25 @@ html {
     animation: none !important;
   }
 }
+
+/* Search content slide-over when external preview panel is open on wide screens */
+.search-content-slide {
+  transition: margin 300ms ease-in-out;
+}
+
+@media (min-width: 1536px) {
+  .search-content-slide[data-panel-open="true"] {
+    /*
+     * Center content in the space between sidebar and panel.
+     * Using margin instead of transform to avoid creating a new containing block
+     * that would break the fixed positioning of the preview panel.
+     *
+     * The content is 768px (max-w-3xl), panel is 480px.
+     * Calculate margins to center content: (available - content - panel) / 2
+     */
+    --panel-width: 480px;
+    --content-width: 768px;
+    margin-left: calc((100% - var(--panel-width) - var(--content-width)) / 2);
+    margin-right: calc((100% - var(--panel-width) - var(--content-width)) / 2 + var(--panel-width));
+  }
+}
