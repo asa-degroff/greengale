@@ -187,20 +187,20 @@ export function CloudField({ className = '' }: CloudFieldProps) {
   // These are positioned to create a pleasing parallax effect
   const clouds: CloudInstance[] = [
     // Far background - slower, smaller, more transparent
-    { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 45, delay: 0, opacity: 0.25 },
-    { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 50, delay: -20, opacity: 0.2 },
+    { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 68, delay: 0, opacity: 0.25 },
+    { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 75, delay: -30, opacity: 0.2 },
 
     // Mid layer
-    { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 35, delay: -10, opacity: 0.35 },
-    { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 38, delay: -25, opacity: 0.3 },
+    { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 52, delay: -15, opacity: 0.35 },
+    { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 57, delay: -38, opacity: 0.3 },
 
     // Foreground - larger, faster, more visible
-    { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 28, delay: -5, opacity: 0.45 },
-    { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 32, delay: -18, opacity: 0.4 },
+    { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 42, delay: -8, opacity: 0.45 },
+    { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 48, delay: -27, opacity: 0.4 },
 
     // Extra variety
-    { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 42, delay: -30, opacity: 0.22 },
-    { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 40, delay: -15, opacity: 0.28 },
+    { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 63, delay: -45, opacity: 0.22 },
+    { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 60, delay: -22, opacity: 0.28 },
   ]
 
   return (
