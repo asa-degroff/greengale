@@ -181,16 +181,22 @@ export function SearchFilters({
   }
 
   return (
-    <div className="space-y-3">
-      {/* Main filters row */}
-      <div className="flex gap-3 items-center">
+    <div className="space-y-2">
+      {/*
+        Layout:
+        - Mobile: Row 1 = [Mode] [Date dropdown], Row 2 = [Author full width]
+        - Desktop: Single row = [Mode] [Author flex-grow] [Date buttons]
+      */}
+
+      {/* First row: Mode + Date (mobile) / Mode + Author + Date (desktop) */}
+      <div className="flex gap-2 md:gap-3 items-center flex-wrap md:flex-nowrap">
         {/* Mode selector */}
         <div className="flex rounded-lg border border-[var(--site-border)] overflow-hidden flex-shrink-0">
           {(['hybrid', 'semantic', 'keyword'] as const).map((m) => (
             <button
               key={m}
               onClick={() => onModeChange(m)}
-              className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`px-2 md:px-3 py-1.5 text-sm font-medium transition-colors ${
                 mode === m
                   ? 'bg-[var(--site-accent)] text-white'
                   : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
@@ -201,8 +207,9 @@ export function SearchFilters({
           ))}
         </div>
 
-        {/* Author filter - grows to fill space */}
-        <div ref={containerRef} className="relative flex-1 min-w-0">
+        {/* Author filter - uses CSS order to move to end on mobile */}
+        {/* min-w-full on mobile forces wrap to new row instead of shrinking */}
+        <div ref={containerRef} className="relative flex-1 min-w-full md:min-w-0 order-last md:order-none">
           <div className="relative">
             <input
               ref={inputRef}
@@ -240,7 +247,7 @@ export function SearchFilters({
           {isOpen && results.length > 0 && (
             <ul
               ref={listRef}
-              className="absolute top-full mt-1 left-0 w-64 max-h-64 overflow-y-auto rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] shadow-lg z-50"
+              className="absolute top-full mt-1 left-0 w-full md:w-64 max-h-64 overflow-y-auto rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] shadow-lg z-50"
             >
               {results.map((actor, i) => (
                 <li key={actor.did}>
@@ -284,7 +291,7 @@ export function SearchFilters({
 
         {/* Date range selector - dropdown on mobile, inline buttons on desktop */}
         {/* Mobile dropdown */}
-        <div ref={dateDropdownRef} className="relative md:hidden flex-shrink-0">
+        <div ref={dateDropdownRef} className="relative md:hidden flex-shrink-0 ml-auto">
           <button
             onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--site-border)] transition-colors ${
