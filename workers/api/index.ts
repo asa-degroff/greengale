@@ -2633,7 +2633,7 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
         const contentPreview = content
           .replace(/[#*`\[\]()!]/g, '')
           .replace(/\n+/g, ' ')
-          .slice(0, 300)
+          .slice(0, 3000)
 
         // Slug
         const slug = title
@@ -2780,24 +2780,25 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
   // Default threshold is 1000 (old limit) - posts at exactly this length were likely truncated
   const threshold = Math.min(parseInt(c.req.query('threshold') || '1000'), 2999)
+  // Minimum length to consider (default 250 to catch 300-char truncated posts)
+  const minLength = Math.max(parseInt(c.req.query('minLength') || '250'), 100)
 
   try {
-    // Find posts where content_preview is between 500 and threshold chars
-    // These are likely truncated at the old limit
-    // We use 500 as a minimum to avoid re-indexing posts that legitimately have short content
+    // Find posts where content_preview is between minLength and threshold chars
+    // These are likely truncated at an old limit
     const posts = await c.env.DB.prepare(`
       SELECT uri, author_did, rkey, LENGTH(content_preview) as preview_length
       FROM posts
       WHERE content_preview IS NOT NULL
-        AND LENGTH(content_preview) >= 500
+        AND LENGTH(content_preview) >= ?
         AND LENGTH(content_preview) <= ?
         AND deleted_at IS NULL
       ORDER BY indexed_at DESC
       LIMIT ?
-    `).bind(threshold, limit).all()
+    `).bind(minLength, threshold, limit).all()
 
     if (!posts.results?.length) {
-      return c.json({ message: 'No posts with short previews found', processed: 0, threshold })
+      return c.json({ message: 'No posts with short previews found', processed: 0, minLength, threshold })
     }
 
     // Get the firehose DO to trigger re-indexing
@@ -3103,7 +3104,7 @@ async function indexPostsFromPds(
         const contentPreview = content
           .replace(/[#*`\[\]()!]/g, '')
           .replace(/\n+/g, ' ')
-          .slice(0, 300)
+          .slice(0, 3000)
 
         // Slug
         const slug = title
@@ -3485,7 +3486,7 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
             const contentPreview = content
               .replace(/[#*`\[\]()!]/g, '')
               .replace(/\n+/g, ' ')
-              .slice(0, 300)
+              .slice(0, 3000)
 
             // Slug
             const slug = title
@@ -3697,6 +3698,105 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
     })
   } catch (error) {
     console.error('Error backfilling external URLs:', error)
+    return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// Debug endpoint to inspect a post's database record
+// Usage: GET /xrpc/app.greengale.admin.inspectPost?uri=at://did/collection/rkey
+app.get('/xrpc/app.greengale.admin.inspectPost', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const uri = c.req.query('uri')
+  if (!uri) {
+    return c.json({ error: 'Missing uri parameter' }, 400)
+  }
+
+  try {
+    const post = await c.env.DB.prepare(`
+      SELECT * FROM posts WHERE uri = ?
+    `).bind(uri).first()
+
+    if (!post) {
+      return c.json({ error: 'Post not found', uri })
+    }
+
+    return c.json({ post })
+  } catch (error) {
+    return c.json({ error: 'Failed to inspect', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// Backfill external_url from stored site_uri and path (no PDS fetch needed)
+// For posts where site_uri is a URL (not an AT-URI)
+// Usage: POST /xrpc/app.greengale.admin.backfillExternalUrlsFromStored?limit=100
+app.post('/xrpc/app.greengale.admin.backfillExternalUrlsFromStored', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500)
+
+  try {
+    // Find posts where:
+    // - It's a site.standard.document
+    // - site_uri is a URL (starts with http)
+    // - external_url is NULL
+    // - path is available
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, site_uri, path, rkey
+      FROM posts
+      WHERE uri LIKE '%/site.standard.document/%'
+        AND site_uri LIKE 'http%'
+        AND external_url IS NULL
+        AND path IS NOT NULL
+      LIMIT ?
+    `).bind(limit).all<{
+      uri: string
+      site_uri: string
+      path: string
+      rkey: string
+    }>()
+
+    if (!posts.results?.length) {
+      return c.json({ success: true, message: 'No posts to backfill', updated: 0 })
+    }
+
+    let updated = 0
+    const updates: Array<{ uri: string; externalUrl: string }> = []
+
+    for (const post of posts.results) {
+      // Construct external URL from stored values
+      const baseUrl = post.site_uri.replace(/\/$/, '')
+      const normalizedPath = post.path.startsWith('/') ? post.path : `/${post.path}`
+      const externalUrl = `${baseUrl}${normalizedPath}`
+
+      // Update the post
+      await c.env.DB.prepare(
+        'UPDATE posts SET external_url = ? WHERE uri = ?'
+      ).bind(externalUrl, post.uri).run()
+
+      updates.push({ uri: post.uri, externalUrl })
+      updated++
+    }
+
+    // Clear search cache (best effort)
+    try {
+      await c.env.CACHE.delete('network_posts:24:')
+    } catch (e) {
+      console.log('Cache clear failed:', e)
+    }
+
+    return c.json({
+      success: true,
+      updated,
+      updates,
+    })
+  } catch (error) {
     return c.json({ error: 'Failed to backfill', details: error instanceof Error ? error.message : 'Unknown' }, 500)
   }
 })
