@@ -574,13 +574,11 @@ export function Sidebar({ children }: SidebarProps) {
         </Link>
       </div>
 
-      {/* Search */}
-      <div className="px-4 pt-4">
-        <SidebarSearch onMobileClose={() => setMobileOpen(false)} />
-      </div>
-
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {/* Search */}
+        <SidebarSearch onMobileClose={() => setMobileOpen(false)} />
+
         {navLinks.map((link) => {
           const Icon = link.icon
           const isActive = location.pathname === link.to

@@ -69,45 +69,47 @@ export function SidebarSearch({ onMobileClose }: SidebarSearchProps) {
     return null
   }
 
-  if (!isExpanded) {
-    return (
-      <button
-        onClick={handleExpand}
-        className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
-      >
-        <SearchIcon className="w-5 h-5" />
-        <span>Search</span>
-      </button>
-    )
-  }
-
+  // Fixed height container to prevent layout shift between collapsed/expanded states
+  // Matches the Home button dimensions: px-3 py-2 with h-5 icon = 36px total height
   return (
-    <form onSubmit={handleSubmit} className="px-3 py-2">
-      <div className="relative">
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Search posts..."
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          data-1p-ignore
-          data-lpignore="true"
-          className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
-        />
-        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--site-text-secondary)]" />
+    <div className="h-9">
+      {!isExpanded ? (
         <button
-          type="button"
-          onClick={handleCollapse}
-          className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors"
+          onClick={handleExpand}
+          className="flex items-center gap-3 w-full h-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
         >
-          <CloseIcon className="w-4 h-4" />
+          <SearchIcon className="w-5 h-5" />
+          <span>Search</span>
         </button>
-      </div>
-    </form>
+      ) : (
+        <form onSubmit={handleSubmit} className="h-full">
+          <div className="relative h-full">
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Search posts..."
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-1p-ignore
+              data-lpignore="true"
+              className="w-full h-full pl-9 pr-8 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] placeholder:text-[var(--site-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+            />
+            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--site-text-secondary)]" />
+            <button
+              type="button"
+              onClick={handleCollapse}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors"
+            >
+              <CloseIcon className="w-4 h-4" />
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   )
 }
