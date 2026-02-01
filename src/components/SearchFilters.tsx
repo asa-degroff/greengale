@@ -26,6 +26,14 @@ interface BlueskyActor {
   avatar?: string
 }
 
+const DATE_OPTIONS = [
+  { value: 'any', label: 'Any time' },
+  { value: 'week', label: 'Past week' },
+  { value: 'month', label: 'Past month' },
+  { value: 'year', label: 'Past year' },
+  { value: 'custom', label: 'Custom range' },
+] as const
+
 export function SearchFilters({
   mode,
   onModeChange,
@@ -42,11 +50,13 @@ export function SearchFilters({
   const [loading, setLoading] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [showCustomDates, setShowCustomDates] = useState(dateRange === 'custom')
+  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dateDropdownRef = useRef<HTMLDivElement>(null)
 
   // Sync showCustomDates with dateRange
   useEffect(() => {
@@ -139,11 +149,14 @@ export function SearchFilters({
     inputRef.current?.focus()
   }
 
-  // Click outside closes dropdown
+  // Click outside closes dropdowns
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false)
+      }
+      if (dateDropdownRef.current && !dateDropdownRef.current.contains(e.target as Node)) {
+        setIsDateDropdownOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -269,8 +282,49 @@ export function SearchFilters({
           )}
         </div>
 
-        {/* Date range selector */}
-        <div className="flex rounded-lg border border-[var(--site-border)] overflow-hidden flex-shrink-0">
+        {/* Date range selector - dropdown on mobile, inline buttons on desktop */}
+        {/* Mobile dropdown */}
+        <div ref={dateDropdownRef} className="relative md:hidden flex-shrink-0">
+          <button
+            onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--site-border)] transition-colors ${
+              dateRange !== 'any'
+                ? 'bg-[var(--site-accent)] text-white border-[var(--site-accent)]'
+                : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span>{dateRange === 'any' ? 'Date' : DATE_OPTIONS.find(o => o.value === dateRange)?.label.replace('Past ', '')}</span>
+            <svg className={`w-3 h-3 transition-transform ${isDateDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {isDateDropdownOpen && (
+            <div className="absolute top-full mt-1 right-0 w-40 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] shadow-lg z-50 overflow-hidden">
+              {DATE_OPTIONS.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => {
+                    onDateRangeChange(value)
+                    setIsDateDropdownOpen(false)
+                  }}
+                  className={`w-full px-3 py-2 text-sm text-left transition-colors ${
+                    dateRange === value
+                      ? 'bg-[var(--site-accent)] text-white'
+                      : 'text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Desktop inline buttons */}
+        <div className="hidden md:flex rounded-lg border border-[var(--site-border)] overflow-hidden flex-shrink-0">
           {([
             { value: 'any', label: 'Any' },
             { value: 'week', label: 'Week' },
@@ -295,21 +349,25 @@ export function SearchFilters({
 
       {/* Custom date range inputs */}
       {showCustomDates && (
-        <div className="flex gap-3 items-center">
-          <span className="text-sm text-[var(--site-text-secondary)]">From:</span>
-          <input
-            type="date"
-            value={customDates?.after?.split('T')[0] || ''}
-            onChange={(e) => handleCustomDateChange('after', e.target.value ? new Date(e.target.value).toISOString() : '')}
-            className="px-3 py-1.5 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
-          />
-          <span className="text-sm text-[var(--site-text-secondary)]">To:</span>
-          <input
-            type="date"
-            value={customDates?.before?.split('T')[0] || ''}
-            onChange={(e) => handleCustomDateChange('before', e.target.value ? new Date(e.target.value + 'T23:59:59').toISOString() : '')}
-            className="px-3 py-1.5 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
-          />
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-center">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-[var(--site-text-secondary)] w-12 sm:w-auto">From:</span>
+            <input
+              type="date"
+              value={customDates?.after?.split('T')[0] || ''}
+              onChange={(e) => handleCustomDateChange('after', e.target.value ? new Date(e.target.value).toISOString() : '')}
+              className="flex-1 sm:flex-none px-3 py-1.5 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-[var(--site-text-secondary)] w-12 sm:w-auto">To:</span>
+            <input
+              type="date"
+              value={customDates?.before?.split('T')[0] || ''}
+              onChange={(e) => handleCustomDateChange('before', e.target.value ? new Date(e.target.value + 'T23:59:59').toISOString() : '')}
+              className="flex-1 sm:flex-none px-3 py-1.5 text-sm rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] focus:outline-none focus:ring-1 focus:ring-[var(--site-accent)]"
+            />
+          </div>
         </div>
       )}
     </div>
