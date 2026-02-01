@@ -28,6 +28,9 @@ interface ItemPosition {
   width: number
 }
 
+// Default column configuration - hoisted to avoid recreating on each render
+const DEFAULT_COLUMNS: ResponsiveColumns = { default: 1, md: 2 }
+
 // Get initial column count based on media query (avoids flash on iPad)
 function getInitialColumns(columns: number | ResponsiveColumns): number {
   if (typeof columns === 'number') return columns
@@ -42,7 +45,7 @@ function getInitialColumns(columns: number | ResponsiveColumns): number {
 
 export function MasonryGrid({
   children,
-  columns = { default: 1, md: 2 },
+  columns = DEFAULT_COLUMNS,
   gap = 24,
   className = '',
 }: MasonryGridProps) {
