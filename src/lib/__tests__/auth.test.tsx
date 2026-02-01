@@ -13,12 +13,21 @@ const mockRevoke = vi.fn()
 const mockLoad = vi.fn()
 
 // Mock the OAuth client - factory must not reference variables defined later
-vi.mock('@atproto/oauth-client-browser', () => ({
-  BrowserOAuthClient: {
-    load: (...args: unknown[]) => mockLoad(...args),
-  },
-  OAuthSession: vi.fn(),
-}))
+vi.mock('@atproto/oauth-client-browser', () => {
+  // Define MockAtprotoDohHandleResolver inside the factory since vi.mock is hoisted
+  class MockAtprotoDohHandleResolver {
+    constructor(_dohUrl: string) {
+      // Mock implementation - just stores the URL
+    }
+  }
+  return {
+    BrowserOAuthClient: {
+      load: (...args: unknown[]) => mockLoad(...args),
+    },
+    OAuthSession: vi.fn(),
+    AtprotoDohHandleResolver: MockAtprotoDohHandleResolver,
+  }
+})
 
 // Mock fetch globally
 const mockFetch = vi.fn()
