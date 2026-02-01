@@ -4,6 +4,7 @@ import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { LoadingCube } from '@/components/LoadingCube'
+import { CloudField } from '@/components/AnimatedCloud'
 import { getRecentPosts, getNetworkPosts, getFollowingPosts, type AppViewPost } from '@/lib/appview'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
 import {
@@ -344,14 +345,17 @@ export function HomePage() {
           </p>
         </div>
 
-        <div className="bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)]">
-          <h2 className="text-xl font-bold mb-4 text-[var(--site-text)]">
+        <div className="relative bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)] overflow-hidden min-h-[180px]">
+          {/* Decorative floating clouds */}
+          <CloudField className="text-[var(--site-text-secondary)]" />
+
+          <h2 className="relative text-xl font-bold mb-4 text-[var(--site-text)]">
             Find a Blog
           </h2>
-          <p className="text-[var(--site-text-secondary)] mb-4">
+          <p className="relative text-[var(--site-text-secondary)] mb-4">
             Search by handle, display name, publication name, title, tag, or URL:
           </p>
-          <PublicationSearch className="w-full" />
+          <PublicationSearch className="relative w-full" />
         </div>
 
         {/* Posts Section with Tabs */}
