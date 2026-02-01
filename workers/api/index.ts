@@ -2768,6 +2768,81 @@ app.post('/xrpc/app.greengale.admin.reindexEmptyPreviews', async (c) => {
   }
 })
 
+// Re-index posts with short content previews (admin only)
+// This expands previews that were truncated at the old 1000-char limit to the new 3000-char limit
+// Usage: POST /xrpc/app.greengale.admin.expandContentPreviews?limit=50
+app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+  // Default threshold is 1000 (old limit) - posts at exactly this length were likely truncated
+  const threshold = Math.min(parseInt(c.req.query('threshold') || '1000'), 2999)
+
+  try {
+    // Find posts where content_preview is between 500 and threshold chars
+    // These are likely truncated at the old limit
+    // We use 500 as a minimum to avoid re-indexing posts that legitimately have short content
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey, LENGTH(content_preview) as preview_length
+      FROM posts
+      WHERE content_preview IS NOT NULL
+        AND LENGTH(content_preview) >= 500
+        AND LENGTH(content_preview) <= ?
+        AND deleted_at IS NULL
+      ORDER BY indexed_at DESC
+      LIMIT ?
+    `).bind(threshold, limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({ message: 'No posts with short previews found', processed: 0, threshold })
+    }
+
+    // Get the firehose DO to trigger re-indexing
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    let processed = 0
+    let failed = 0
+    const errors: string[] = []
+
+    for (const post of posts.results) {
+      try {
+        const response = await firehose.fetch('http://internal/reindex', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uri: post.uri }),
+        })
+
+        if (response.ok) {
+          processed++
+        } else {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown' })) as { error?: string }
+          failed++
+          errors.push(`${post.uri}: ${errorData.error || response.statusText}`)
+        }
+      } catch (err) {
+        failed++
+        errors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      success: true,
+      total: posts.results.length,
+      processed,
+      failed,
+      threshold,
+      errors: errors.slice(0, 10), // Only return first 10 errors
+    })
+  } catch (error) {
+    console.error('Error expanding content previews:', error)
+    return c.json({ error: 'Failed to expand previews', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Helper function to fetch PDS endpoint from DID document
 // Resolve a DID document for both did:plc and did:web methods
 async function resolveDidDocument(did: string): Promise<{ service?: Array<{ id: string; type: string; serviceEndpoint: string }> } | null> {

@@ -517,12 +517,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
           )].slice(0, 100)
         : []
 
-      // Create content preview (first 1000 chars, strip markdown)
+      // Create content preview (first 3000 chars, strip markdown)
       const contentPreview = content
         .replace(/[#*`\[\]()!]/g, '')
         .replace(/\n+/g, ' ')
         .trim()
-        .slice(0, 1000)
+        .slice(0, 3000)
 
       // Create slug from title
       const slug = title
