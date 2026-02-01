@@ -1866,22 +1866,26 @@ html {
 }
 
 /* Search content slide-over when external preview panel is open on wide screens */
-.search-content-slide {
-  transition: margin 300ms ease-in-out;
-}
-
 @media (min-width: 1536px) {
+  .search-content-slide {
+    /*
+     * Set explicit margins so CSS can animate between states.
+     * CSS cannot transition from 'auto' to a pixel value.
+     * Default state: content centered in full available space.
+     */
+    --content-width: 768px;
+    margin-left: calc((100% - var(--content-width)) / 2);
+    margin-right: calc((100% - var(--content-width)) / 2);
+    transition: margin 300ms ease-in-out;
+  }
+
   .search-content-slide[data-panel-open="true"] {
     /*
-     * Center content in the space between sidebar and panel.
-     * Using margin instead of transform to avoid creating a new containing block
-     * that would break the fixed positioning of the preview panel.
-     *
-     * The content is 768px (max-w-3xl), panel is 480px.
-     * Calculate margins to center content: (available - content - panel) / 2
+     * Panel open: center content in the space between sidebar and panel.
+     * Calculate margins: (available - content - panel) / 2 for left gap,
+     * plus panel width for right margin.
      */
     --panel-width: 480px;
-    --content-width: 768px;
     margin-left: calc((100% - var(--panel-width) - var(--content-width)) / 2);
     margin-right: calc((100% - var(--panel-width) - var(--content-width)) / 2 + var(--panel-width));
   }
