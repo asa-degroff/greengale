@@ -8,9 +8,10 @@ interface PublicationSearchProps {
   onQueryChange?: (query: string) => void  // Called when query changes (debounced, >= 2 chars)
   onClear?: () => void                      // Called when search is cleared or Escape pressed
   disableDropdown?: boolean                 // Don't show dropdown when true (for inline search mode)
+  externalQuery?: string                    // External control of query value (for clearing from parent)
 }
 
-export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '', onQueryChange, onClear, disableDropdown = false }: PublicationSearchProps) {
+export function PublicationSearch({ placeholder = 'Search posts, authors, or publications...', className = '', onQueryChange, onClear, disableDropdown = false, externalQuery }: PublicationSearchProps) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -78,6 +79,21 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
     }
   }, [query, performSearch, onQueryChange, onClear])
 
+  // Sync with external query value (for parent-controlled clearing)
+  useEffect(() => {
+    if (externalQuery !== undefined && externalQuery !== query) {
+      // Cancel any pending debounce to prevent re-triggering search
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+      setQuery(externalQuery)
+      if (externalQuery === '') {
+        setResults([])
+        setIsOpen(false)
+      }
+    }
+  }, [externalQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Click outside to close
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -114,6 +130,20 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
 
   // Keyboard navigation
   function handleKeyDown(event: React.KeyboardEvent) {
+    // Handle Escape regardless of dropdown state (for inline search mode)
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+      setIsOpen(false)
+      if (query.trim()) {
+        setQuery('')
+        onClear?.()
+      }
+      return
+    }
+
     if (!isOpen) {
       if (event.key === 'Enter' && query.trim()) {
         // If using inline search (onQueryChange provided), don't navigate - let inline search handle it
@@ -151,15 +181,7 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
           navigate(`/search?q=${encodeURIComponent(query.trim())}`)
         }
         break
-      case 'Escape':
-        event.preventDefault()
-        setIsOpen(false)
-        // Also clear and notify parent
-        if (query.trim()) {
-          setQuery('')
-          onClear?.()
-        }
-        break
+      // Note: Escape is handled at the top of handleKeyDown
     }
   }
 

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
 import type { PostSearchResult as PostSearchResultType, UnifiedSearchResult } from '@/lib/appview'
@@ -9,6 +10,8 @@ interface InlineSearchResultsProps {
   onClear: () => void
   onExternalPostClick: (result: PostSearchResultType) => void
   fallbackUsed?: boolean
+  selectedIndex: number
+  onSelectResult: (index: number) => void
 }
 
 export function InlineSearchResults({
@@ -18,7 +21,21 @@ export function InlineSearchResults({
   onClear,
   onExternalPostClick,
   fallbackUsed,
+  selectedIndex,
+  onSelectResult,
 }: InlineSearchResultsProps) {
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (selectedIndex >= 0 && listRef.current) {
+      const selectedElement = listRef.current.children[selectedIndex] as HTMLElement
+      if (selectedElement) {
+        selectedElement.scrollIntoView({ block: 'nearest' })
+      }
+    }
+  }, [selectedIndex])
+
   return (
     <div className="min-h-[400px]">
       {/* Results header row */}
@@ -66,18 +83,25 @@ export function InlineSearchResults({
 
       {/* Results list */}
       {!loading && results.length > 0 && (
-        <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)] bg-[var(--site-bg)]">
-          {results.map((result) => (
+        <div
+          ref={listRef}
+          className="search-results-list border border-[var(--site-border)] rounded-lg overflow-y-auto max-h-[60vh] divide-y divide-[var(--site-border)] bg-[var(--site-bg)]"
+        >
+          {results.map((result, index) => (
             result.type === 'author' ? (
               <AuthorSearchResultRow
                 key={`author-${result.data.did}`}
                 result={result.data}
+                isSelected={index === selectedIndex}
+                onMouseEnter={() => onSelectResult(index)}
               />
             ) : (
               <PostSearchResult
                 key={result.data.uri}
                 result={result.data}
                 onExternalPostClick={result.data.externalUrl ? onExternalPostClick : undefined}
+                isSelected={index === selectedIndex}
+                onMouseEnter={() => onSelectResult(index)}
               />
             )
           ))}

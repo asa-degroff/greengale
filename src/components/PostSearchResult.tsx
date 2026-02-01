@@ -4,9 +4,11 @@ import type { PostSearchResult as PostSearchResultType } from '@/lib/appview'
 interface PostSearchResultProps {
   result: PostSearchResultType
   onExternalPostClick?: (post: PostSearchResultType) => void
+  isSelected?: boolean
+  onMouseEnter?: () => void
 }
 
-export function PostSearchResult({ result, onExternalPostClick }: PostSearchResultProps) {
+export function PostSearchResult({ result, onExternalPostClick, isSelected, onMouseEnter }: PostSearchResultProps) {
   const navigate = useNavigate()
 
   function handleClick() {
@@ -61,7 +63,12 @@ export function PostSearchResult({ result, onExternalPostClick }: PostSearchResu
   return (
     <button
       onClick={handleClick}
-      className="w-full px-4 py-4 flex items-start gap-4 text-left transition-colors bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]"
+      onMouseEnter={onMouseEnter}
+      className={`w-full px-4 py-4 flex items-start gap-4 text-left transition-colors ${
+        isSelected
+          ? 'bg-[var(--site-bg-secondary)]'
+          : 'bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]'
+      }`}
     >
       {/* Post icon */}
       <div className="w-12 h-12 rounded-lg bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">

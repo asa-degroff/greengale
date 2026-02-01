@@ -927,6 +927,29 @@ html {
   scrollbar-color: var(--site-border) transparent;
 }
 
+/* Inline search results scrollbar */
+.search-results-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.search-results-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.search-results-list::-webkit-scrollbar-thumb {
+  background-color: var(--site-border);
+  border-radius: 3px;
+}
+
+.search-results-list::-webkit-scrollbar-thumb:hover {
+  background-color: var(--site-text-secondary);
+}
+
+.search-results-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--site-border) transparent;
+}
+
 /* Mobile TOC */
 .toc-mobile-overlay {
   position: fixed;

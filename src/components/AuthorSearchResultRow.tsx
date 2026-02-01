@@ -3,9 +3,11 @@ import type { SearchResult } from '@/lib/appview'
 
 interface AuthorSearchResultRowProps {
   result: SearchResult
+  isSelected?: boolean
+  onMouseEnter?: () => void
 }
 
-export function AuthorSearchResultRow({ result }: AuthorSearchResultRowProps) {
+export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: AuthorSearchResultRowProps) {
   const navigate = useNavigate()
 
   function handleClick() {
@@ -47,7 +49,12 @@ export function AuthorSearchResultRow({ result }: AuthorSearchResultRowProps) {
   return (
     <button
       onClick={handleClick}
-      className="w-full px-4 py-4 flex items-center gap-4 text-left transition-colors bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]"
+      onMouseEnter={onMouseEnter}
+      className={`w-full px-4 py-4 flex items-center gap-4 text-left transition-colors ${
+        isSelected
+          ? 'bg-[var(--site-bg-secondary)]'
+          : 'bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]'
+      }`}
     >
       {/* Avatar */}
       {result.avatarUrl ? (

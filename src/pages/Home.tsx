@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
@@ -82,6 +83,7 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
 }
 
 export function HomePage() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<FeedTab>(getStoredTab)
   const { isAuthenticated, isLoading: authLoading, session } = useAuth()
 
@@ -149,6 +151,7 @@ export function HomePage() {
   const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>({})
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
   const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResult | null>(null)
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1)
 
   // Set document metadata (title, canonical URL, OG tags)
   useDocumentMeta({
@@ -386,6 +389,7 @@ export function HomePage() {
       ]
 
       setSearchResults(unified)
+      setSearchSelectedIndex(-1)  // Reset selection on new results
       if (postResponse.fallback === 'keyword') {
         setSearchFallbackUsed(true)
       }
@@ -440,16 +444,55 @@ export function HomePage() {
     }
   }, [performSearch, searchQuery, searchMode, searchAuthor, searchDateRange])
 
-  // Page-level Escape handler for search
+  // Handle search result selection via keyboard
+  const handleSelectSearchResult = useCallback((index: number) => {
+    const result = searchResults[index]
+    if (!result) return
+
+    if (result.type === 'author') {
+      navigate(`/${result.data.handle}`)
+    } else {
+      // Post result
+      if (result.data.externalUrl) {
+        setSelectedExternalPost(result.data)
+      } else {
+        navigate(`/${result.data.handle}/${result.data.rkey}`)
+      }
+    }
+  }, [searchResults, navigate])
+
+  // Page-level keyboard handler for search
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && searchActive && !selectedExternalPost) {
-        handleClearSearch()
+      if (!searchActive || selectedExternalPost) return
+
+      switch (e.key) {
+        case 'Escape':
+          handleClearSearch()
+          break
+        case 'ArrowDown':
+          if (searchResults.length > 0) {
+            e.preventDefault()
+            setSearchSelectedIndex(prev => Math.min(prev + 1, searchResults.length - 1))
+          }
+          break
+        case 'ArrowUp':
+          if (searchResults.length > 0) {
+            e.preventDefault()
+            setSearchSelectedIndex(prev => Math.max(prev - 1, -1))
+          }
+          break
+        case 'Enter':
+          if (searchSelectedIndex >= 0 && searchResults[searchSelectedIndex]) {
+            e.preventDefault()
+            handleSelectSearchResult(searchSelectedIndex)
+          }
+          break
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [searchActive, selectedExternalPost, handleClearSearch])
+  }, [searchActive, selectedExternalPost, searchResults, searchSelectedIndex, handleClearSearch, handleSelectSearchResult])
 
   return (
     <div>
@@ -474,6 +517,7 @@ export function HomePage() {
             onQueryChange={handleSearchQueryChange}
             onClear={handleClearSearch}
             disableDropdown={true}
+            externalQuery={searchQuery}
           />
           {searchActive && (
             <div className="mt-4">
@@ -501,6 +545,8 @@ export function HomePage() {
               onClear={handleClearSearch}
               onExternalPostClick={setSelectedExternalPost}
               fallbackUsed={searchFallbackUsed}
+              selectedIndex={searchSelectedIndex}
+              onSelectResult={setSearchSelectedIndex}
             />
           </div>
         ) : appViewAvailable && (
