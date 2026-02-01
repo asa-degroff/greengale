@@ -118,6 +118,17 @@ export function PostPage() {
         setPublication(publicationResult)
         hasLoadedRef.current = true
 
+        // Apply theme immediately with the data (React 18 batches these updates)
+        const effectiveTheme = getThemeWithInheritance(entryResult.theme, publicationResult?.theme)
+        if (effectiveTheme?.custom) {
+          setActivePostTheme('custom')
+          setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
+        } else {
+          const themePreset = getEffectiveTheme(effectiveTheme)
+          setActivePostTheme(themePreset)
+          setActiveCustomColors(null)
+        }
+
         // Cache for offline reading
         cachePost(
           handle!,
@@ -214,24 +225,6 @@ export function PostPage() {
       link.remove()
     }
   }, [entry, publication?.enableSiteStandard])
-
-  // Apply theme after loading completes (not during load, to prevent flash)
-  useEffect(() => {
-    // Only apply theme when we have data and loading is complete
-    if (loading || !entry) return
-    // Skip if from cache (theme already applied in catch block)
-    if (fromCache) return
-
-    const effectiveTheme = getThemeWithInheritance(entry.theme, publication?.theme)
-    if (effectiveTheme?.custom) {
-      setActivePostTheme('custom')
-      setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
-    } else {
-      const themePreset = getEffectiveTheme(effectiveTheme)
-      setActivePostTheme(themePreset)
-      setActiveCustomColors(null)
-    }
-  }, [loading, entry, publication?.theme, fromCache, setActivePostTheme, setActiveCustomColors])
 
   // Add site.standard.publication link tag
   // This helps validators find the author's publication from the document page
