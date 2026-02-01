@@ -1890,3 +1890,82 @@ html {
     margin-right: calc((100% - var(--panel-width) - var(--content-width)) / 2 + var(--panel-width));
   }
 }
+
+/* ==================== Animated Cloud Field ==================== */
+
+/* Cloud field container */
+.cloud-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Individual cloud instance - floating from right to left */
+.cloud-instance {
+  position: absolute;
+  width: 180px;
+  height: 120px;
+  animation: cloud-float linear infinite;
+  will-change: transform, opacity;
+}
+
+/* Main floating animation - moves clouds from right to left
+   Uses percentage-based positioning to work with any container width */
+@keyframes cloud-float {
+  0% {
+    left: 100%;
+    opacity: 0;
+  }
+  3% {
+    opacity: 1;
+  }
+  97% {
+    opacity: 1;
+  }
+  100% {
+    left: -200px;
+    opacity: 0;
+  }
+}
+
+/* Very subtle shimmer on texture overlay */
+@keyframes cloud-shimmer {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-cloud-shimmer {
+  animation: cloud-shimmer 4s ease-in-out infinite;
+  animation-delay: -1s;
+}
+
+/* Reduced motion: keep clouds visible but static */
+@media (prefers-reduced-motion: reduce) {
+  .cloud-instance {
+    animation: none;
+    left: 50% !important;
+    transform: translateX(-50%);
+    opacity: 0.15 !important;
+  }
+
+  /* Only show a couple clouds when motion is reduced */
+  .cloud-instance:nth-child(n+3) {
+    display: none;
+  }
+
+  .animate-cloud-shimmer {
+    animation: none;
+  }
+}
+
+/* Hide clouds on very small screens where they'd be distracting */
+@media (max-width: 640px) {
+  .cloud-field {
+    display: none;
+  }
+}
