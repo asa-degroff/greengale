@@ -387,7 +387,7 @@ export function HomePage() {
         searchPublications(query, 5, signal),  // Top 5 authors/publications
         searchPosts(query, {
           mode,
-          limit: 25,
+          limit: 50,
           author: author || undefined,
           after: dateParams.after,
           before: dateParams.before,
