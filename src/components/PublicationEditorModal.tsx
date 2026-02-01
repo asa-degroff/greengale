@@ -276,7 +276,7 @@ export function PublicationEditorModal({
         onClick={() => !saving && onClose()}
       />
       {/* Dialog */}
-      <div className="relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 max-h-[calc(90vh-3.5rem)] lg:max-h-[90vh] overflow-y-auto">
+      <div className="publication-modal relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 max-h-[calc(90vh-3.5rem)] lg:max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-[var(--site-text)]">
             {publication ? 'Edit Publication' : 'Set Up Publication'}

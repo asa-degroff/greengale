@@ -11,18 +11,14 @@ import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
   getPublication,
+  type BlogEntry,
   type AuthorProfile,
   type Publication,
 } from '@/lib/atproto'
 import { getAuthorPosts, type AppViewPost } from '@/lib/appview'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { useThemePreference } from '@/lib/useThemePreference'
-import {
-  type ThemePreset,
-  type CustomColors,
-  getEffectiveTheme,
-  correctCustomColorsContrast,
-} from '@/lib/themes'
+import { getEffectiveTheme, correctCustomColorsContrast } from '@/lib/themes'
 import {
   useDocumentMeta,
   buildAuthorCanonical,
