@@ -4305,6 +4305,231 @@ app.post('/xrpc/app.greengale.admin.backfillEmbeddings', async (c) => {
   }
 })
 
+/**
+ * Backfill all posts for a specific author (admin only)
+ * Useful for indexing WhiteWind or other posts from authors not yet in the system
+ * Usage: POST /xrpc/app.greengale.admin.backfillAuthor
+ * Body: { "did": "did:plc:xxx" } or { "handle": "user.bsky.social" }
+ * Query params: ?dryRun=true (preview without indexing), ?collection=com.whtwnd.blog.entry (specific collection)
+ */
+app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const dryRun = c.req.query('dryRun') === 'true'
+  const collectionFilter = c.req.query('collection') // Optional: filter to specific collection
+
+  try {
+    const body = await c.req.json() as { did?: string; handle?: string }
+    let { did } = body
+    const { handle } = body
+
+    // Resolve handle to DID if needed
+    if (!did && handle) {
+      // Try our DB first
+      const authorRow = await c.env.DB.prepare(
+        'SELECT did FROM authors WHERE handle = ?'
+      ).bind(handle).first()
+
+      if (authorRow) {
+        did = authorRow.did as string
+      } else {
+        // Resolve via Bluesky API
+        const resolveRes = await fetch(
+          `https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`
+        )
+        if (resolveRes.ok) {
+          const resolved = await resolveRes.json() as { did: string }
+          did = resolved.did
+        }
+      }
+    }
+
+    if (!did) {
+      return c.json({ error: 'Could not resolve DID. Provide a valid did or handle.' }, 400)
+    }
+
+    // Resolve PDS endpoint
+    const pdsEndpoint = await fetchPdsEndpoint(did)
+    if (!pdsEndpoint) {
+      return c.json({ error: 'Could not resolve PDS endpoint for DID' }, 400)
+    }
+
+    // Collections to check (WhiteWind, GreenGale v1/v2, site.standard)
+    const collections = collectionFilter
+      ? [collectionFilter]
+      : [
+          'com.whtwnd.blog.entry',
+          'app.greengale.blog.entry',
+          'app.greengale.document',
+          'site.standard.document',
+        ]
+
+    const results: {
+      collection: string
+      found: number
+      alreadyIndexed: number
+      newlyIndexed: number
+      failed: number
+      posts: Array<{ uri: string; title: string | null; status: string }>
+    }[] = []
+
+    // Get firehose DO for reindexing
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    for (const collection of collections) {
+      const collectionResult = {
+        collection,
+        found: 0,
+        alreadyIndexed: 0,
+        newlyIndexed: 0,
+        failed: 0,
+        posts: [] as Array<{ uri: string; title: string | null; status: string }>,
+      }
+
+      try {
+        // Fetch all records with pagination
+        let cursor: string | undefined
+        const allRecords: Array<{ uri: string; value: Record<string, unknown> }> = []
+
+        do {
+          const listUrl = new URL(`${pdsEndpoint}/xrpc/com.atproto.repo.listRecords`)
+          listUrl.searchParams.set('repo', did)
+          listUrl.searchParams.set('collection', collection)
+          listUrl.searchParams.set('limit', '100')
+          if (cursor) {
+            listUrl.searchParams.set('cursor', cursor)
+          }
+
+          const response = await fetch(listUrl.toString())
+          if (!response.ok) {
+            // Collection doesn't exist for this user, skip
+            break
+          }
+
+          const data = await response.json() as {
+            records?: Array<{ uri: string; value: Record<string, unknown> }>
+            cursor?: string
+          }
+
+          if (data.records?.length) {
+            allRecords.push(...data.records)
+          }
+          cursor = data.cursor
+        } while (cursor)
+
+        collectionResult.found = allRecords.length
+
+        if (allRecords.length === 0) {
+          results.push(collectionResult)
+          continue
+        }
+
+        // Check which posts are already indexed
+        const uris = allRecords.map(r => r.uri)
+        const placeholders = uris.map(() => '?').join(',')
+        const existingPosts = await c.env.DB.prepare(
+          `SELECT uri FROM posts WHERE uri IN (${placeholders})`
+        ).bind(...uris).all()
+        const existingUris = new Set((existingPosts.results || []).map(r => r.uri as string))
+
+        for (const record of allRecords) {
+          const uri = record.uri
+          const title = (record.value.title as string) || null
+
+          if (existingUris.has(uri)) {
+            collectionResult.alreadyIndexed++
+            collectionResult.posts.push({ uri, title, status: 'already_indexed' })
+            continue
+          }
+
+          if (dryRun) {
+            collectionResult.newlyIndexed++
+            collectionResult.posts.push({ uri, title, status: 'would_index' })
+            continue
+          }
+
+          // Index via firehose DO (handles embeddings, author data, etc.)
+          try {
+            const reindexResponse = await firehose.fetch('http://internal/reindex', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ uri }),
+            })
+
+            if (reindexResponse.ok) {
+              collectionResult.newlyIndexed++
+              collectionResult.posts.push({ uri, title, status: 'indexed' })
+            } else {
+              const errorData = await reindexResponse.json().catch(() => ({})) as { error?: string }
+              collectionResult.failed++
+              collectionResult.posts.push({
+                uri,
+                title,
+                status: `failed: ${errorData.error || reindexResponse.statusText}`,
+              })
+            }
+          } catch (err) {
+            collectionResult.failed++
+            collectionResult.posts.push({
+              uri,
+              title,
+              status: `failed: ${err instanceof Error ? err.message : 'Unknown'}`,
+            })
+          }
+        }
+      } catch (err) {
+        console.error(`Error fetching ${collection} for ${did}:`, err)
+      }
+
+      results.push(collectionResult)
+    }
+
+    // Invalidate cache if we indexed anything
+    const totalIndexed = results.reduce((sum, r) => sum + r.newlyIndexed, 0)
+    if (totalIndexed > 0 && !dryRun) {
+      await Promise.all([
+        c.env.CACHE.delete('recent_posts:12:'),
+        c.env.CACHE.delete('recent_posts:24:'),
+        c.env.CACHE.delete('recent_posts:50:'),
+        c.env.CACHE.delete('recent_posts:100:'),
+      ])
+    }
+
+    // Summary
+    const summary = {
+      did,
+      handle: handle || null,
+      pdsEndpoint,
+      dryRun,
+      totalFound: results.reduce((sum, r) => sum + r.found, 0),
+      totalAlreadyIndexed: results.reduce((sum, r) => sum + r.alreadyIndexed, 0),
+      totalNewlyIndexed: totalIndexed,
+      totalFailed: results.reduce((sum, r) => sum + r.failed, 0),
+      collections: results.map(r => ({
+        collection: r.collection,
+        found: r.found,
+        alreadyIndexed: r.alreadyIndexed,
+        newlyIndexed: r.newlyIndexed,
+        failed: r.failed,
+        // Only include post details for collections with posts
+        ...(r.found > 0 ? { posts: r.posts.slice(0, 20) } : {}),
+      })),
+    }
+
+    return c.json(summary)
+  } catch (error) {
+    console.error('Error backfilling author:', error)
+    return c.json({
+      error: 'Failed to backfill author',
+      details: error instanceof Error ? error.message : 'Unknown',
+    }, 500)
+  }
+})
+
 // Format post from DB row to API response
 // Tags can be passed directly or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
 function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
