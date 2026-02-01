@@ -49,8 +49,10 @@ export function SearchFilters({
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
-  const [showCustomDates, setShowCustomDates] = useState(dateRange === 'custom')
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false)
+
+  // Derive showCustomDates directly from prop (no state needed)
+  const showCustomDates = dateRange === 'custom'
 
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -59,12 +61,7 @@ export function SearchFilters({
   const dateDropdownRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  // Sync showCustomDates with dateRange
-  useEffect(() => {
-    setShowCustomDates(dateRange === 'custom')
-  }, [dateRange])
-
-  // Sync external author changes to input
+  // Sync external author changes to input (e.g., when parent clears the filter)
   useEffect(() => {
     setAuthorInput(author)
   }, [author])
