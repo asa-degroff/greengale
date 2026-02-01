@@ -1984,6 +1984,18 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
             LOWER(p.title) LIKE ? ESCAPE '\\'
             OR LOWER(p.subtitle) LIKE ? ESCAPE '\\'
             OR LOWER(p.content_preview) LIKE ? ESCAPE '\\'
+          )
+          -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
+          AND NOT (
+            p.uri LIKE '%/site.standard.document/%'
+            AND EXISTS (
+              SELECT 1 FROM posts gg
+              WHERE gg.author_did = p.author_did
+                AND gg.rkey = p.rkey
+                AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                  OR gg.uri LIKE '%/app.greengale.document/%'
+                  OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+            )
           )`
 
       const keywordBindings: (string | number)[] = [
@@ -2070,7 +2082,19 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       JOIN authors a ON p.author_did = a.did
       WHERE p.uri IN (${placeholders})
         AND p.visibility = 'public'
-        AND p.deleted_at IS NULL`
+        AND p.deleted_at IS NULL
+        -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
+        AND NOT (
+          p.uri LIKE '%/site.standard.document/%'
+          AND EXISTS (
+            SELECT 1 FROM posts gg
+            WHERE gg.author_did = p.author_did
+              AND gg.rkey = p.rkey
+              AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                OR gg.uri LIKE '%/app.greengale.document/%'
+                OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+          )
+        )`
 
     const postsBindings: (string | number)[] = [...finalIds]
 
