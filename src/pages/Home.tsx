@@ -105,33 +105,35 @@ export function HomePage() {
     }
   }, [])
 
-  // Check for cached feed data on initial render
-  const cachedGreengale = getCachedGreengaleFeed()
-  const cachedNetwork = getCachedNetworkFeed()
-  const cachedFollowing = getCachedFollowingFeed()
+  // Check for cached feed data on initial render (lazy initialization to avoid re-reads)
+  const [initialCache] = useState(() => ({
+    greengale: getCachedGreengaleFeed(),
+    network: getCachedNetworkFeed(),
+    following: getCachedFollowingFeed(),
+  }))
 
   // GreenGale feed state - initialize from cache if available
-  const [recentPosts, setRecentPosts] = useState<AppViewPost[]>(cachedGreengale?.posts ?? [])
-  const [loading, setLoading] = useState(!cachedGreengale)
-  const [appViewAvailable, setAppViewAvailable] = useState(!!cachedGreengale)
-  const [cursor, setCursor] = useState<string | undefined>(cachedGreengale?.cursor)
-  const [loadCount, setLoadCount] = useState(cachedGreengale?.loadCount ?? 1)
+  const [recentPosts, setRecentPosts] = useState<AppViewPost[]>(initialCache.greengale?.posts ?? [])
+  const [loading, setLoading] = useState(!initialCache.greengale)
+  const [appViewAvailable, setAppViewAvailable] = useState(!!initialCache.greengale)
+  const [cursor, setCursor] = useState<string | undefined>(initialCache.greengale?.cursor)
+  const [loadCount, setLoadCount] = useState(initialCache.greengale?.loadCount ?? 1)
   const [loadingMore, setLoadingMore] = useState(false)
 
   // Network feed state - initialize from cache if available
-  const [networkPosts, setNetworkPosts] = useState<AppViewPost[]>(cachedNetwork?.posts ?? [])
+  const [networkPosts, setNetworkPosts] = useState<AppViewPost[]>(initialCache.network?.posts ?? [])
   const [networkLoading, setNetworkLoading] = useState(false)
-  const [networkLoaded, setNetworkLoaded] = useState(!!cachedNetwork)
-  const [networkCursor, setNetworkCursor] = useState<string | undefined>(cachedNetwork?.cursor)
-  const [networkLoadCount, setNetworkLoadCount] = useState(cachedNetwork?.loadCount ?? 1)
+  const [networkLoaded, setNetworkLoaded] = useState(!!initialCache.network)
+  const [networkCursor, setNetworkCursor] = useState<string | undefined>(initialCache.network?.cursor)
+  const [networkLoadCount, setNetworkLoadCount] = useState(initialCache.network?.loadCount ?? 1)
   const [networkLoadingMore, setNetworkLoadingMore] = useState(false)
 
   // Following feed state - initialize from cache if available
-  const [followingPosts, setFollowingPosts] = useState<AppViewPost[]>(cachedFollowing?.posts ?? [])
+  const [followingPosts, setFollowingPosts] = useState<AppViewPost[]>(initialCache.following?.posts ?? [])
   const [followingLoading, setFollowingLoading] = useState(false)
-  const [followingLoaded, setFollowingLoaded] = useState(!!cachedFollowing)
-  const [followingCursor, setFollowingCursor] = useState<string | undefined>(cachedFollowing?.cursor)
-  const [followingLoadCount, setFollowingLoadCount] = useState(cachedFollowing?.loadCount ?? 1)
+  const [followingLoaded, setFollowingLoaded] = useState(!!initialCache.following)
+  const [followingCursor, setFollowingCursor] = useState<string | undefined>(initialCache.following?.cursor)
+  const [followingLoadCount, setFollowingLoadCount] = useState(initialCache.following?.loadCount ?? 1)
   const [followingLoadingMore, setFollowingLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [spinning, setSpinning] = useState(false)
@@ -153,6 +155,11 @@ export function HomePage() {
   const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResult | null>(null)
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1)
 
+  // AbortController for cancelling in-flight search requests
+  const searchAbortControllerRef = useRef<AbortController | null>(null)
+  // Debounce ref for filter changes
+  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Set document metadata (title, canonical URL, OG tags)
   useDocumentMeta({
     title: 'GreenGale',
@@ -165,7 +172,7 @@ export function HomePage() {
     async function loadRecentPosts() {
       // If we have in-memory cached data, skip the fetch
       // (cache is already loaded into state on mount)
-      if (cachedGreengale) {
+      if (initialCache.greengale) {
         return
       }
 
@@ -227,7 +234,7 @@ export function HomePage() {
 
   async function loadNetworkPosts() {
     // If we have in-memory cached data, skip the fetch
-    if (cachedNetwork) {
+    if (initialCache.network) {
       return
     }
 
@@ -275,7 +282,7 @@ export function HomePage() {
     if (!session?.did) return
 
     // If we have in-memory cached data, skip the fetch
-    if (cachedFollowing) {
+    if (initialCache.following) {
       return
     }
 
@@ -363,6 +370,13 @@ export function HomePage() {
 
   // Search functions - wrapped in useCallback for stable references
   const performSearch = useCallback(async (query: string, mode: SearchMode, author: string, dateRange: DateRange, customDates: CustomDateRange) => {
+    // Cancel any in-flight request
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort()
+    }
+    searchAbortControllerRef.current = new AbortController()
+    const signal = searchAbortControllerRef.current.signal
+
     setSearchLoading(true)
     setSearchFallbackUsed(false)
     try {
@@ -370,13 +384,14 @@ export function HomePage() {
 
       // Call both APIs in parallel
       const [pubResponse, postResponse] = await Promise.all([
-        searchPublications(query, 5),  // Top 5 authors/publications
+        searchPublications(query, 5, signal),  // Top 5 authors/publications
         searchPosts(query, {
           mode,
           limit: 25,
           author: author || undefined,
           after: dateParams.after,
           before: dateParams.before,
+          signal,
         })
       ])
 
@@ -393,7 +408,11 @@ export function HomePage() {
       if (postResponse.fallback === 'keyword') {
         setSearchFallbackUsed(true)
       }
-    } catch {
+    } catch (err) {
+      // Silently ignore aborted requests
+      if (err instanceof Error && err.name === 'AbortError') {
+        return
+      }
       setSearchResults([])
     } finally {
       setSearchLoading(false)
@@ -416,33 +435,45 @@ export function HomePage() {
     performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates)
   }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates])
 
+  // Debounced search trigger for filter changes
+  const triggerDebouncedSearch = useCallback((
+    query: string,
+    mode: SearchMode,
+    author: string,
+    dateRange: DateRange,
+    customDates: CustomDateRange
+  ) => {
+    if (filterDebounceRef.current) {
+      clearTimeout(filterDebounceRef.current)
+    }
+    filterDebounceRef.current = setTimeout(() => {
+      if (query) {
+        performSearch(query, mode, author, dateRange, customDates)
+      }
+    }, 150)
+  }, [performSearch])
+
   const handleSearchModeChange = useCallback((mode: SearchMode) => {
     setSearchMode(mode)
-    if (searchQuery) {
-      performSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates)
-    }
-  }, [performSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates)
+  }, [triggerDebouncedSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates])
 
   const handleSearchAuthorChange = useCallback((author: string) => {
     setSearchAuthor(author)
-    if (searchQuery) {
-      performSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates)
-    }
-  }, [performSearch, searchQuery, searchMode, searchDateRange, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchDateRange, searchCustomDates])
 
   const handleSearchDateRangeChange = useCallback((dateRange: DateRange) => {
     setSearchDateRange(dateRange)
-    if (searchQuery) {
-      performSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates)
-    }
-  }, [performSearch, searchQuery, searchMode, searchAuthor, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchCustomDates])
 
   const handleSearchCustomDatesChange = useCallback((customDates: CustomDateRange) => {
     setSearchCustomDates(customDates)
-    if (searchQuery && searchDateRange === 'custom') {
-      performSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates)
+    if (searchDateRange === 'custom') {
+      triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates)
     }
-  }, [performSearch, searchQuery, searchMode, searchAuthor, searchDateRange])
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange])
 
   // Handle search result selection via keyboard
   const handleSelectSearchResult = useCallback((index: number) => {

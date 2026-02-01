@@ -367,7 +367,8 @@ describe('AppView API Client', () => {
 
       expect(response.results).toEqual(results)
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/search\.publications\?q=test/)
+        expect.stringMatching(/search\.publications\?q=test/),
+        expect.objectContaining({ signal: undefined })
       )
     })
 
@@ -377,7 +378,8 @@ describe('AppView API Client', () => {
       await searchPublications('query')
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/limit=10/)
+        expect.stringMatching(/limit=10/),
+        expect.objectContaining({ signal: undefined })
       )
     })
 
@@ -387,7 +389,8 @@ describe('AppView API Client', () => {
       await searchPublications('query', 25)
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/limit=25/)
+        expect.stringMatching(/limit=25/),
+        expect.objectContaining({ signal: undefined })
       )
     })
 
@@ -397,7 +400,8 @@ describe('AppView API Client', () => {
       await searchPublications('user+name')
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/q=user%2Bname/)
+        expect.stringMatching(/q=user%2Bname/),
+        expect.objectContaining({ signal: undefined })
       )
     })
 
@@ -454,7 +458,20 @@ describe('AppView API Client', () => {
       await searchPublications('test@example.com')
 
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringMatching(/q=test%40example\.com/)
+        expect.stringMatching(/q=test%40example\.com/),
+        expect.objectContaining({ signal: undefined })
+      )
+    })
+
+    it('passes abort signal when provided', async () => {
+      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
+      const controller = new AbortController()
+
+      await searchPublications('query', 10, controller.signal)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringMatching(/search\.publications/),
+        expect.objectContaining({ signal: controller.signal })
       )
     })
   })

@@ -20,12 +20,18 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
     if (post) {
       document.addEventListener('keydown', handleKeyDown)
       // Prevent body scroll on mobile when panel is open
+      // Save previous overflow value to restore on cleanup
+      const previousOverflow = document.body.style.overflow
       document.body.style.overflow = 'hidden'
+
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown)
+        document.body.style.overflow = previousOverflow
+      }
     }
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
     }
   }, [post, onClose])
 

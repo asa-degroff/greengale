@@ -27,11 +27,11 @@ interface BlueskyActor {
 }
 
 const DATE_OPTIONS = [
-  { value: 'any', label: 'Any time' },
-  { value: 'week', label: 'Past week' },
-  { value: 'month', label: 'Past month' },
-  { value: 'year', label: 'Past year' },
-  { value: 'custom', label: 'Custom range' },
+  { value: 'any', label: 'Any time', shortLabel: 'Any' },
+  { value: 'week', label: 'Past week', shortLabel: 'Week' },
+  { value: 'month', label: 'Past month', shortLabel: 'Month' },
+  { value: 'year', label: 'Past year', shortLabel: 'Year' },
+  { value: 'custom', label: 'Custom range', shortLabel: 'Custom' },
 ] as const
 
 export function SearchFilters({
@@ -332,13 +332,7 @@ export function SearchFilters({
 
         {/* Desktop inline buttons */}
         <div className="hidden md:flex rounded-lg border border-[var(--site-border)] overflow-hidden flex-shrink-0">
-          {([
-            { value: 'any', label: 'Any' },
-            { value: 'week', label: 'Week' },
-            { value: 'month', label: 'Month' },
-            { value: 'year', label: 'Year' },
-            { value: 'custom', label: 'Custom' },
-          ] as const).map(({ value, label }) => (
+          {DATE_OPTIONS.map(({ value, shortLabel }) => (
             <button
               key={value}
               onClick={() => onDateRangeChange(value)}
@@ -348,7 +342,7 @@ export function SearchFilters({
                   : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
               }`}
             >
-              {label}
+              {shortLabel}
             </button>
           ))}
         </div>

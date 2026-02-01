@@ -42,6 +42,7 @@ export function SearchPage() {
   const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResultType | null>(null)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const MIN_QUERY_LENGTH = 2
 
@@ -68,6 +69,13 @@ export function SearchPage() {
       return
     }
 
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+    const signal = abortControllerRef.current.signal
+
     setLoading(true)
     setSearched(true)
     setFallbackUsed(false)
@@ -80,16 +88,21 @@ export function SearchPage() {
           mode,
           author: author || undefined,
           after: afterDate,
+          signal,
         })
         setPostResults(response.posts)
         if (response.fallback === 'keyword') {
           setFallbackUsed(true)
         }
       } else {
-        const response = await searchPublications(trimmed, 50)
+        const response = await searchPublications(trimmed, 50, signal)
         setAuthorResults(response.results)
       }
-    } catch {
+    } catch (err) {
+      // Silently ignore aborted requests
+      if (err instanceof Error && err.name === 'AbortError') {
+        return
+      }
       setAuthorResults([])
       setPostResults([])
     } finally {

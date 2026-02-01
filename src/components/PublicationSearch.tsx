@@ -81,18 +81,24 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
 
   // Sync with external query value (for parent-controlled clearing)
   useEffect(() => {
-    if (externalQuery !== undefined && externalQuery !== query) {
+    if (externalQuery !== undefined) {
       // Cancel any pending debounce to prevent re-triggering search
       if (debounceRef.current) {
         clearTimeout(debounceRef.current)
       }
-      setQuery(externalQuery)
-      if (externalQuery === '') {
-        setResults([])
-        setIsOpen(false)
-      }
+      // Only update if different from current value
+      setQuery(prev => {
+        if (prev !== externalQuery) {
+          if (externalQuery === '') {
+            setResults([])
+            setIsOpen(false)
+          }
+          return externalQuery
+        }
+        return prev
+      })
     }
-  }, [externalQuery]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [externalQuery])
 
   // Click outside to close
   useEffect(() => {

@@ -244,12 +244,14 @@ export interface SearchPublicationsResponse {
  */
 export async function searchPublications(
   query: string,
-  limit = 10
+  limit = 10,
+  signal?: AbortSignal
 ): Promise<SearchPublicationsResponse> {
   const params = new URLSearchParams({ q: query, limit: String(limit) })
 
   const response = await fetch(
-    `${API_BASE}/xrpc/app.greengale.search.publications?${params}`
+    `${API_BASE}/xrpc/app.greengale.search.publications?${params}`,
+    { signal }
   )
 
   if (!response.ok) {
@@ -337,6 +339,7 @@ export async function searchPosts(
     author?: string
     after?: string
     before?: string
+    signal?: AbortSignal
   }
 ): Promise<SearchPostsResponse> {
   const params = new URLSearchParams({ q: query })
@@ -348,7 +351,8 @@ export async function searchPosts(
   if (options?.before) params.set('before', options.before)
 
   const response = await fetch(
-    `${API_BASE}/xrpc/app.greengale.search.posts?${params}`
+    `${API_BASE}/xrpc/app.greengale.search.posts?${params}`,
+    { signal: options?.signal }
   )
 
   if (!response.ok) {
