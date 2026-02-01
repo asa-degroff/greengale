@@ -57,6 +57,7 @@ export function SearchFilters({
   const listRef = useRef<HTMLUListElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dateDropdownRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Sync showCustomDates with dateRange
   useEffect(() => {
@@ -68,6 +69,18 @@ export function SearchFilters({
     setAuthorInput(author)
   }, [author])
 
+  // Cleanup pending requests on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current)
+      }
+    }
+  }, [])
+
   const searchActors = useCallback(async (query: string) => {
     const trimmed = query.replace(/^@/, '').trim()
     if (trimmed.length < 2) {
@@ -75,10 +88,18 @@ export function SearchFilters({
       setIsOpen(false)
       return
     }
+
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    abortControllerRef.current = new AbortController()
+
     setLoading(true)
     try {
       const res = await fetch(
-        `https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead?q=${encodeURIComponent(trimmed)}&limit=8`
+        `https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead?q=${encodeURIComponent(trimmed)}&limit=8`,
+        { signal: abortControllerRef.current.signal }
       )
       if (res.ok) {
         const data = await res.json()
@@ -87,8 +108,11 @@ export function SearchFilters({
         setIsOpen(actors.length > 0)
         setSelectedIndex(-1)
       }
-    } catch {
-      // silently fail
+    } catch (err) {
+      // Ignore abort errors, silently fail others
+      if (err instanceof Error && err.name === 'AbortError') {
+        return
+      }
     } finally {
       setLoading(false)
     }
