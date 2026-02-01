@@ -527,7 +527,11 @@ export function HomePage() {
 
   return (
     <div>
-      <div className="max-w-4xl mx-auto px-4 py-12">
+      <div
+        className="max-w-4xl mx-auto px-4 py-12 search-content-slide"
+        data-panel-open={selectedExternalPost ? 'true' : 'false'}
+        style={{ '--content-width': '896px' } as React.CSSProperties}
+      >
         <div className="text-center mb-12">
           <CubeLogo className="h-8 md:h-10 mx-auto mb-4" />
           <h2><i>Beta</i></h2>
@@ -541,7 +545,7 @@ export function HomePage() {
             Find a Blog
           </h2>
           <p className="text-[var(--site-text-secondary)] mb-4">
-            Search by handle, display name, publication name, title, tag, or URL:
+            Search the Atmosphere
           </p>
           <PublicationSearch
             className="w-full"

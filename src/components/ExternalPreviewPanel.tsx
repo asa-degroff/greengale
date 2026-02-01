@@ -9,7 +9,10 @@ interface ExternalPreviewPanelProps {
 export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Close on escape key
+  // Check if we're on a wide screen (2xl breakpoint = 1536px)
+  const isWideScreen = () => window.matchMedia('(min-width: 1536px)').matches
+
+  // Close on escape key and handle click outside on wide screens
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
@@ -17,16 +20,39 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
       }
     }
 
+    // On wide screens, close panel when clicking outside of it (but not on the search results)
+    function handleClickOutside(e: MouseEvent) {
+      if (!isWideScreen()) return
+
+      const target = e.target as Element
+      // Don't close if clicking inside the panel
+      if (panelRef.current?.contains(target)) return
+      // Don't close if clicking on a search result (let them switch documents)
+      if (target.closest('button[class*="transition-colors"]')) return
+      // Don't close if clicking on the sidebar
+      if (target.closest('aside') || target.closest('[class*="complementary"]')) return
+
+      onClose()
+    }
+
     if (post) {
       document.addEventListener('keydown', handleKeyDown)
-      // Prevent body scroll on mobile when panel is open
-      // Save previous overflow value to restore on cleanup
-      const previousOverflow = document.body.style.overflow
-      document.body.style.overflow = 'hidden'
+      document.addEventListener('mousedown', handleClickOutside)
+
+      // Only prevent body scroll on narrow screens (mobile/tablet)
+      // On wide screens, allow scrolling the main content
+      let previousOverflow: string | undefined
+      if (!isWideScreen()) {
+        previousOverflow = document.body.style.overflow
+        document.body.style.overflow = 'hidden'
+      }
 
       return () => {
         document.removeEventListener('keydown', handleKeyDown)
-        document.body.style.overflow = previousOverflow
+        document.removeEventListener('mousedown', handleClickOutside)
+        if (previousOverflow !== undefined) {
+          document.body.style.overflow = previousOverflow
+        }
       }
     }
 
