@@ -31,6 +31,8 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
       if (target.closest('button[class*="transition-colors"]')) return
       // Don't close if clicking on the sidebar
       if (target.closest('aside') || target.closest('[class*="complementary"]')) return
+      // Don't close if clicking on the search bar (prevents disorienting layout shift while typing)
+      if (target.closest('input[type="text"]') || target.closest('input[type="search"]') || target.closest('form')) return
 
       onClose()
     }

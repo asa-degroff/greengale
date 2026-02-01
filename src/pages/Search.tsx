@@ -113,6 +113,7 @@ export function SearchPage() {
   // Search when query or filters change
   useEffect(() => {
     if (query) {
+      setSelectedExternalPost(null)  // Close any open preview panel when search changes
       performSearch(query)
     }
   }, [query, performSearch])

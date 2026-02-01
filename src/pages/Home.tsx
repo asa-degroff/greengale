@@ -433,6 +433,7 @@ export function HomePage() {
   const handleSearchQueryChange = useCallback((query: string) => {
     setSearchActive(true)
     setSearchQuery(query)
+    setSelectedExternalPost(null)  // Close any open preview panel when search changes
     performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates)
   }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates])
 
