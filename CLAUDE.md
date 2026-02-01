@@ -555,6 +555,7 @@ Admin endpoints require `X-Admin-Secret` header:
 - `POST /xrpc/app.greengale.admin.refreshAuthorProfiles` - Refresh profile data for all authors
 - `POST /xrpc/app.greengale.admin.backfillFirstImageCid` - Backfill first_image_cid for existing posts
 - `POST /xrpc/app.greengale.admin.backfillAuthor` - Index all posts from a specific author (body: `{"did":"..."}` or `{"handle":"..."}`)
+- `POST /xrpc/app.greengale.admin.discoverWhiteWindAuthors?limit=20` - Discover and backfill WhiteWind authors from the network
 - `POST /xrpc/app.greengale.admin.invalidateOGCache?handle=&rkey=` - Invalidate OG image cache
 
 ## Database Schema

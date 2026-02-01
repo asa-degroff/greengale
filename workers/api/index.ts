@@ -4530,6 +4530,239 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
   }
 })
 
+/**
+ * Discover and backfill WhiteWind authors (admin only)
+ * Uses com.atproto.sync.listReposByCollection to find all DIDs with WhiteWind posts,
+ * then backfills any that aren't already indexed.
+ * Usage: POST /xrpc/app.greengale.admin.discoverWhiteWindAuthors?limit=20&dryRun=true
+ * Query params:
+ *   - limit: Max authors to process per call (default 20, max 100)
+ *   - cursor: Pagination cursor from previous call
+ *   - dryRun: Preview without indexing
+ *   - skipExisting: Skip authors who already have posts indexed (default true)
+ */
+app.post('/xrpc/app.greengale.admin.discoverWhiteWindAuthors', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100)
+  const inputCursor = c.req.query('cursor') || undefined
+  const dryRun = c.req.query('dryRun') === 'true'
+  const skipExisting = c.req.query('skipExisting') !== 'false' // Default true
+
+  // Use regional relay - bsky.network doesn't support listReposByCollection directly
+  const RELAY_URL = 'https://relay1.us-east.bsky.network'
+  const COLLECTION = 'com.whtwnd.blog.entry'
+
+  try {
+    // Step 1: Fetch DIDs with WhiteWind posts from the relay
+    const listUrl = new URL(`${RELAY_URL}/xrpc/com.atproto.sync.listReposByCollection`)
+    listUrl.searchParams.set('collection', COLLECTION)
+    listUrl.searchParams.set('limit', String(limit * 2)) // Fetch extra to account for filtering
+    if (inputCursor) {
+      listUrl.searchParams.set('cursor', inputCursor)
+    }
+
+    const listResponse = await fetch(listUrl.toString())
+    if (!listResponse.ok) {
+      const errorText = await listResponse.text()
+      return c.json({
+        error: 'Failed to fetch from relay',
+        status: listResponse.status,
+        details: errorText,
+      }, 500)
+    }
+
+    const listData = await listResponse.json() as {
+      repos?: Array<{ did: string }>
+      cursor?: string
+    }
+
+    if (!listData.repos?.length) {
+      return c.json({
+        success: true,
+        message: 'No more WhiteWind authors to discover',
+        discovered: 0,
+        processed: 0,
+        cursor: null,
+      })
+    }
+
+    // Step 2: Filter out authors we've already indexed (if skipExisting)
+    let didsToProcess = listData.repos.map(r => r.did)
+
+    if (skipExisting) {
+      // Check which DIDs already have WhiteWind posts in our DB
+      const placeholders = didsToProcess.map(() => '?').join(',')
+      const existingAuthors = await c.env.DB.prepare(`
+        SELECT DISTINCT author_did FROM posts
+        WHERE author_did IN (${placeholders})
+        AND source = 'whitewind'
+      `).bind(...didsToProcess).all()
+
+      const existingDids = new Set((existingAuthors.results || []).map(r => r.author_did as string))
+      didsToProcess = didsToProcess.filter(did => !existingDids.has(did))
+    }
+
+    // Limit to requested amount
+    didsToProcess = didsToProcess.slice(0, limit)
+
+    if (didsToProcess.length === 0) {
+      return c.json({
+        success: true,
+        message: 'All discovered authors already indexed',
+        discovered: listData.repos.length,
+        alreadyIndexed: listData.repos.length,
+        processed: 0,
+        cursor: listData.cursor || null,
+      })
+    }
+
+    // Step 3: Process each author
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    const results: Array<{
+      did: string
+      handle: string | null
+      postsFound: number
+      postsIndexed: number
+      status: string
+    }> = []
+
+    for (const did of didsToProcess) {
+      const authorResult = {
+        did,
+        handle: null as string | null,
+        postsFound: 0,
+        postsIndexed: 0,
+        status: 'pending',
+      }
+
+      try {
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          authorResult.status = 'failed: could not resolve PDS'
+          results.push(authorResult)
+          continue
+        }
+
+        // Try to get handle from Bluesky API
+        try {
+          const profileRes = await fetch(
+            `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
+          )
+          if (profileRes.ok) {
+            const profile = await profileRes.json() as { handle?: string }
+            authorResult.handle = profile.handle || null
+          }
+        } catch {
+          // Handle lookup failed, continue without it
+        }
+
+        // Fetch WhiteWind posts
+        const recordsUrl = new URL(`${pdsEndpoint}/xrpc/com.atproto.repo.listRecords`)
+        recordsUrl.searchParams.set('repo', did)
+        recordsUrl.searchParams.set('collection', COLLECTION)
+        recordsUrl.searchParams.set('limit', '100')
+
+        const recordsResponse = await fetch(recordsUrl.toString())
+        if (!recordsResponse.ok) {
+          authorResult.status = 'failed: could not fetch records'
+          results.push(authorResult)
+          continue
+        }
+
+        const recordsData = await recordsResponse.json() as {
+          records?: Array<{ uri: string; value: Record<string, unknown> }>
+        }
+
+        const records = recordsData.records || []
+        authorResult.postsFound = records.length
+
+        if (records.length === 0) {
+          authorResult.status = 'no posts found'
+          results.push(authorResult)
+          continue
+        }
+
+        if (dryRun) {
+          authorResult.postsIndexed = records.length
+          authorResult.status = 'would_index'
+          results.push(authorResult)
+          continue
+        }
+
+        // Check which posts are already indexed
+        const uris = records.map(r => r.uri)
+        const uriPlaceholders = uris.map(() => '?').join(',')
+        const existingPosts = await c.env.DB.prepare(
+          `SELECT uri FROM posts WHERE uri IN (${uriPlaceholders})`
+        ).bind(...uris).all()
+        const existingUris = new Set((existingPosts.results || []).map(r => r.uri as string))
+
+        // Index new posts
+        let indexed = 0
+        for (const record of records) {
+          if (existingUris.has(record.uri)) continue
+
+          try {
+            const reindexResponse = await firehose.fetch('http://internal/reindex', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ uri: record.uri }),
+            })
+
+            if (reindexResponse.ok) {
+              indexed++
+            }
+          } catch {
+            // Individual post failed, continue with others
+          }
+        }
+
+        authorResult.postsIndexed = indexed
+        authorResult.status = indexed > 0 ? 'indexed' : 'all_posts_existed'
+        results.push(authorResult)
+      } catch (err) {
+        authorResult.status = `failed: ${err instanceof Error ? err.message : 'unknown'}`
+        results.push(authorResult)
+      }
+    }
+
+    // Invalidate cache if we indexed anything
+    const totalIndexed = results.reduce((sum, r) => sum + r.postsIndexed, 0)
+    if (totalIndexed > 0 && !dryRun) {
+      await Promise.all([
+        c.env.CACHE.delete('recent_posts:12:'),
+        c.env.CACHE.delete('recent_posts:24:'),
+        c.env.CACHE.delete('recent_posts:50:'),
+        c.env.CACHE.delete('recent_posts:100:'),
+      ])
+    }
+
+    return c.json({
+      success: true,
+      dryRun,
+      discovered: listData.repos.length,
+      processed: results.length,
+      totalPostsFound: results.reduce((sum, r) => sum + r.postsFound, 0),
+      totalPostsIndexed: totalIndexed,
+      cursor: listData.cursor || null,
+      authors: results,
+    })
+  } catch (error) {
+    console.error('Error discovering WhiteWind authors:', error)
+    return c.json({
+      error: 'Failed to discover WhiteWind authors',
+      details: error instanceof Error ? error.message : 'Unknown',
+    }, 500)
+  }
+})
+
 // Format post from DB row to API response
 // Tags can be passed directly or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
 function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
