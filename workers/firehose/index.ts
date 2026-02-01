@@ -478,7 +478,20 @@ export class FirehoseConsumer extends DurableObject<Env> {
         // Use documentPath if available, otherwise fall back to rkey
         // (some platforms like leaflet.pub use the rkey as the URL path)
         const pathForUrl = documentPath || `/${rkey}`
-        const resolvedUrl = await this.resolveExternalUrl(siteUri, pathForUrl)
+
+        // Handle both URL and AT-URI formats for the site field
+        // Some posts use a direct URL (e.g., "https://example.com")
+        // Others use an AT-URI (e.g., "at://did/site.standard.publication/rkey")
+        let resolvedUrl: string | null = null
+        if (siteUri.startsWith('http://') || siteUri.startsWith('https://')) {
+          // Site is already a URL - construct external URL directly
+          const baseUrl = siteUri.replace(/\/$/, '')
+          const normalizedPath = pathForUrl.startsWith('/') ? pathForUrl : `/${pathForUrl}`
+          resolvedUrl = `${baseUrl}${normalizedPath}`
+        } else if (siteUri.startsWith('at://')) {
+          // Site is an AT-URI - resolve it to get the publication URL
+          resolvedUrl = await this.resolveExternalUrl(siteUri, pathForUrl)
+        }
 
         // Only use the resolved URL if:
         // 1. It's a GreenGale-originated document, OR

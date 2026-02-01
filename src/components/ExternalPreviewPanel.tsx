@@ -158,11 +158,8 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
           {/* Content preview */}
           {post.contentPreview && (
             <div className="mb-6">
-              <h3 className="text-xs font-medium text-[var(--site-text-secondary)] uppercase tracking-wide mb-2">
-                Preview
-              </h3>
-              <div className="external-preview-content p-3 rounded-lg bg-[var(--site-bg-secondary)] border border-[var(--site-border)] max-h-[60vh] overflow-y-auto">
-                <p className="text-sm text-[var(--site-text)] whitespace-pre-wrap">
+              <div className="external-preview-content max-h-[60vh] overflow-y-auto">
+                <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
                   {post.contentPreview}
                 </p>
               </div>

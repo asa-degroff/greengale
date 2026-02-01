@@ -3603,49 +3603,60 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
         // It's GreenGale origin if content.uri points to a GreenGale document
         const isGreenGaleOrigin = contentUri && contentUri.includes('/app.greengale.document/')
 
-        // Parse the site AT-URI to get publication details
-        const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
-        if (!match) {
-          errors.push(`${uri}: Invalid site URI`)
-          continue
-        }
-
-        const [, pubDid, collection, pubRkey] = match
-
-        // Resolve the publication's PDS (may be different DID, supports did:web)
-        let pubPdsEndpoint = pdsEndpoint
-        if (pubDid !== did) {
-          const resolved = await fetchPdsEndpoint(pubDid)
-          if (resolved) {
-            pubPdsEndpoint = resolved
-          }
-        }
-
-        // Fetch the publication record
-        const pubResponse = await fetch(
-          `${pubPdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(pubRkey)}`
-        )
-
-        if (!pubResponse.ok) {
-          errors.push(`${uri}: Failed to fetch publication`)
-          continue
-        }
-
-        const pub = await pubResponse.json() as {
-          value?: { url?: string }
-        }
-
-        const pubUrl = pub.value?.url
-        if (!pubUrl) {
-          errors.push(`${uri}: Publication has no URL`)
-          continue
-        }
-
-        // Construct the external URL
-        // Ensure there's exactly one slash between base URL and path
-        const baseUrl = pubUrl.replace(/\/$/, '')
+        // Handle both URL and AT-URI formats for the site field
+        let resolvedUrl: string | null = null
         const normalizedPath = path.startsWith('/') ? path : `/${path}`
-        const resolvedUrl = `${baseUrl}${normalizedPath}`
+
+        if (siteUri.startsWith('http://') || siteUri.startsWith('https://')) {
+          // Site is already a URL - construct external URL directly
+          const baseUrl = siteUri.replace(/\/$/, '')
+          resolvedUrl = `${baseUrl}${normalizedPath}`
+        } else if (siteUri.startsWith('at://')) {
+          // Parse the site AT-URI to get publication details
+          const match = siteUri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+          if (!match) {
+            errors.push(`${uri}: Invalid site AT-URI`)
+            continue
+          }
+
+          const [, pubDid, collection, pubRkey] = match
+
+          // Resolve the publication's PDS (may be different DID, supports did:web)
+          let pubPdsEndpoint = pdsEndpoint
+          if (pubDid !== did) {
+            const resolved = await fetchPdsEndpoint(pubDid)
+            if (resolved) {
+              pubPdsEndpoint = resolved
+            }
+          }
+
+          // Fetch the publication record
+          const pubResponse = await fetch(
+            `${pubPdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(pubRkey)}`
+          )
+
+          if (!pubResponse.ok) {
+            errors.push(`${uri}: Failed to fetch publication`)
+            continue
+          }
+
+          const pub = await pubResponse.json() as {
+            value?: { url?: string }
+          }
+
+          const pubUrl = pub.value?.url
+          if (!pubUrl) {
+            errors.push(`${uri}: Publication has no URL`)
+            continue
+          }
+
+          // Construct the external URL
+          const baseUrl = pubUrl.replace(/\/$/, '')
+          resolvedUrl = `${baseUrl}${normalizedPath}`
+        } else {
+          errors.push(`${uri}: Unknown site format: ${siteUri}`)
+          continue
+        }
 
         // Only use the resolved URL if it's appropriate
         let externalUrl: string | null = null
