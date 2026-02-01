@@ -340,9 +340,6 @@ export function HomePage() {
         <div className="text-center mb-12">
           <CubeLogo className="h-8 md:h-10 mx-auto mb-4" />
           <h2><i>Beta</i></h2>
-          <p className="text-lg text-[var(--site-text-secondary)] max-w-2xl mx-auto">
-            Markdown blog platform powered by your <a href="https://internethandle.org/">internet handle</a>
-          </p>
         </div>
 
         <div className="relative bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)] overflow-hidden min-h-[180px]">
@@ -588,55 +585,16 @@ export function HomePage() {
           </div>
         )}
 
-        <div className="grid md:grid-cols-3 gap-8">
-          <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[var(--site-accent)]/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[var(--site-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h3 className="font-bold mb-2 text-[var(--site-text)]">Multi-Platform</h3>
-            <p className="text-sm text-[var(--site-text-secondary)]">
-              WhiteWind, GreenGale, and Standard Site
-            </p>
-          </div>
-
-          <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[var(--site-accent)]/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[var(--site-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-              </svg>
-            </div>
-            <h3 className="font-bold mb-2 text-[var(--site-text)]">Theme Selection</h3>
-            <p className="text-sm text-[var(--site-text-secondary)]">
-              Customize themes for each post or across the site.
-            </p>
-          </div>
-
-          <div className="text-center">
-            <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[var(--site-accent)]/10 flex items-center justify-center">
-              <svg className="w-6 h-6 text-[var(--site-accent)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <h3 className="font-bold mb-2 text-[var(--site-text)]">LaTeX Support</h3>
-            <p className="text-sm text-[var(--site-text-secondary)]">
-              Write mathematical equations with KaTeX rendering.
-            </p>
-          </div>
-        </div>
 
         <div className="mt-16 text-center text-sm text-[var(--site-text-secondary)]">
           <p>
-            Your data is owned by you and lives on AT Protocol.{' '}
-            <a
-              href="https://atproto.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--site-accent)] hover:underline"
-            >
-              Learn more about AT Protocol
-            </a>
+            Markdown blog platform powered by your <a href="https://internethandle.org/"
+            className="text-[var(--site-accent)] hover:underline"
+            >internet handle</a>
+          </p>
+          <br />
+          <p>
+            WhiteWind and Standard Site compatible
           </p>
         </div>
       </div>
