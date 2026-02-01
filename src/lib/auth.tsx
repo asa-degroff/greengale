@@ -84,6 +84,18 @@ async function checkWhitelist(did: string): Promise<boolean> {
 }
 
 async function resolveHandleFromDid(did: string): Promise<string | null> {
+  // For did:web, derive the handle directly from the DID
+  // did:web:example.com -> example.com
+  // did:web:example.com:path:to:resource -> example.com (domain only)
+  if (did.startsWith('did:web:')) {
+    const webPart = did.slice('did:web:'.length)
+    // Handle is the domain part (before any path segments indicated by colons)
+    // Also decode percent-encoded characters (e.g., %3A for port numbers)
+    const domain = decodeURIComponent(webPart.split(':')[0])
+    return domain || null
+  }
+
+  // For did:plc and others, try Bluesky's API
   try {
     const response = await fetch(
       `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`

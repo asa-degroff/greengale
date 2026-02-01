@@ -171,6 +171,34 @@ describe('Auth Module', () => {
         'https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=did%3Aplc%3Aabc123'
       )
     })
+
+    // did:web handle resolution tests
+    it('derives handle directly from did:web DID', async () => {
+      const result = await resolveHandleFromDid('did:web:example.com')
+      expect(result).toBe('example.com')
+      // Should not call Bluesky API for did:web
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('handles did:web with subdomains', async () => {
+      const result = await resolveHandleFromDid('did:web:fry69.dev')
+      expect(result).toBe('fry69.dev')
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('handles did:web with path segments (extracts domain only)', async () => {
+      // did:web:example.com:user:alice -> domain is example.com
+      const result = await resolveHandleFromDid('did:web:example.com:user:alice')
+      expect(result).toBe('example.com')
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('handles did:web with percent-encoded port', async () => {
+      // did:web:localhost%3A8080 -> localhost:8080
+      const result = await resolveHandleFromDid('did:web:localhost%3A8080')
+      expect(result).toBe('localhost:8080')
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
   })
 
   describe('useAuth hook', () => {
