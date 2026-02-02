@@ -246,7 +246,8 @@ export function SearchFilters({
   }, [onFieldsChange])
 
   // Check if any extra filters are active (for badge indicator)
-  const hasActiveFilters = author !== '' || dateRange !== 'any'
+  // On mobile, field filters are in the expansion, so include them in the indicator
+  const hasActiveFilters = author !== '' || dateRange !== 'any' || !isAllSelected
 
   return (
     <div className="space-y-2">
@@ -256,7 +257,7 @@ export function SearchFilters({
         Dropdown: Author input + Date options
       */}
 
-      {/* Main row: Mode + Fields + More filters dropdown */}
+      {/* Main row: Mode + Fields (desktop only) + More filters dropdown */}
       <div className="flex gap-2 items-center">
         {/* Mode selector */}
         <div className="flex rounded-lg border border-[var(--site-border)] overflow-hidden">
@@ -275,8 +276,8 @@ export function SearchFilters({
           ))}
         </div>
 
-        {/* Field filter toggles */}
-        <div className="flex flex-1 rounded-lg border border-[var(--site-border)] overflow-hidden">
+        {/* Field filter toggles - hidden on mobile, shown in expansion section instead */}
+        <div className="hidden sm:flex flex-1 rounded-lg border border-[var(--site-border)] overflow-hidden">
           <button
             onClick={handleAllToggle}
             className={`flex-1 px-2 md:px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -305,7 +306,7 @@ export function SearchFilters({
         {/* More filters toggle button */}
         <button
           onClick={() => setIsMoreFiltersOpen(!isMoreFiltersOpen)}
-          className={`flex items-center gap-1 px-2.5 py-1.5 text-sm font-medium rounded-lg border transition-colors flex-shrink-0 ${
+          className={`flex items-center gap-1 px-2.5 py-1.5 text-sm font-medium rounded-lg border transition-colors flex-shrink-0 ml-auto ${
             hasActiveFilters
               ? 'bg-[var(--site-accent)] text-white border-[var(--site-accent)]'
               : 'border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
@@ -326,7 +327,40 @@ export function SearchFilters({
         style={{ gridTemplateRows: isMoreFiltersOpen ? '1fr' : '0fr' }}
       >
         <div className="overflow-hidden px-0.5 pt-0.5 pb-1">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-end pt-1.5">
+          <div className="flex flex-col gap-3 pt-1.5">
+            {/* Field filter toggles - shown on mobile only (hidden on desktop where they appear in main row) */}
+            <div className="sm:hidden">
+              <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">
+                Search in
+              </label>
+              <div className="flex rounded-lg border border-[var(--site-border)] overflow-hidden">
+                <button
+                  onClick={handleAllToggle}
+                  className={`flex-1 px-2 py-1.5 text-sm font-medium transition-colors ${
+                    isAllSelected
+                      ? 'bg-[var(--site-accent)] text-white'
+                      : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
+                  }`}
+                >
+                  All
+                </button>
+                {FIELD_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => handleFieldToggle(value)}
+                    className={`flex-1 px-2 py-1.5 text-sm font-medium transition-colors ${
+                      !isAllSelected && fields.includes(value)
+                        ? 'bg-[var(--site-accent)] text-white'
+                        : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
             {/* Author filter */}
             <div className="flex-1 min-w-0">
               <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">
@@ -451,6 +485,7 @@ export function SearchFilters({
                 />
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
