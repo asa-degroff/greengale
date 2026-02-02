@@ -60,6 +60,22 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
     }
   }
 
+  // Get platform info for known external sites
+  function getPlatformInfo(url: string): { icon: string; name: string } | null {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase()
+      if (hostname.includes('leaflet.pub')) return { icon: '/icons/platforms/leaflet.png', name: 'Leaflet' }
+      if (hostname.includes('offprint.app')) return { icon: '/icons/platforms/offprint.png', name: 'Offprint' }
+      if (hostname.includes('pckt.blog')) return { icon: '/icons/platforms/pckt.png', name: 'pckt' }
+      if (hostname.includes('blento.app')) return { icon: '/icons/platforms/blento.png', name: 'Blento' }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  const platformInfo = result.externalUrl ? getPlatformInfo(result.externalUrl) : null
+
   return (
     <button
       onClick={handleClick}
@@ -88,10 +104,14 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
           </span>
           {result.externalUrl && (
             <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              External
+              {platformInfo ? (
+                <img src={platformInfo.icon} alt="" className="w-3 h-3" />
+              ) : (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              )}
+              {platformInfo ? platformInfo.name : 'External'}
             </span>
           )}
         </div>

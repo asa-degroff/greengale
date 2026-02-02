@@ -60,6 +60,21 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
     }
   }, [externalUrl])
 
+  // Get platform icon for known external sites
+  const platformIcon = useMemo(() => {
+    if (!externalUrl) return null
+    try {
+      const hostname = new URL(externalUrl).hostname.toLowerCase()
+      if (hostname.includes('leaflet.pub')) return '/icons/platforms/leaflet.png'
+      if (hostname.includes('offprint.app')) return '/icons/platforms/offprint.png'
+      if (hostname.includes('pckt.blog')) return '/icons/platforms/pckt.png'
+      if (hostname.includes('blento.app')) return '/icons/platforms/blento.png'
+      return null
+    } catch {
+      return null
+    }
+  }, [externalUrl])
+
   // Card content (shared between internal and external links)
   const cardContent = (
     <>
@@ -156,11 +171,15 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                 {formattedDate && <time dateTime={entry.createdAt} className="flex-shrink-0">{formattedDate}</time>}
               </div>
               <div className="flex items-center gap-1.5">
-                <svg className="w-3 h-3 text-purple-600 dark:text-purple-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
+                {platformIcon ? (
+                  <img src={platformIcon} alt="" className="w-3 h-3 flex-shrink-0" />
+                ) : (
+                  <svg className="w-3 h-3 text-purple-600 dark:text-purple-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                )}
                 {externalDomain && <span className="truncate">{externalDomain}</span>}
               </div>
             </div>

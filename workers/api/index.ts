@@ -1845,6 +1845,18 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       match_type: string
     }
 
+    // Helper to determine if a publication URL is external (not GreenGale)
+    const isExternalPublication = (url: string | null): boolean => {
+      if (!url) return false
+      try {
+        const hostname = new URL(url).hostname.toLowerCase()
+        // GreenGale URLs are not external
+        return !hostname.includes('greengale')
+      } catch {
+        return false
+      }
+    }
+
     const results = (result.results as SearchResultRow[] || []).map((row) => ({
       did: row.did,
       handle: row.handle,
@@ -1853,6 +1865,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       publication: row.pub_name ? {
         name: row.pub_name,
         url: row.pub_url || null,
+        isExternal: isExternalPublication(row.pub_url),
       } : null,
       matchType: row.match_type as 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle' | 'tag',
       post: row.post_rkey ? {

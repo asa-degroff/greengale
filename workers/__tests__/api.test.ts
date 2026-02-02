@@ -1355,6 +1355,7 @@ describe('API Endpoints', () => {
         publication: {
           name: 'My Blog',
           url: 'https://myblog.com',
+          isExternal: true,  // Non-GreenGale URL is external
         },
         matchType: 'handle',
       })

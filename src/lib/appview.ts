@@ -224,6 +224,7 @@ export interface SearchResult {
   publication: {
     name: string
     url: string | null
+    isExternal?: boolean  // True if publication URL points to external site (e.g., Blento)
   } | null
   matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' | 'postTitle' | 'tag'
   // Optional post info for postTitle and tag matches
