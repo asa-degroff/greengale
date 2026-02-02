@@ -1916,8 +1916,23 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
   const afterFilter = c.req.query('after')?.trim() || undefined
   const beforeFilter = c.req.query('before')?.trim() || undefined
 
+  // Field filter: comma-separated list of fields to search
+  // Valid fields: handle, name, pub, title, content
+  // If omitted or empty, search all fields
+  const fieldsParam = c.req.query('fields')?.trim() || undefined
+  const validFields = ['handle', 'name', 'pub', 'title', 'content']
+  const fields = fieldsParam
+    ? fieldsParam.split(',').filter(f => validFields.includes(f))
+    : undefined
+
+  // Determine if we should run semantic search
+  // Semantic search only works on content fields (title, content)
+  const contentFields = ['title', 'content']
+  const hasContentFields = !fields || fields.some(f => contentFields.includes(f))
+
   // Cache key includes mode and filters
-  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}`
+  const fieldsKey = fields ? fields.sort().join(',') : ''
+  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}:${fieldsKey}`
 
   try {
     // Check cache first
@@ -1948,7 +1963,8 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
     let semanticFailed = false
 
     // Semantic search
-    if (mode === 'semantic' || mode === 'hybrid') {
+    // Only run semantic search if content fields are being searched
+    if ((mode === 'semantic' || mode === 'hybrid') && hasContentFields) {
       try {
         const queryEmbedding = await generateEmbedding(c.env.AI, searchTerm)
         // Vectorize has a topK limit of 50
@@ -1975,29 +1991,106 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
     }
 
     // Keyword search (also runs as fallback if semantic-only mode failed)
-    if (mode === 'keyword' || mode === 'hybrid' || (mode === 'semantic' && semanticFailed)) {
+    // Also runs when semantic mode is selected but no content fields are in the filter
+    const shouldRunKeyword = mode === 'keyword' || mode === 'hybrid' ||
+      (mode === 'semantic' && (semanticFailed || !hasContentFields))
+
+    if (shouldRunKeyword) {
       const escapedTerm = escapeLikePattern(searchTerm.toLowerCase())
       const containsPattern = `%${escapedTerm}%`
 
+      // Determine which fields to search
+      // If no fields specified, search all
+      const searchHandle = !fields || fields.includes('handle')
+      const searchName = !fields || fields.includes('name')
+      const searchPub = !fields || fields.includes('pub')
+      const searchTitle = !fields || fields.includes('title')
+      const searchContent = !fields || fields.includes('content')
+
+      // Build score CASE expression based on selected fields
+      const scoreCases: string[] = []
+      const scoreBindings: string[] = []
+
+      if (searchTitle) {
+        scoreCases.push("WHEN LOWER(p.title) LIKE ? ESCAPE '\\' THEN 1.0")
+        scoreBindings.push(containsPattern)
+        scoreCases.push("WHEN LOWER(p.subtitle) LIKE ? ESCAPE '\\' THEN 0.9")
+        scoreBindings.push(containsPattern)
+      }
+      if (searchContent) {
+        scoreCases.push("WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.8")
+        scoreBindings.push(containsPattern)
+      }
+      if (searchHandle) {
+        scoreCases.push("WHEN LOWER(a.handle) LIKE ? ESCAPE '\\' THEN 0.7")
+        scoreBindings.push(containsPattern)
+      }
+      if (searchName) {
+        scoreCases.push("WHEN LOWER(a.display_name) LIKE ? ESCAPE '\\' THEN 0.7")
+        scoreBindings.push(containsPattern)
+      }
+      if (searchPub) {
+        scoreCases.push("WHEN LOWER(pub.name) LIKE ? ESCAPE '\\' THEN 0.6")
+        scoreBindings.push(containsPattern)
+        scoreCases.push("WHEN LOWER(pub.url) LIKE ? ESCAPE '\\' THEN 0.5")
+        scoreBindings.push(containsPattern)
+      }
+
+      // Build WHERE conditions based on selected fields
+      const whereConditions: string[] = []
+      const whereBindings: string[] = []
+
+      if (searchTitle) {
+        whereConditions.push("LOWER(p.title) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+        whereConditions.push("LOWER(p.subtitle) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+      }
+      if (searchContent) {
+        whereConditions.push("LOWER(p.content_preview) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+        // Also search tags when content is selected
+        whereConditions.push("EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_uri = p.uri AND LOWER(pt.tag) LIKE ? ESCAPE '\\')")
+        whereBindings.push(containsPattern)
+      }
+      if (searchHandle) {
+        whereConditions.push("LOWER(a.handle) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+      }
+      if (searchName) {
+        whereConditions.push("LOWER(a.display_name) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+      }
+      if (searchPub) {
+        whereConditions.push("LOWER(pub.name) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+        whereConditions.push("LOWER(pub.url) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+      }
+
+      // Need at least one condition
+      if (whereConditions.length === 0) {
+        // Shouldn't happen, but fallback to searching everything
+        whereConditions.push("LOWER(p.title) LIKE ? ESCAPE '\\'")
+        whereBindings.push(containsPattern)
+      }
+
       // Build dynamic query with filters
+      const scoreExpr = scoreCases.length > 0
+        ? `CASE ${scoreCases.join(' ')} ELSE 0.5 END`
+        : '0.5'
+
       let keywordSql = `
         SELECT DISTINCT
           p.uri,
           p.title,
-          CASE
-            WHEN LOWER(p.title) LIKE ? ESCAPE '\\' THEN 1.0
-            WHEN LOWER(p.subtitle) LIKE ? ESCAPE '\\' THEN 0.8
-            WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.6
-          END as score
+          ${scoreExpr} as score
         FROM posts p
         JOIN authors a ON p.author_did = a.did
+        LEFT JOIN publications pub ON p.author_did = pub.author_did
         WHERE p.visibility = 'public'
           AND p.deleted_at IS NULL
-          AND (
-            LOWER(p.title) LIKE ? ESCAPE '\\'
-            OR LOWER(p.subtitle) LIKE ? ESCAPE '\\'
-            OR LOWER(p.content_preview) LIKE ? ESCAPE '\\'
-          )
+          AND (${whereConditions.join(' OR ')})
           -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
           AND NOT (
             p.uri LIKE '%/site.standard.document/%'
@@ -2011,10 +2104,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
             )
           )`
 
-      const keywordBindings: (string | number)[] = [
-        containsPattern, containsPattern, containsPattern,
-        containsPattern, containsPattern, containsPattern,
-      ]
+      const keywordBindings: (string | number)[] = [...scoreBindings, ...whereBindings]
 
       // Author filter (handle or DID)
       if (authorFilter) {
@@ -2068,7 +2158,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         posts: [],
         query: searchTerm,
         mode,
-        ...(semanticFailed && mode === 'semantic' && { fallback: 'keyword' }),
+        ...((semanticFailed || !hasContentFields) && mode === 'semantic' && { fallback: 'keyword' }),
       }
       await c.env.CACHE.put(cacheKey, JSON.stringify(response), { expirationTtl: 300 })
       return c.json(response)
@@ -2170,7 +2260,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       posts: results,
       query: searchTerm,
       mode,
-      ...(semanticFailed && mode === 'semantic' && { fallback: 'keyword' }),
+      ...((semanticFailed || !hasContentFields) && mode === 'semantic' && { fallback: 'keyword' }),
     }
     await c.env.CACHE.put(cacheKey, JSON.stringify(response), { expirationTtl: 300 })
     return c.json(response)

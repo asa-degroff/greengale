@@ -6,10 +6,13 @@ import {
   type SearchResult,
   type PostSearchResult as PostSearchResultType,
   type SearchMode,
+  type SearchField,
 } from '@/lib/appview'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { SearchFilters, dateRangeToAfter, type DateRange } from '@/components/SearchFilters'
 import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
+
+const VALID_FIELDS: SearchField[] = ['handle', 'name', 'pub', 'title', 'content']
 
 type SearchTab = 'posts' | 'authors'
 
@@ -23,6 +26,13 @@ export function SearchPage() {
   const modeParam = searchParams.get('mode') as SearchMode | null
   const authorParam = searchParams.get('author') || ''
   const dateParam = searchParams.get('date') as DateRange | null
+  const fieldsParam = searchParams.get('fields') || ''
+
+  // Parse fields from URL
+  const parseFields = (param: string): SearchField[] => {
+    if (!param) return []
+    return param.split(',').filter((f): f is SearchField => VALID_FIELDS.includes(f as SearchField))
+  }
 
   // Local state
   const [inputValue, setInputValue] = useState(query)
@@ -30,6 +40,7 @@ export function SearchPage() {
   const [mode, setMode] = useState<SearchMode>(modeParam || 'hybrid')
   const [author, setAuthor] = useState(authorParam)
   const [dateRange, setDateRange] = useState<DateRange>(dateParam || 'any')
+  const [fields, setFields] = useState<SearchField[]>(parseFields(fieldsParam))
 
   // Results state
   const [authorResults, setAuthorResults] = useState<SearchResult[]>([])
@@ -88,6 +99,7 @@ export function SearchPage() {
           mode,
           author: author || undefined,
           after: afterDate,
+          fields: fields.length > 0 ? fields : undefined,
           signal,
         })
         setPostResults(response.posts)
@@ -108,7 +120,7 @@ export function SearchPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeTab, mode, author, dateRange])
+  }, [activeTab, mode, author, dateRange, fields])
 
   // Search when query or filters change
   useEffect(() => {
@@ -177,6 +189,11 @@ export function SearchPage() {
   function handleDateRangeChange(newRange: DateRange) {
     setDateRange(newRange)
     updateUrl({ date: newRange === 'any' ? undefined : newRange })
+  }
+
+  function handleFieldsChange(newFields: SearchField[]) {
+    setFields(newFields)
+    updateUrl({ fields: newFields.length > 0 ? newFields.join(',') : undefined })
   }
 
   function handleAuthorResultClick(result: SearchResult) {
@@ -296,6 +313,8 @@ export function SearchPage() {
             onAuthorChange={handleAuthorChange}
             dateRange={dateRange}
             onDateRangeChange={handleDateRangeChange}
+            fields={fields}
+            onFieldsChange={handleFieldsChange}
           />
         </div>
       )}

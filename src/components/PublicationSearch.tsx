@@ -64,9 +64,10 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
     debounceRef.current = setTimeout(() => {
       performSearch(query)
       // Notify parent of query change (only for meaningful queries)
+      // Use trimmed for validation but preserve original query with whitespace
       const trimmed = query.trim()
       if (trimmed.length >= MIN_QUERY_LENGTH) {
-        onQueryChange?.(trimmed)
+        onQueryChange?.(query)
       } else if (trimmed.length === 0) {
         onClear?.()
       }

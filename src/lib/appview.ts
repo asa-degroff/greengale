@@ -330,6 +330,16 @@ export type UnifiedSearchResult =
   | { type: 'post'; data: PostSearchResult }
 
 /**
+ * Search field types
+ * - handle: Search author handles
+ * - name: Search author display names
+ * - pub: Search publication names and URLs
+ * - title: Search post titles and subtitles
+ * - content: Search post content preview and tags
+ */
+export type SearchField = 'handle' | 'name' | 'pub' | 'title' | 'content'
+
+/**
  * Search for posts using semantic, keyword, or hybrid search
  */
 export async function searchPosts(
@@ -340,6 +350,7 @@ export async function searchPosts(
     author?: string
     after?: string
     before?: string
+    fields?: SearchField[]
     signal?: AbortSignal
   }
 ): Promise<SearchPostsResponse> {
@@ -350,6 +361,9 @@ export async function searchPosts(
   if (options?.author) params.set('author', options.author)
   if (options?.after) params.set('after', options.after)
   if (options?.before) params.set('before', options.before)
+  if (options?.fields && options.fields.length > 0) {
+    params.set('fields', options.fields.join(','))
+  }
 
   const response = await fetch(
     `${API_BASE}/xrpc/app.greengale.search.posts?${params}`,

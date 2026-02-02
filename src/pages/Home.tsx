@@ -152,6 +152,7 @@ export function HomePage() {
   const [searchAuthor, setSearchAuthor] = useState('')
   const [searchDateRange, setSearchDateRange] = useState<DateRange>('any')
   const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>({})
+  const [searchFields, setSearchFields] = useState<import('@/lib/appview').SearchField[]>([])
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
   const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResult | null>(null)
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1)
@@ -370,7 +371,7 @@ export function HomePage() {
   }
 
   // Search functions - wrapped in useCallback for stable references
-  const performSearch = useCallback(async (query: string, mode: SearchMode, author: string, dateRange: DateRange, customDates: CustomDateRange) => {
+  const performSearch = useCallback(async (query: string, mode: SearchMode, author: string, dateRange: DateRange, customDates: CustomDateRange, fields: import('@/lib/appview').SearchField[]) => {
     // Cancel any in-flight request
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort()
@@ -392,6 +393,7 @@ export function HomePage() {
           author: author || undefined,
           after: dateParams.after,
           before: dateParams.before,
+          fields: fields.length > 0 ? fields : undefined,
           signal,
         })
       ])
@@ -428,14 +430,15 @@ export function HomePage() {
     setSearchAuthor('')
     setSearchDateRange('any')
     setSearchCustomDates({})
+    setSearchFields([])
   }, [])
 
   const handleSearchQueryChange = useCallback((query: string) => {
     setSearchActive(true)
     setSearchQuery(query)
     setSelectedExternalPost(null)  // Close any open preview panel when search changes
-    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates)
-  }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates])
+    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields)
+  }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields])
 
   // Debounced search trigger for filter changes
   const triggerDebouncedSearch = useCallback((
@@ -443,39 +446,45 @@ export function HomePage() {
     mode: SearchMode,
     author: string,
     dateRange: DateRange,
-    customDates: CustomDateRange
+    customDates: CustomDateRange,
+    fields: import('@/lib/appview').SearchField[]
   ) => {
     if (filterDebounceRef.current) {
       clearTimeout(filterDebounceRef.current)
     }
     filterDebounceRef.current = setTimeout(() => {
       if (query) {
-        performSearch(query, mode, author, dateRange, customDates)
+        performSearch(query, mode, author, dateRange, customDates, fields)
       }
     }, 150)
   }, [performSearch])
 
   const handleSearchModeChange = useCallback((mode: SearchMode) => {
     setSearchMode(mode)
-    triggerDebouncedSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates)
-  }, [triggerDebouncedSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates, searchFields)
+  }, [triggerDebouncedSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates, searchFields])
 
   const handleSearchAuthorChange = useCallback((author: string) => {
     setSearchAuthor(author)
-    triggerDebouncedSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates)
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchDateRange, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates, searchFields)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchDateRange, searchCustomDates, searchFields])
 
   const handleSearchDateRangeChange = useCallback((dateRange: DateRange) => {
     setSearchDateRange(dateRange)
-    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates)
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates, searchFields)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchCustomDates, searchFields])
 
   const handleSearchCustomDatesChange = useCallback((customDates: CustomDateRange) => {
     setSearchCustomDates(customDates)
     if (searchDateRange === 'custom') {
-      triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates)
+      triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates, searchFields)
     }
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange])
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchFields])
+
+  const handleSearchFieldsChange = useCallback((fields: import('@/lib/appview').SearchField[]) => {
+    setSearchFields(fields)
+    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, fields)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates])
 
   // Handle search result selection via keyboard
   const handleSelectSearchResult = useCallback((index: number) => {
@@ -539,7 +548,7 @@ export function HomePage() {
           <h2><i>Beta</i></h2>
         </div>
 
-        <div className="relative bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)] overflow-hidden min-h-[180px]">
+        <div className={`relative bg-[var(--site-bg-secondary)] rounded-lg p-8 border border-[var(--site-border)] overflow-hidden min-h-[180px] ${searchActive ? 'mb-4' : 'mb-12'}`}>
           {/* Decorative floating clouds */}
           <CloudField className="text-[var(--site-text-secondary)]" />
 
@@ -556,20 +565,27 @@ export function HomePage() {
             disableDropdown={true}
             externalQuery={searchQuery}
           />
-          {searchActive && (
-            <div className="relative mt-4">
-              <SearchFilters
-                mode={searchMode}
-                onModeChange={handleSearchModeChange}
-                author={searchAuthor}
-                onAuthorChange={handleSearchAuthorChange}
-                dateRange={searchDateRange}
-                onDateRangeChange={handleSearchDateRangeChange}
-                customDates={searchCustomDates}
-                onCustomDatesChange={handleSearchCustomDatesChange}
-              />
+          <div
+            className="grid transition-[grid-template-rows] duration-200 ease-out"
+            style={{ gridTemplateRows: searchActive ? '1fr' : '0fr' }}
+          >
+            <div className="overflow-hidden">
+              <div className="relative pt-4">
+                <SearchFilters
+                  mode={searchMode}
+                  onModeChange={handleSearchModeChange}
+                  author={searchAuthor}
+                  onAuthorChange={handleSearchAuthorChange}
+                  dateRange={searchDateRange}
+                  onDateRangeChange={handleSearchDateRangeChange}
+                  customDates={searchCustomDates}
+                  onCustomDatesChange={handleSearchCustomDatesChange}
+                  fields={searchFields}
+                  onFieldsChange={handleSearchFieldsChange}
+                />
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Search Results or Posts Section with Tabs */}
