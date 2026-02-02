@@ -1,11 +1,43 @@
+import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PostSearchResult as PostSearchResultType, UnifiedPostResult } from '@/lib/appview'
+import { getPlatformInfo } from '@/lib/platform-utils'
 
 /**
  * Common post result type that works with both legacy PostSearchResult
  * and the new UnifiedPostResult from the unified search API
  */
 type PostResultType = PostSearchResultType | UnifiedPostResult
+
+// Static badge config - defined outside component to avoid recreation
+const MATCH_TYPE_BADGES = {
+  semantic: {
+    label: 'Semantic',
+    className: 'bg-amber-500 text-white dark:bg-amber-900/30 dark:text-amber-300',
+  },
+  keyword: {
+    label: 'Keyword',
+    className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
+  },
+  both: {
+    label: 'Keyword + Semantic',
+    className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
+  },
+} as const
+
+function formatDate(dateString: string | null): string | null {
+  if (!dateString) return null
+  try {
+    const date = new Date(dateString)
+    return date.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
+  } catch {
+    return null
+  }
+}
 
 interface PostSearchResultProps {
   result: PostResultType
@@ -17,7 +49,7 @@ interface PostSearchResultProps {
 export function PostSearchResult({ result, onExternalPostClick, isSelected, onMouseEnter }: PostSearchResultProps) {
   const navigate = useNavigate()
 
-  function handleClick() {
+  const handleClick = useCallback(() => {
     // Posts with externalUrl use callback if provided (for slide-in panel)
     if (result.externalUrl && onExternalPostClick) {
       onExternalPostClick(result)
@@ -28,59 +60,13 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
       // Native GreenGale and WhiteWind posts navigate to the in-app post page
       navigate(`/${result.handle}/${result.rkey}`)
     }
-  }
+  }, [result, onExternalPostClick, navigate])
 
-  function getMatchTypeBadge(matchType: PostResultType['matchType']) {
-    switch (matchType) {
-      case 'semantic':
-        return {
-          label: 'Semantic',
-          className: 'bg-amber-500 text-white dark:bg-amber-900/30 dark:text-amber-300',
-        }
-      case 'keyword':
-        return {
-          label: 'Keyword',
-          className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
-        }
-      case 'both':
-        return {
-          label: 'Keyword + Semantic',
-          className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
-        }
-    }
-  }
-
-  const badge = getMatchTypeBadge(result.matchType)
-
-  function formatDate(dateString: string | null) {
-    if (!dateString) return null
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
-    } catch {
-      return null
-    }
-  }
-
-  // Get platform info for known external sites
-  function getPlatformInfo(url: string): { icon: string; name: string } | null {
-    try {
-      const hostname = new URL(url).hostname.toLowerCase()
-      if (hostname.includes('leaflet.pub')) return { icon: '/icons/platforms/leaflet.png', name: 'Leaflet' }
-      if (hostname.includes('offprint.app')) return { icon: '/icons/platforms/offprint.png', name: 'Offprint' }
-      if (hostname.includes('pckt.blog')) return { icon: '/icons/platforms/pckt.png', name: 'pckt' }
-      if (hostname.includes('blento.app')) return { icon: '/icons/platforms/blento.png', name: 'Blento' }
-      return null
-    } catch {
-      return null
-    }
-  }
-
-  const platformInfo = result.externalUrl ? getPlatformInfo(result.externalUrl) : null
+  const badge = MATCH_TYPE_BADGES[result.matchType]
+  const platformInfo = useMemo(
+    () => (result.externalUrl ? getPlatformInfo(result.externalUrl) : null),
+    [result.externalUrl]
+  )
 
   return (
     <button

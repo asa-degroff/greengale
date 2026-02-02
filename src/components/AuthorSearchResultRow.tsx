@@ -1,5 +1,32 @@
+import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { SearchResult } from '@/lib/appview'
+import { getPlatformInfo, getExternalDomain } from '@/lib/platform-utils'
+
+// Static badge config - defined outside component to avoid recreation
+const MATCH_TYPE_BADGES = {
+  handle: {
+    label: 'Handle',
+    className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
+  },
+  displayName: {
+    label: 'Name',
+    className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
+  },
+  publicationName: {
+    label: 'Publication',
+    className: 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300',
+  },
+  publicationUrl: {
+    label: 'URL',
+    className: 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300',
+  },
+} as const
+
+const DEFAULT_BADGE = {
+  label: 'Match',
+  className: 'bg-gray-600 text-white dark:bg-gray-900/30 dark:text-gray-300',
+}
 
 interface AuthorSearchResultRowProps {
   result: SearchResult
@@ -13,7 +40,7 @@ export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: Auth
   // Check if this is an external publication (e.g., Blento)
   const isExternal = result.publication?.isExternal && result.publication?.url
 
-  function handleClick() {
+  const handleClick = useCallback(() => {
     if (isExternal && result.publication?.url) {
       // Open external publication URL in new tab
       window.open(result.publication.url, '_blank', 'noopener,noreferrer')
@@ -21,67 +48,16 @@ export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: Auth
       // Navigate to GreenGale profile
       navigate(`/${result.handle}`)
     }
-  }
+  }, [isExternal, result.publication?.url, result.handle, navigate])
 
-  // Extract domain from external URL for display
-  function getExternalDomain(url: string): string {
-    try {
-      const hostname = new URL(url).hostname
-      return hostname.replace(/^www\./, '')
-    } catch {
-      return url
-    }
-  }
+  const platformInfo = useMemo(
+    () => (isExternal && result.publication?.url ? getPlatformInfo(result.publication.url) : null),
+    [isExternal, result.publication?.url]
+  )
 
-  // Get platform info for known external sites
-  function getPlatformInfo(url: string): { icon: string; name: string } | null {
-    try {
-      const hostname = new URL(url).hostname.toLowerCase()
-      if (hostname.includes('leaflet.pub')) return { icon: '/icons/platforms/leaflet.png', name: 'Leaflet' }
-      if (hostname.includes('offprint.app')) return { icon: '/icons/platforms/offprint.png', name: 'Offprint' }
-      if (hostname.includes('pckt.blog')) return { icon: '/icons/platforms/pckt.png', name: 'pckt' }
-      if (hostname.includes('blento.app')) return { icon: '/icons/platforms/blento.png', name: 'Blento' }
-      return null
-    } catch {
-      return null
-    }
-  }
-
-  const platformInfo = isExternal && result.publication?.url
-    ? getPlatformInfo(result.publication.url)
-    : null
-
-  function getMatchTypeBadge(matchType: SearchResult['matchType']) {
-    switch (matchType) {
-      case 'handle':
-        return {
-          label: 'Handle',
-          className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
-        }
-      case 'displayName':
-        return {
-          label: 'Name',
-          className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
-        }
-      case 'publicationName':
-        return {
-          label: 'Publication',
-          className: 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300',
-        }
-      case 'publicationUrl':
-        return {
-          label: 'URL',
-          className: 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300',
-        }
-      default:
-        return {
-          label: 'Match',
-          className: 'bg-gray-600 text-white dark:bg-gray-900/30 dark:text-gray-300',
-        }
-    }
-  }
-
-  const badge = getMatchTypeBadge(result.matchType)
+  const badge = result.matchType && result.matchType in MATCH_TYPE_BADGES
+    ? MATCH_TYPE_BADGES[result.matchType as keyof typeof MATCH_TYPE_BADGES]
+    : DEFAULT_BADGE
 
   return (
     <button

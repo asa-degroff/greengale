@@ -127,30 +127,36 @@ export function SearchFilters({
     }
   }, [])
 
-  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setAuthorInput(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => searchActors(value), 300)
-  }
+  }, [searchActors])
 
-  function selectActor(actor: BlueskyActor) {
+  const selectActor = useCallback((actor: BlueskyActor) => {
     setAuthorInput(actor.handle)
     setIsOpen(false)
     setResults([])
     onAuthorChange(actor.handle)
-  }
+  }, [onAuthorChange])
 
-  function handleBlur() {
+  const handleBlur = useCallback(() => {
     // Delay to allow click on result
     setTimeout(() => {
-      const trimmed = authorInput.replace(/^@/, '').trim()
-      if (trimmed !== author) {
-        onAuthorChange(trimmed)
-      }
+      setAuthorInput(current => {
+        const trimmed = current.replace(/^@/, '').trim()
+        if (trimmed !== author) {
+          onAuthorChange(trimmed)
+        }
+        return current
+      })
     }, 150)
-  }
+  }, [author, onAuthorChange])
 
+  // Note: handleKeyDown uses current state values directly. Since this is passed
+  // to a native <input> element (not a memoized child component), recreating it
+  // on state changes is acceptable and keeps the code readable.
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -176,11 +182,11 @@ export function SearchFilters({
     }
   }
 
-  function clearAuthor() {
+  const clearAuthor = useCallback(() => {
     setAuthorInput('')
     onAuthorChange('')
     inputRef.current?.focus()
-  }
+  }, [onAuthorChange])
 
   // Click outside closes the author autocomplete dropdown
   useEffect(() => {
@@ -201,19 +207,19 @@ export function SearchFilters({
     }
   }, [selectedIndex])
 
-  function handleCustomDateChange(field: 'after' | 'before', value: string) {
+  const handleCustomDateChange = useCallback((field: 'after' | 'before', value: string) => {
     if (onCustomDatesChange) {
       onCustomDatesChange({
         ...customDates,
         [field]: value || undefined,
       })
     }
-  }
+  }, [customDates, onCustomDatesChange])
 
   // Check if "All" is effectively selected (no fields or all fields)
   const isAllSelected = fields.length === 0 || fields.length === FIELD_OPTIONS.length
 
-  function handleFieldToggle(field: SearchField) {
+  const handleFieldToggle = useCallback((field: SearchField) => {
     // If "All" is currently selected, clicking a field should select ONLY that field
     if (isAllSelected) {
       onFieldsChange([field])
@@ -232,12 +238,12 @@ export function SearchFilters({
       // Add field
       onFieldsChange([...fields, field])
     }
-  }
+  }, [isAllSelected, fields, onFieldsChange])
 
-  function handleAllToggle() {
+  const handleAllToggle = useCallback(() => {
     // Toggle to "All" mode (empty array = search all fields)
     onFieldsChange([])
-  }
+  }, [onFieldsChange])
 
   // Check if any extra filters are active (for badge indicator)
   const hasActiveFilters = author !== '' || dateRange !== 'any'
