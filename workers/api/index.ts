@@ -3178,6 +3178,7 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
       'app.greengale.document',
       'app.greengale.blog.entry',
       'com.whtwnd.blog.entry',
+      'site.standard.document',
     ]
 
     let found = false
@@ -3201,16 +3202,54 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
         const value = data.value
         const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
         const isV2 = collection === 'app.greengale.document'
+        const isSiteStandard = collection === 'site.standard.document'
 
         const title = (value.title as string) || null
-        const subtitle = (value.subtitle as string) || null
-        const content = (value.content as string) || ''
+        // site.standard uses 'description' instead of 'subtitle'
+        const subtitle = isSiteStandard
+          ? (value.description as string) || null
+          : (value.subtitle as string) || null
+
+        // Extract content based on document type (same logic as firehose indexer)
+        let content = ''
+        if (isSiteStandard) {
+          // Import Leaflet parser
+          const { extractLeafletContent, isLeafletContent } = await import('../lib/leaflet-parser')
+
+          // Gather all possible content sources and use the longest one
+          const candidates: string[] = []
+
+          // 1. textContent (standard.site spec)
+          if (value.textContent && typeof value.textContent === 'string') {
+            candidates.push(value.textContent)
+          }
+
+          // 2. content as Leaflet format
+          if (value.content && isLeafletContent(value.content)) {
+            const leafletText = extractLeafletContent(value.content)
+            if (leafletText) {
+              candidates.push(leafletText)
+            }
+          }
+
+          // 3. content as plain string
+          if (value.content && typeof value.content === 'string') {
+            candidates.push(value.content)
+          }
+
+          // Use the longest available content
+          content = candidates.reduce((longest, current) =>
+            current.length > longest.length ? current : longest, '')
+        } else {
+          content = (value.content as string) || ''
+        }
+
         const visibility = (value.visibility as string) || 'public'
-        const createdAt = isV2
+        const createdAt = (isV2 || isSiteStandard)
           ? (value.publishedAt as string) || null
           : (value.createdAt as string) || null
-        const hasLatex = source === 'greengale' && value.latex === true
-        const documentPath = isV2 ? (value.path as string) || null : null
+        const hasLatex = source === 'greengale' && !isSiteStandard && value.latex === true
+        const documentPath = (isV2 || isSiteStandard) ? (value.path as string) || null : null
         const documentUrl = isV2 ? (value.url as string) || null : null
 
         // Theme extraction
@@ -3291,6 +3330,9 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
           title,
           themePreset,
           firstImageCid,
+          contentLength: content.length,
+          contentPreviewLength: contentPreview.length,
+          contentSample: content.substring(0, 200),
           message: `Re-indexed post and invalidated caches`,
         }
         break
