@@ -325,8 +325,8 @@ export function SearchFilters({
         className="grid transition-[grid-template-rows] duration-200 ease-out"
         style={{ gridTemplateRows: isMoreFiltersOpen ? '1fr' : '0fr' }}
       >
-        <div className="overflow-hidden">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-end pt-2">
+        <div className="overflow-hidden px-0.5 pt-0.5 pb-1">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-end pt-1.5">
             {/* Author filter */}
             <div className="flex-1 min-w-0">
               <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">
