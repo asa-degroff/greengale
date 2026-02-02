@@ -2016,6 +2016,8 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         scoreBindings.push(containsPattern)
         scoreCases.push("WHEN LOWER(p.subtitle) LIKE ? ESCAPE '\\' THEN 0.9")
         scoreBindings.push(containsPattern)
+        scoreCases.push("WHEN EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_uri = p.uri AND LOWER(pt.tag) LIKE ? ESCAPE '\\') THEN 0.85")
+        scoreBindings.push(containsPattern)
         scoreCases.push("WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.8")
         scoreBindings.push(containsPattern)
       }
@@ -2252,8 +2254,18 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       if (post) results.push(post)
     }
 
+    // Deduplicate posts by title + author (keep first/highest scoring)
+    const seenPostKeys = new Set<string>()
+    const dedupedResults = results.filter(post => {
+      if (!post.title || !post.handle) return true
+      const key = `${post.handle}:${post.title.toLowerCase().trim()}`
+      if (seenPostKeys.has(key)) return false
+      seenPostKeys.add(key)
+      return true
+    })
+
     const response = {
-      posts: results,
+      posts: dedupedResults,
       query: searchTerm,
       mode,
       ...((semanticFailed || !hasContentFields) && mode === 'semantic' && { fallback: 'keyword' }),
@@ -2478,6 +2490,10 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
           whereConditions.push("LOWER(p.subtitle) LIKE ? ESCAPE '\\'")
           whereBindings.push(containsPattern)
 
+          // Tag matches (score 0.85)
+          scoreCases.push("WHEN EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_uri = p.uri AND LOWER(pt.tag) LIKE ? ESCAPE '\\') THEN 0.85")
+          scoreBindings.push(containsPattern)
+
           // Content matches (score 0.8)
           scoreCases.push("WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.8")
           scoreBindings.push(containsPattern)
@@ -2508,7 +2524,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
           whereConditions.push("LOWER(pub.url) LIKE ? ESCAPE '\\'")
           whereBindings.push(containsPattern)
 
-          // Tags (in WHERE only, not in score)
+          // Tags (also in WHERE for filtering)
           whereConditions.push("EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_uri = p.uri AND LOWER(pt.tag) LIKE ? ESCAPE '\\')")
           whereBindings.push(containsPattern)
 
@@ -2728,6 +2744,22 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
         result.matchedFields.some(f => selectedFields.includes(f))
       )
     }
+
+    // ========================================
+    // DEDUPLICATE posts by title + author
+    // ========================================
+    // Some authors (especially external site imports) have duplicate posts
+    // Keep only the first (highest scoring) occurrence per title+author
+    const seenPostKeys = new Set<string>()
+    filteredResults = filteredResults.filter(result => {
+      if (result.type !== 'post') return true
+      const post = result.data as { title?: string; handle?: string }
+      if (!post.title || !post.handle) return true
+      const key = `${post.handle}:${post.title.toLowerCase().trim()}`
+      if (seenPostKeys.has(key)) return false
+      seenPostKeys.add(key)
+      return true
+    })
 
     // ========================================
     // PAGINATION
@@ -6793,6 +6825,181 @@ app.get('/xrpc/app.greengale.admin.diagnoseShortPreviews', async (c) => {
     })
   } catch (error) {
     console.error('Diagnose short previews error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
+// Validate external URLs and clean up posts with dead links (404)
+// Usage: POST /xrpc/app.greengale.admin.validateExternalUrls?limit=50&dryRun=true&author=byjp.me&offset=0
+app.post('/xrpc/app.greengale.admin.validateExternalUrls', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const dryRun = c.req.query('dryRun') !== 'false'
+    const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+    const offset = parseInt(c.req.query('offset') || '0')
+    const authorFilter = c.req.query('author')?.trim()
+    const concurrency = Math.min(parseInt(c.req.query('concurrency') || '10'), 20)
+
+    // Build query with optional author filter
+    let sql = `
+      SELECT uri, author_did, title, external_url
+      FROM posts
+      WHERE external_url IS NOT NULL
+        AND external_url LIKE 'http%'
+        AND deleted_at IS NULL
+    `
+    const params: (string | number)[] = []
+
+    if (authorFilter) {
+      sql += ` AND author_did IN (SELECT did FROM authors WHERE handle = ?)`
+      params.push(authorFilter)
+    }
+
+    sql += ` ORDER BY indexed_at DESC LIMIT ? OFFSET ?`
+    params.push(limit)
+    params.push(offset)
+
+    const postsResult = await c.env.DB.prepare(sql).bind(...params).all()
+    const posts = postsResult.results || []
+
+    if (posts.length === 0) {
+      return c.json({
+        dryRun,
+        message: 'No posts with external URLs found',
+        checked: 0,
+        dead: 0,
+        alive: 0,
+      })
+    }
+
+    // Check URLs in parallel batches
+    const results: Array<{
+      uri: string
+      title: string
+      externalUrl: string
+      status: number | 'error'
+      isDead: boolean
+    }> = []
+
+    // Process in batches to respect concurrency limit
+    for (let i = 0; i < posts.length; i += concurrency) {
+      const batch = posts.slice(i, i + concurrency)
+      const batchResults = await Promise.all(
+        batch.map(async (post) => {
+          const url = post.external_url as string
+          try {
+            // Use HEAD request first (faster), fall back to GET if HEAD not allowed
+            let response = await fetch(url, {
+              method: 'HEAD',
+              redirect: 'follow',
+              headers: {
+                'User-Agent': 'GreenGale-LinkValidator/1.0',
+              },
+            })
+
+            // Some servers don't support HEAD, try GET
+            if (response.status === 405) {
+              response = await fetch(url, {
+                method: 'GET',
+                redirect: 'follow',
+                headers: {
+                  'User-Agent': 'GreenGale-LinkValidator/1.0',
+                },
+              })
+            }
+
+            const isDead = response.status === 404 || response.status === 410
+
+            return {
+              uri: post.uri as string,
+              title: post.title as string,
+              externalUrl: url,
+              status: response.status,
+              isDead,
+            }
+          } catch (err) {
+            // Network errors - treat as potentially dead but don't delete
+            return {
+              uri: post.uri as string,
+              title: post.title as string,
+              externalUrl: url,
+              status: 'error' as const,
+              isDead: false, // Don't delete on network errors
+            }
+          }
+        })
+      )
+      results.push(...batchResults)
+    }
+
+    const deadLinks = results.filter(r => r.isDead)
+    const aliveLinks = results.filter(r => !r.isDead && r.status !== 'error')
+    const errorLinks = results.filter(r => r.status === 'error')
+
+    if (dryRun) {
+      return c.json({
+        dryRun: true,
+        message: 'Set dryRun=false to delete posts with dead links',
+        offset,
+        limit,
+        checked: results.length,
+        hasMore: results.length === limit,
+        dead: deadLinks.length,
+        alive: aliveLinks.length,
+        errors: errorLinks.length,
+        deadPosts: deadLinks.map(r => ({
+          uri: r.uri,
+          title: r.title,
+          externalUrl: r.externalUrl,
+          status: r.status,
+        })),
+        errorPosts: errorLinks.length > 0 ? errorLinks.slice(0, 10).map(r => ({
+          uri: r.uri,
+          title: r.title,
+          externalUrl: r.externalUrl,
+        })) : undefined,
+      })
+    }
+
+    // Delete posts with dead links
+    let deleted = 0
+    const deleteErrors: string[] = []
+
+    for (const post of deadLinks) {
+      try {
+        // Soft delete
+        await c.env.DB.prepare(
+          'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
+        ).bind(post.uri).run()
+
+        // Delete embeddings
+        const { deletePostEmbeddings } = await import('../lib/embeddings')
+        await deletePostEmbeddings(c.env.VECTORIZE, post.uri)
+
+        deleted++
+      } catch (err) {
+        deleteErrors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      dryRun: false,
+      checked: results.length,
+      dead: deadLinks.length,
+      deleted,
+      alive: aliveLinks.length,
+      errors: errorLinks.length,
+      deleteErrors: deleteErrors.length > 0 ? deleteErrors : undefined,
+    })
+  } catch (error) {
+    console.error('Validate external URLs error:', error)
     return c.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       500
