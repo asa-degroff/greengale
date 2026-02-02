@@ -4,7 +4,8 @@ import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
 import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
-import { InlineSearchResults } from '@/components/InlineSearchResults'
+import { PostSearchResult } from '@/components/PostSearchResult'
+import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
 import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
 import { LoadingCube } from '@/components/LoadingCube'
 import { CloudField } from '@/components/AnimatedCloud'
@@ -16,6 +17,7 @@ import {
   type AppViewPost,
   type UnifiedSearchResult,
   type UnifiedPostResult,
+  type UnifiedAuthorResult,
   type SearchMode,
 } from '@/lib/appview'
 import { SearchFilters, dateRangeToParams, type DateRange, type CustomDateRange } from '@/components/SearchFilters'
@@ -79,6 +81,32 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
     handle: post.author.handle,
     displayName: post.author.displayName || undefined,
     avatar: post.author.avatar || undefined,
+  }
+}
+
+/**
+ * Convert UnifiedAuthorResult to the legacy SearchResult format
+ * expected by AuthorSearchResultRow
+ */
+function toSearchResult(author: UnifiedAuthorResult) {
+  // Map matchedFields to a single matchType for the badge
+  const matchedFields = author.matchedFields
+  let matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' = 'handle'
+  if (matchedFields.includes('pub')) {
+    matchType = 'publicationName'
+  } else if (matchedFields.includes('name')) {
+    matchType = 'displayName'
+  } else if (matchedFields.includes('handle')) {
+    matchType = 'handle'
+  }
+
+  return {
+    did: author.did,
+    handle: author.handle,
+    displayName: author.displayName,
+    avatarUrl: author.avatarUrl,
+    publication: author.publication,
+    matchType,
   }
 }
 
@@ -155,6 +183,12 @@ export function HomePage() {
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
   const [selectedExternalPost, setSelectedExternalPost] = useState<UnifiedPostResult | null>(null)
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1)
+  // Pagination state for search
+  const [searchOffset, setSearchOffset] = useState(0)
+  const [searchTotal, setSearchTotal] = useState(0)
+  const [searchHasMore, setSearchHasMore] = useState(false)
+  const [searchLoadingMore, setSearchLoadingMore] = useState(false)
+  const SEARCH_PAGE_SIZE = 25
 
   // AbortController for cancelling in-flight search requests
   const searchAbortControllerRef = useRef<AbortController | null>(null)
@@ -370,7 +404,16 @@ export function HomePage() {
   }
 
   // Search functions - wrapped in useCallback for stable references
-  const performSearch = useCallback(async (query: string, mode: SearchMode, author: string, dateRange: DateRange, customDates: CustomDateRange, fields: import('@/lib/appview').SearchField[]) => {
+  const performSearch = useCallback(async (
+    query: string,
+    mode: SearchMode,
+    author: string,
+    dateRange: DateRange,
+    customDates: CustomDateRange,
+    fields: import('@/lib/appview').SearchField[],
+    appendResults = false,
+    currentOffset = 0
+  ) => {
     // Cancel any in-flight request
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort()
@@ -378,14 +421,22 @@ export function HomePage() {
     searchAbortControllerRef.current = new AbortController()
     const signal = searchAbortControllerRef.current.signal
 
-    setSearchLoading(true)
+    if (appendResults) {
+      setSearchLoadingMore(true)
+    } else {
+      setSearchLoading(true)
+      setSearchOffset(0)
+    }
     setSearchFallbackUsed(false)
+
     try {
       const dateParams = dateRangeToParams(dateRange, customDates)
+      const newOffset = appendResults ? currentOffset + SEARCH_PAGE_SIZE : 0
 
       // Use unified search API (returns both posts and authors in a single paginated response)
       const response = await searchUnified(query, {
-        limit: 100,
+        limit: SEARCH_PAGE_SIZE,
+        offset: newOffset,
         mode,
         author: author || undefined,
         after: dateParams.after,
@@ -394,8 +445,18 @@ export function HomePage() {
         signal,
       })
 
-      setSearchResults(response.results)
-      setSearchSelectedIndex(-1)  // Reset selection on new results
+      if (appendResults) {
+        setSearchResults(prev => [...prev, ...response.results])
+        setSearchOffset(newOffset)
+      } else {
+        setSearchResults(response.results)
+        setSearchOffset(0)
+        setSearchSelectedIndex(-1)  // Reset selection on new results
+      }
+
+      setSearchTotal(response.total)
+      setSearchHasMore(response.hasMore)
+
       if (response.fallback === 'keyword') {
         setSearchFallbackUsed(true)
       }
@@ -404,11 +465,16 @@ export function HomePage() {
       if (err instanceof Error && err.name === 'AbortError') {
         return
       }
-      setSearchResults([])
+      if (!appendResults) {
+        setSearchResults([])
+        setSearchTotal(0)
+        setSearchHasMore(false)
+      }
     } finally {
       setSearchLoading(false)
+      setSearchLoadingMore(false)
     }
-  }, [])
+  }, [SEARCH_PAGE_SIZE])
 
   const handleClearSearch = useCallback(() => {
     setSearchActive(false)
@@ -419,13 +485,23 @@ export function HomePage() {
     setSearchDateRange('any')
     setSearchCustomDates({})
     setSearchFields([])
+    // Reset pagination
+    setSearchOffset(0)
+    setSearchTotal(0)
+    setSearchHasMore(false)
   }, [])
+
+  const handleLoadMoreSearch = useCallback(() => {
+    if (!searchLoadingMore && searchHasMore && searchQuery) {
+      performSearch(searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, true, searchOffset)
+    }
+  }, [searchLoadingMore, searchHasMore, searchQuery, performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchOffset])
 
   const handleSearchQueryChange = useCallback((query: string) => {
     setSearchActive(true)
     setSearchQuery(query)
     setSelectedExternalPost(null)  // Close any open preview panel when search changes
-    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields)
+    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, false, 0)
   }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields])
 
   // Debounced search trigger for filter changes
@@ -442,7 +518,7 @@ export function HomePage() {
     }
     filterDebounceRef.current = setTimeout(() => {
       if (query) {
-        performSearch(query, mode, author, dateRange, customDates, fields)
+        performSearch(query, mode, author, dateRange, customDates, fields, false, 0)
       }
     }, 150)
   }, [performSearch])
@@ -579,16 +655,108 @@ export function HomePage() {
         {/* Search Results or Posts Section with Tabs */}
         {searchActive ? (
           <div className="mb-12">
-            <InlineSearchResults
-              results={searchResults}
-              loading={searchLoading}
-              query={searchQuery}
-              onClear={handleClearSearch}
-              onExternalPostClick={setSelectedExternalPost}
-              fallbackUsed={searchFallbackUsed}
-              selectedIndex={searchSelectedIndex}
-              onSelectResult={setSearchSelectedIndex}
-            />
+            {/* Results header */}
+            <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--site-border)]">
+              {!searchLoading && (
+                <span className="text-sm text-[var(--site-text-secondary)]">
+                  {searchTotal > searchResults.length
+                    ? `Showing ${searchResults.length} of ${searchTotal} results`
+                    : `${searchTotal} result${searchTotal !== 1 ? 's' : ''}`
+                  } for "{searchQuery}"
+                  {searchFallbackUsed && (
+                    <span className="ml-1 text-amber-600 dark:text-amber-400">
+                      (keyword fallback)
+                    </span>
+                  )}
+                </span>
+              )}
+              <div className="flex-1" />
+              <button
+                onClick={handleClearSearch}
+                className="p-1.5 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] rounded-lg transition-colors"
+                aria-label="Clear search"
+                title="Clear search (Esc)"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Loading state */}
+            {searchLoading && (
+              <div className="flex flex-col items-center py-12">
+                <svg className="animate-spin h-8 w-8 text-[var(--site-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p className="mt-4 text-sm text-[var(--site-text-secondary)]">
+                  Searching for "{searchQuery}"...
+                </p>
+              </div>
+            )}
+
+            {/* Results list */}
+            {!searchLoading && searchResults.length > 0 && (
+              <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)] bg-[var(--site-bg)]">
+                {searchResults.map((result, index) => (
+                  result.type === 'author' ? (
+                    <AuthorSearchResultRow
+                      key={`author-${result.did}`}
+                      result={toSearchResult(result)}
+                      isSelected={index === searchSelectedIndex}
+                      onMouseEnter={() => setSearchSelectedIndex(index)}
+                    />
+                  ) : (
+                    <PostSearchResult
+                      key={result.uri}
+                      result={result}
+                      onExternalPostClick={result.externalUrl ? () => setSelectedExternalPost(result) : undefined}
+                      isSelected={index === searchSelectedIndex}
+                      onMouseEnter={() => setSearchSelectedIndex(index)}
+                    />
+                  )
+                ))}
+              </div>
+            )}
+
+            {/* Load More Button */}
+            {searchHasMore && !searchLoading && (
+              <div className="mt-6 text-center">
+                <button
+                  onClick={handleLoadMoreSearch}
+                  disabled={searchLoadingMore}
+                  className="px-6 py-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50"
+                >
+                  {searchLoadingMore ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Loading...
+                    </span>
+                  ) : (
+                    `Load More (${searchTotal - searchResults.length} remaining)`
+                  )}
+                </button>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!searchLoading && searchResults.length === 0 && searchQuery && (
+              <div className="text-center py-12">
+                <svg className="w-16 h-16 mx-auto text-[var(--site-text-secondary)] opacity-50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <p className="text-[var(--site-text-secondary)]">
+                  No results for "{searchQuery}"
+                </p>
+                <p className="text-sm text-[var(--site-text-secondary)] mt-1">
+                  Try a different search term or mode
+                </p>
+              </div>
+            )}
           </div>
         ) : appViewAvailable && (
           <div className="mb-12 min-h-[400px]">
