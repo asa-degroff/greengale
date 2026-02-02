@@ -29,7 +29,7 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
       case 'semantic':
         return {
           label: 'Semantic',
-          className: 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300',
+          className: 'bg-amber-500 text-white dark:bg-amber-900/30 dark:text-amber-300',
         }
       case 'keyword':
         return {
@@ -87,7 +87,7 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
             {badge.label}
           </span>
           {result.externalUrl && (
-            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300 flex items-center gap-1">
+            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
