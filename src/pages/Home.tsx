@@ -188,6 +188,8 @@ export function HomePage() {
   const [searchTotal, setSearchTotal] = useState(0)
   const [searchHasMore, setSearchHasMore] = useState(false)
   const [searchLoadingMore, setSearchLoadingMore] = useState(false)
+  // Track when count is stale (filters changed but results not yet loaded)
+  const [searchCountStale, setSearchCountStale] = useState(false)
   const SEARCH_PAGE_SIZE = 25
 
   // AbortController for cancelling in-flight search requests
@@ -426,6 +428,8 @@ export function HomePage() {
     } else {
       setSearchLoading(true)
       setSearchOffset(0)
+      // Mark count as stale immediately so it hides while loading
+      setSearchCountStale(true)
     }
     setSearchFallbackUsed(false)
 
@@ -456,6 +460,7 @@ export function HomePage() {
 
       setSearchTotal(response.total)
       setSearchHasMore(response.hasMore)
+      setSearchCountStale(false)  // Count is now fresh
 
       if (response.fallback === 'keyword') {
         setSearchFallbackUsed(true)
@@ -489,6 +494,7 @@ export function HomePage() {
     setSearchOffset(0)
     setSearchTotal(0)
     setSearchHasMore(false)
+    setSearchCountStale(false)
   }, [])
 
   const handleLoadMoreSearch = useCallback(() => {
@@ -657,7 +663,8 @@ export function HomePage() {
           <div className="mb-12">
             {/* Results header */}
             <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--site-border)]">
-              {!searchLoading && (
+              {/* Hide count while stale (filters changed, waiting for new results) */}
+              {!searchCountStale && (
                 <span className="text-sm text-[var(--site-text-secondary)]">
                   {searchTotal > searchResults.length
                     ? `Showing ${searchResults.length} of ${searchTotal} results`
@@ -669,6 +676,13 @@ export function HomePage() {
                     </span>
                   )}
                 </span>
+              )}
+              {/* Show loading indicator in header when reloading with existing results */}
+              {searchLoading && searchResults.length > 0 && (
+                <svg className="animate-spin h-4 w-4 text-[var(--site-text-secondary)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
               )}
               <div className="flex-1" />
               <button
@@ -683,8 +697,8 @@ export function HomePage() {
               </button>
             </div>
 
-            {/* Loading state */}
-            {searchLoading && (
+            {/* Loading state - only show when no existing results (initial search) */}
+            {searchLoading && searchResults.length === 0 && (
               <div className="flex flex-col items-center py-12">
                 <svg className="animate-spin h-8 w-8 text-[var(--site-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -696,8 +710,8 @@ export function HomePage() {
               </div>
             )}
 
-            {/* Results list */}
-            {!searchLoading && searchResults.length > 0 && (
+            {/* Results list - keep visible while loading new results */}
+            {searchResults.length > 0 && (
               <div className="border border-[var(--site-border)] rounded-lg overflow-hidden divide-y divide-[var(--site-border)] bg-[var(--site-bg)]">
                 {searchResults.map((result, index) => (
                   result.type === 'author' ? (
@@ -720,8 +734,8 @@ export function HomePage() {
               </div>
             )}
 
-            {/* Load More Button */}
-            {searchHasMore && !searchLoading && (
+            {/* Load More Button - hide while reloading results from filter change */}
+            {searchHasMore && !searchLoading && !searchCountStale && (
               <div className="mt-6 text-center">
                 <button
                   onClick={handleLoadMoreSearch}
@@ -743,8 +757,8 @@ export function HomePage() {
               </div>
             )}
 
-            {/* Empty state */}
-            {!searchLoading && searchResults.length === 0 && searchQuery && (
+            {/* Empty state - only show when finished loading and truly no results */}
+            {!searchLoading && !searchCountStale && searchResults.length === 0 && searchQuery && (
               <div className="text-center py-12">
                 <svg className="w-16 h-16 mx-auto text-[var(--site-text-secondary)] opacity-50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
