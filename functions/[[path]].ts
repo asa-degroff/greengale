@@ -439,6 +439,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
   }
 
+  // Handle sitemap.xml
+  if (url.pathname === '/sitemap.xml') {
+    const workerUrl = 'https://greengale.asadegroff.workers.dev/sitemap.xml'
+    const workerResponse = await fetch(workerUrl)
+    return new Response(await workerResponse.text(), {
+      status: workerResponse.status,
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': workerResponse.headers.get('Cache-Control') || 'public, max-age=600, s-maxage=3600',
+      },
+    })
+  }
+
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
   const cf = (request as Request & { cf?: CfProperties }).cf

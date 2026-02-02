@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import { FirehoseConsumer } from '../firehose'
 import { generateOGImage, generateHomepageOGImage, generateProfileOGImage } from '../lib/og-image'
 import { buildRSSFeed, fetchPostContent, markdownToHtml, type RSSChannel, type RSSItem } from '../lib/rss'
+import { buildSitemap, type SitemapUrl } from '../lib/sitemap'
 
 export { FirehoseConsumer }
 
@@ -732,6 +733,115 @@ app.get('/feed/:filename', async (c) => {
   } catch (error) {
     console.error('Error generating author RSS feed:', error)
     return c.json({ error: 'Failed to generate feed' }, 500)
+  }
+})
+
+// =============================================================================
+// Sitemap
+// =============================================================================
+
+// Cache TTL for sitemap (1 hour - search engines don't need real-time updates)
+const SITEMAP_CACHE_TTL = 60 * 60
+
+// Sitemap response cache headers (10 minutes browser cache, 1 hour CDN cache)
+const SITEMAP_CACHE_CONTROL = 'public, max-age=600, s-maxage=3600'
+
+/**
+ * Generate sitemap.xml for search engine indexing
+ * Includes homepage, all author pages, and all public posts
+ */
+app.get('/sitemap.xml', async (c) => {
+  const cacheKey = 'sitemap'
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey)
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': SITEMAP_CACHE_CONTROL,
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    const urls: SitemapUrl[] = []
+
+    // Add homepage
+    urls.push({
+      loc: BASE_URL,
+      changefreq: 'daily',
+      priority: 1.0,
+    })
+
+    // Get all authors with posts
+    const authorsResult = await c.env.DB.prepare(`
+      SELECT DISTINCT a.handle, MAX(p.created_at) as last_post
+      FROM authors a
+      INNER JOIN posts p ON a.did = p.author_did
+      WHERE p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+      GROUP BY a.handle
+      ORDER BY last_post DESC
+    `).all()
+
+    // Add author pages
+    for (const author of authorsResult.results || []) {
+      const handle = author.handle as string
+      const lastPost = author.last_post as string | null
+
+      urls.push({
+        loc: `${BASE_URL}/${handle}`,
+        lastmod: lastPost || undefined,
+        changefreq: 'weekly',
+        priority: 0.8,
+      })
+    }
+
+    // Get all public posts
+    const postsResult = await c.env.DB.prepare(`
+      SELECT a.handle, p.rkey, p.created_at
+      FROM posts p
+      INNER JOIN authors a ON p.author_did = a.did
+      WHERE p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+      ORDER BY p.created_at DESC
+      LIMIT 50000
+    `).all()
+
+    // Add post pages
+    for (const post of postsResult.results || []) {
+      const handle = post.handle as string
+      const rkey = post.rkey as string
+      const createdAt = post.created_at as string
+
+      urls.push({
+        loc: `${BASE_URL}/${handle}/${rkey}`,
+        lastmod: createdAt,
+        changefreq: 'monthly',
+        priority: 0.6,
+      })
+    }
+
+    // Build sitemap
+    const xml = buildSitemap(urls)
+
+    // Cache for 1 hour
+    await c.env.CACHE.put(cacheKey, xml, {
+      expirationTtl: SITEMAP_CACHE_TTL,
+    })
+
+    return new Response(xml, {
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': SITEMAP_CACHE_CONTROL,
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating sitemap:', error)
+    return c.json({ error: 'Failed to generate sitemap' }, 500)
   }
 })
 
