@@ -17,7 +17,7 @@ import {
   type AppViewPost,
   type PostSearchResult,
   type SearchMode,
-  type UnifiedSearchResult,
+  type LegacyUnifiedSearchResult,
 } from '@/lib/appview'
 import { SearchFilters, dateRangeToParams, type DateRange, type CustomDateRange } from '@/components/SearchFilters'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
@@ -146,7 +146,7 @@ export function HomePage() {
   // Search state
   const [searchActive, setSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<UnifiedSearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<LegacyUnifiedSearchResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
   const [searchAuthor, setSearchAuthor] = useState('')
@@ -399,7 +399,7 @@ export function HomePage() {
       ])
 
       // Merge: authors first (excluding post/tag matches since posts are in main results), then posts
-      const unified: UnifiedSearchResult[] = [
+      const unified: LegacyUnifiedSearchResult[] = [
         ...pubResponse.results
           .filter(r => r.matchType !== 'postTitle' && r.matchType !== 'tag')
           .map(r => ({ type: 'author' as const, data: r })),

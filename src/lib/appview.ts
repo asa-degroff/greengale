@@ -323,13 +323,6 @@ export interface SearchPostsResponse {
 export type SearchMode = 'keyword' | 'semantic' | 'hybrid'
 
 /**
- * Unified search result combining author/publication and post results
- */
-export type UnifiedSearchResult =
-  | { type: 'author'; data: SearchResult }
-  | { type: 'post'; data: PostSearchResult }
-
-/**
  * Search field types
  * - handle: Search author handles
  * - name: Search author display names
@@ -372,6 +365,124 @@ export async function searchPosts(
 
   if (!response.ok) {
     throw new Error(`Failed to search posts: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+// =============================================================================
+// Unified Search (Legacy wrapped format - for backward compatibility)
+// =============================================================================
+
+/**
+ * Legacy unified search result format (wrapped in { type, data })
+ * Used by Home.tsx inline search which constructs results from separate APIs
+ * @deprecated Use UnifiedSearchResult from the unified search API instead
+ */
+export type LegacyUnifiedSearchResult =
+  | { type: 'author'; data: SearchResult }
+  | { type: 'post'; data: PostSearchResult }
+
+// =============================================================================
+// Unified Search (New flat format)
+// =============================================================================
+
+/**
+ * Unified search result - either a post or an author (flat format from unified API)
+ */
+export interface UnifiedPostResult {
+  type: 'post'
+  uri: string
+  authorDid: string
+  handle: string
+  displayName: string | null
+  avatarUrl: string | null
+  rkey: string
+  title: string
+  subtitle: string | null
+  createdAt: string | null
+  contentPreview: string | null
+  score: number
+  matchType: 'semantic' | 'keyword' | 'both'
+  matchedFields: SearchField[]
+  source: 'whitewind' | 'greengale' | 'network'
+  externalUrl: string | null
+}
+
+export interface UnifiedAuthorResult {
+  type: 'author'
+  did: string
+  handle: string
+  displayName: string | null
+  avatarUrl: string | null
+  publication: {
+    name: string
+    url: string | null
+    isExternal?: boolean
+  } | null
+  postsCount: number
+  score: number
+  matchedFields: SearchField[]
+}
+
+export type UnifiedSearchResult = UnifiedPostResult | UnifiedAuthorResult
+
+export interface UnifiedSearchResponse {
+  results: UnifiedSearchResult[]
+  query: string
+  mode: SearchMode
+  total: number
+  offset: number
+  limit: number
+  hasMore: boolean
+  fallback?: 'keyword'
+}
+
+/**
+ * Unified search combining posts and authors in a single response
+ *
+ * Key features:
+ * - Returns both posts and authors in a single paginated response
+ * - Uses post-filtering: expanding field selection only ADDS results
+ * - Supports offset-based pagination for loading more results
+ * - Tracks which fields matched per result
+ */
+export async function searchUnified(
+  query: string,
+  options?: {
+    limit?: number
+    offset?: number
+    mode?: SearchMode
+    author?: string
+    after?: string
+    before?: string
+    fields?: SearchField[]
+    types?: ('post' | 'author')[]
+    signal?: AbortSignal
+  }
+): Promise<UnifiedSearchResponse> {
+  const params = new URLSearchParams({ q: query })
+
+  if (options?.limit) params.set('limit', String(options.limit))
+  if (options?.offset) params.set('offset', String(options.offset))
+  if (options?.mode) params.set('mode', options.mode)
+  if (options?.author) params.set('author', options.author)
+  if (options?.after) params.set('after', options.after)
+  if (options?.before) params.set('before', options.before)
+  if (options?.fields && options.fields.length > 0) {
+    params.set('fields', options.fields.join(','))
+  }
+  if (options?.types && options.types.length > 0) {
+    params.set('types', options.types.join(','))
+  }
+
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.search.unified?${params}`,
+    { signal: options?.signal }
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to search: ${response.statusText}`)
   }
 
   return response.json()

@@ -1,10 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
-import type { PostSearchResult as PostSearchResultType, UnifiedSearchResult } from '@/lib/appview'
+import type { PostSearchResult as PostSearchResultType, LegacyUnifiedSearchResult } from '@/lib/appview'
 
 interface InlineSearchResultsProps {
-  results: UnifiedSearchResult[]
+  results: LegacyUnifiedSearchResult[]
   loading: boolean
   query: string
   onClear: () => void

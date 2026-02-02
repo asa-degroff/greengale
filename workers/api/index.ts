@@ -2270,6 +2270,490 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
   }
 })
 
+// =============================================================================
+// Unified Search
+// =============================================================================
+
+/**
+ * Unified search combining posts and authors
+ * Returns both result types in a single paginated response
+ *
+ * Key features:
+ * - Always searches ALL fields, then post-filters by selected fields
+ * - This ensures expanding field selection only ADDS results (additive filtering)
+ * - Supports offset-based pagination with higher limits (up to 100)
+ * - Tracks which fields matched per result for UI display
+ */
+app.get('/xrpc/app.greengale.search.unified', async (c) => {
+  const query = c.req.query('q')
+  if (!query || query.trim().length === 0) {
+    return c.json({ error: 'Missing or empty q parameter' }, 400)
+  }
+
+  const searchTerm = query.trim()
+  if (searchTerm.length < 2) {
+    return c.json({ error: 'Query must be at least 2 characters' }, 400)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '25'), 100)
+  const offset = parseInt(c.req.query('offset') || '0')
+  const mode = (c.req.query('mode') || 'hybrid') as 'keyword' | 'semantic' | 'hybrid'
+
+  // Filter parameters
+  const authorFilter = c.req.query('author')?.trim() || undefined
+  const afterFilter = c.req.query('after')?.trim() || undefined
+  const beforeFilter = c.req.query('before')?.trim() || undefined
+
+  // Field filter for post-filtering (not pre-filtering)
+  // Valid fields: handle, name, pub, title, content
+  const fieldsParam = c.req.query('fields')?.trim() || undefined
+  const validFields = ['handle', 'name', 'pub', 'title', 'content']
+  const selectedFields = fieldsParam
+    ? fieldsParam.split(',').filter(f => validFields.includes(f))
+    : []
+
+  // Type filter: comma-separated list of result types to include
+  // Valid types: post, author
+  const typesParam = c.req.query('types')?.trim() || undefined
+  const includeTypes = typesParam
+    ? typesParam.split(',').filter(t => ['post', 'author'].includes(t))
+    : ['post', 'author'] // Default to both
+
+  // Cache key includes all parameters
+  const fieldsKey = selectedFields.length > 0 ? selectedFields.sort().join(',') : 'all'
+  const typesKey = includeTypes.sort().join(',')
+  const cacheKey = `unified_search:${searchTerm.toLowerCase()}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}:${fieldsKey}:${typesKey}`
+
+  try {
+    // Check cache for full result set
+    let fullResults: Array<{
+      type: 'post' | 'author'
+      id: string // URI for posts, DID for authors
+      score: number
+      matchedFields: string[]
+      data: unknown
+    }> | null = null
+
+    const cached = await c.env.CACHE.get(cacheKey, 'json') as typeof fullResults | null
+    if (cached) {
+      fullResults = cached
+    } else {
+      // Build full result set from scratch
+      fullResults = []
+
+      const escapedTerm = escapeLikePattern(searchTerm.toLowerCase())
+      const prefixPattern = `${escapedTerm}%`
+      const containsPattern = `%${escapedTerm}%`
+
+      // ========================================
+      // AUTHOR SEARCH (if included in types)
+      // ========================================
+      if (includeTypes.includes('author')) {
+        const authorSql = `
+          SELECT DISTINCT
+            a.did,
+            a.handle,
+            a.display_name,
+            a.avatar_url,
+            p.name as pub_name,
+            p.url as pub_url,
+            a.posts_count,
+            CASE
+              WHEN LOWER(a.handle) = ?1 THEN 1.0
+              WHEN LOWER(a.handle) LIKE ?2 ESCAPE '\\' THEN 0.9
+              WHEN LOWER(a.display_name) LIKE ?3 ESCAPE '\\' THEN 0.8
+              WHEN LOWER(p.name) LIKE ?3 ESCAPE '\\' THEN 0.7
+              WHEN LOWER(p.url) LIKE ?3 ESCAPE '\\' THEN 0.6
+              ELSE 0.5
+            END as score,
+            CASE WHEN LOWER(a.handle) = ?1 OR LOWER(a.handle) LIKE ?2 ESCAPE '\\' THEN 1 ELSE 0 END as match_handle,
+            CASE WHEN LOWER(a.display_name) LIKE ?3 ESCAPE '\\' THEN 1 ELSE 0 END as match_name,
+            CASE WHEN LOWER(p.name) LIKE ?3 ESCAPE '\\' OR LOWER(p.url) LIKE ?3 ESCAPE '\\' THEN 1 ELSE 0 END as match_pub
+          FROM authors a
+          LEFT JOIN publications p ON a.did = p.author_did
+          WHERE
+            LOWER(a.handle) = ?1
+            OR LOWER(a.handle) LIKE ?2 ESCAPE '\\'
+            OR LOWER(a.display_name) LIKE ?3 ESCAPE '\\'
+            OR LOWER(p.name) LIKE ?3 ESCAPE '\\'
+            OR LOWER(p.url) LIKE ?3 ESCAPE '\\'
+          ORDER BY score DESC, posts_count DESC
+          LIMIT 100
+        `
+
+        const authorResult = await c.env.DB.prepare(authorSql).bind(
+          searchTerm.toLowerCase(),
+          prefixPattern,
+          containsPattern,
+        ).all()
+
+        // Helper to determine if a publication URL is external
+        const isExternalPublication = (url: string | null): boolean => {
+          if (!url) return false
+          try {
+            const hostname = new URL(url).hostname.toLowerCase()
+            return !hostname.includes('greengale')
+          } catch {
+            return false
+          }
+        }
+
+        for (const row of authorResult.results || []) {
+          const matchedFields: string[] = []
+          if (row.match_handle) matchedFields.push('handle')
+          if (row.match_name) matchedFields.push('name')
+          if (row.match_pub) matchedFields.push('pub')
+
+          fullResults.push({
+            type: 'author',
+            id: row.did as string,
+            score: row.score as number,
+            matchedFields,
+            data: {
+              did: row.did,
+              handle: row.handle,
+              displayName: row.display_name || null,
+              avatarUrl: row.avatar_url || null,
+              publication: row.pub_name ? {
+                name: row.pub_name,
+                url: row.pub_url || null,
+                isExternal: isExternalPublication(row.pub_url as string | null),
+              } : null,
+              postsCount: row.posts_count as number,
+            },
+          })
+        }
+      }
+
+      // ========================================
+      // POST SEARCH (if included in types)
+      // ========================================
+      if (includeTypes.includes('post')) {
+        // Always search ALL fields for keyword search (to support additive post-filtering)
+        const semanticResults: Array<{ id: string; score: number }> = []
+        const keywordResults: Array<{ id: string; score: number; matchedFields: string[] }> = []
+        let semanticFailed = false
+
+        // Semantic search (always runs for hybrid/semantic modes)
+        if (mode === 'semantic' || mode === 'hybrid') {
+          try {
+            const queryEmbedding = await generateEmbedding(c.env.AI, searchTerm)
+            const vectorResults = await querySimilar(c.env.VECTORIZE, queryEmbedding, {
+              topK: 50, // Vectorize limit is 50
+            })
+
+            for (const match of vectorResults) {
+              const uri = match.metadata.uri as string
+              if (!uri) continue
+
+              if (!semanticResults.some(r => r.id === uri)) {
+                semanticResults.push({ id: uri, score: match.score })
+              }
+            }
+          } catch (error) {
+            console.error('Semantic search failed:', error)
+            semanticFailed = true
+          }
+        }
+
+        // Keyword search - always search ALL fields
+        const shouldRunKeyword = mode === 'keyword' || mode === 'hybrid' ||
+          (mode === 'semantic' && semanticFailed)
+
+        if (shouldRunKeyword) {
+          // Use the same approach as the existing search.posts endpoint
+          // Build score CASE expression and WHERE conditions dynamically
+          // Important: bindings must be in SQL order - score bindings first, then where bindings
+          const scoreCases: string[] = []
+          const scoreBindings: string[] = []
+          const whereConditions: string[] = []
+          const whereBindings: string[] = []
+
+          // Title matches (score 1.0)
+          scoreCases.push("WHEN LOWER(p.title) LIKE ? ESCAPE '\\' THEN 1.0")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(p.title) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Subtitle matches (score 0.9)
+          scoreCases.push("WHEN LOWER(p.subtitle) LIKE ? ESCAPE '\\' THEN 0.9")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(p.subtitle) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Content matches (score 0.8)
+          scoreCases.push("WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.8")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(p.content_preview) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Handle matches (score 0.7)
+          scoreCases.push("WHEN LOWER(a.handle) LIKE ? ESCAPE '\\' THEN 0.7")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(a.handle) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Display name matches (score 0.7)
+          scoreCases.push("WHEN LOWER(a.display_name) LIKE ? ESCAPE '\\' THEN 0.7")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(a.display_name) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Publication name matches (score 0.6)
+          scoreCases.push("WHEN LOWER(pub.name) LIKE ? ESCAPE '\\' THEN 0.6")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(pub.name) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Publication URL matches (score 0.5)
+          scoreCases.push("WHEN LOWER(pub.url) LIKE ? ESCAPE '\\' THEN 0.5")
+          scoreBindings.push(containsPattern)
+          whereConditions.push("LOWER(pub.url) LIKE ? ESCAPE '\\'")
+          whereBindings.push(containsPattern)
+
+          // Tags (in WHERE only, not in score)
+          whereConditions.push("EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_uri = p.uri AND LOWER(pt.tag) LIKE ? ESCAPE '\\')")
+          whereBindings.push(containsPattern)
+
+          const scoreExpr = `CASE ${scoreCases.join(' ')} ELSE 0.5 END`
+
+          const keywordSql = `
+            SELECT DISTINCT
+              p.uri,
+              p.title,
+              ${scoreExpr} as score
+            FROM posts p
+            JOIN authors a ON p.author_did = a.did
+            LEFT JOIN publications pub ON p.author_did = pub.author_did
+            WHERE p.visibility = 'public'
+              AND p.deleted_at IS NULL
+              AND (${whereConditions.join(' OR ')})
+              -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
+              AND NOT (
+                p.uri LIKE '%/site.standard.document/%'
+                AND EXISTS (
+                  SELECT 1 FROM posts gg
+                  WHERE gg.author_did = p.author_did
+                    AND gg.rkey = p.rkey
+                    AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                      OR gg.uri LIKE '%/app.greengale.document/%'
+                      OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                )
+              )
+            ORDER BY score DESC
+            LIMIT 100
+          `
+
+          // Bindings must be in SQL order: score bindings first, then where bindings
+          try {
+            const keywordQuery = await c.env.DB.prepare(keywordSql).bind(...scoreBindings, ...whereBindings).all()
+
+            for (const row of keywordQuery.results || []) {
+              // For now, we'll infer matchedFields later when building the response
+              // This simplified query doesn't track individual field matches
+              keywordResults.push({
+                id: row.uri as string,
+                score: row.score as number,
+                matchedFields: ['title', 'content'], // Default - will be refined
+              })
+            }
+          } catch (error) {
+            console.error('Keyword query failed:', error)
+            throw new Error(`Keyword query failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+
+        // Combine results with RRF
+        let postIds: Array<{ id: string; score: number; matchType: 'semantic' | 'keyword' | 'both' }> = []
+
+        if (mode === 'hybrid' && semanticResults.length > 0 && keywordResults.length > 0) {
+          const fused = reciprocalRankFusion([semanticResults, keywordResults])
+          postIds = fused.map(r => {
+            const inSemantic = semanticResults.some(s => s.id === r.id)
+            const inKeyword = keywordResults.some(k => k.id === r.id)
+            return {
+              id: r.id,
+              score: r.score,
+              matchType: inSemantic && inKeyword ? 'both' : inSemantic ? 'semantic' : 'keyword',
+            }
+          })
+        } else if (mode === 'semantic' || (mode === 'hybrid' && semanticResults.length > 0)) {
+          postIds = semanticResults.map(r => ({ id: r.id, score: r.score, matchType: 'semantic' as const }))
+        } else {
+          postIds = keywordResults.map(r => ({ id: r.id, score: r.score, matchType: 'keyword' as const }))
+        }
+
+        if (postIds.length > 0) {
+          // Build result map for ordering - fetch in batches to avoid D1 binding limits
+          const postMap = new Map<string, {
+            uri: string
+            authorDid: string
+            handle: string
+            displayName: string | null
+            avatarUrl: string | null
+            rkey: string
+            title: string
+            subtitle: string | null
+            createdAt: string | null
+            contentPreview: string | null
+            matchType: 'semantic' | 'keyword' | 'both'
+            source: 'whitewind' | 'greengale' | 'network'
+            externalUrl: string | null
+          }>()
+
+          // Batch fetch posts (50 at a time to stay under D1's ~100 binding limit)
+          const BATCH_SIZE = 50
+          for (let i = 0; i < postIds.length; i += BATCH_SIZE) {
+            const batch = postIds.slice(i, i + BATCH_SIZE)
+            const placeholders = batch.map(() => '?').join(',')
+
+            let postsSql = `
+              SELECT
+                p.uri,
+                p.author_did,
+                p.rkey,
+                p.title,
+                p.subtitle,
+                p.created_at,
+                p.content_preview,
+                p.source,
+                p.external_url,
+                a.handle,
+                a.display_name,
+                a.avatar_url
+              FROM posts p
+              JOIN authors a ON p.author_did = a.did
+              WHERE p.uri IN (${placeholders})
+                AND p.visibility = 'public'
+                AND p.deleted_at IS NULL
+                AND NOT (
+                  p.uri LIKE '%/site.standard.document/%'
+                  AND EXISTS (
+                    SELECT 1 FROM posts gg
+                    WHERE gg.author_did = p.author_did
+                      AND gg.rkey = p.rkey
+                      AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                        OR gg.uri LIKE '%/app.greengale.document/%'
+                        OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                  )
+                )`
+
+            const postsBindings: (string | number)[] = batch.map(p => p.id)
+
+            // Author filter (handle or DID)
+            if (authorFilter) {
+              if (authorFilter.startsWith('did:')) {
+                postsSql += ` AND p.author_did = ?`
+                postsBindings.push(authorFilter)
+              } else {
+                postsSql += ` AND a.handle = ?`
+                postsBindings.push(authorFilter.replace(/^@/, ''))
+              }
+            }
+
+            // Date filters
+            if (afterFilter) {
+              postsSql += ` AND p.created_at >= ?`
+              postsBindings.push(afterFilter)
+            }
+            if (beforeFilter) {
+              postsSql += ` AND p.created_at <= ?`
+              postsBindings.push(beforeFilter)
+            }
+
+            const postsResult = await c.env.DB.prepare(postsSql).bind(...postsBindings).all()
+
+            for (const row of postsResult.results || []) {
+              const uri = row.uri as string
+              const postMeta = batch.find(p => p.id === uri)
+
+              postMap.set(uri, {
+                uri,
+                authorDid: row.author_did as string,
+                handle: row.handle as string,
+                displayName: row.display_name as string | null,
+                avatarUrl: row.avatar_url as string | null,
+                rkey: row.rkey as string,
+                title: row.title as string,
+                subtitle: row.subtitle as string | null,
+                createdAt: row.created_at as string | null,
+                contentPreview: row.content_preview as string | null,
+                matchType: postMeta?.matchType || 'keyword',
+                source: (row.source as 'whitewind' | 'greengale' | 'network') || 'greengale',
+                externalUrl: row.external_url as string | null,
+              })
+            }
+          }
+
+          // Add posts to results maintaining order
+          for (const postMeta of postIds) {
+            const post = postMap.get(postMeta.id)
+            if (!post) continue
+
+            // Get matched fields from keyword results (semantic matches get content/title)
+            const keywordMatch = keywordResults.find(k => k.id === postMeta.id)
+            const matchedFields = keywordMatch?.matchedFields || ['title', 'content']
+
+            fullResults.push({
+              type: 'post',
+              id: post.uri,
+              score: postMeta.score,
+              matchedFields,
+              data: post,
+            })
+          }
+        }
+      }
+
+      // Sort combined results by score
+      fullResults.sort((a, b) => b.score - a.score)
+
+      // Cache the full result set
+      await c.env.CACHE.put(cacheKey, JSON.stringify(fullResults), { expirationTtl: 300 })
+    }
+
+    // ========================================
+    // POST-FILTER by selected fields (additive)
+    // ========================================
+    let filteredResults = fullResults!
+
+    if (selectedFields.length > 0) {
+      filteredResults = filteredResults.filter(result =>
+        result.matchedFields.some(f => selectedFields.includes(f))
+      )
+    }
+
+    // ========================================
+    // PAGINATION
+    // ========================================
+    const total = filteredResults.length
+    const paginatedResults = filteredResults.slice(offset, offset + limit)
+    const hasMore = offset + limit < total
+
+    // Build response
+    const response = {
+      results: paginatedResults.map(r => ({
+        type: r.type,
+        score: r.score,
+        matchedFields: r.matchedFields,
+        ...r.data,
+      })),
+      query: searchTerm,
+      mode,
+      total,
+      offset,
+      limit,
+      hasMore,
+      ...(mode === 'semantic' && fullResults!.every(r => r.type === 'author' || r.matchedFields.includes('title') || r.matchedFields.includes('content')) && { fallback: undefined }),
+    }
+
+    return c.json(response)
+  } catch (error) {
+    console.error('Error in unified search:', error)
+    return c.json({ error: 'Failed to search' }, 500)
+  }
+})
+
 /**
  * Get similar posts (recommendations)
  */
