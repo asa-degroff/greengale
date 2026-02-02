@@ -2807,7 +2807,7 @@ app.post('/xrpc/app.greengale.admin.reindexEmptyPreviews', async (c) => {
 
 // Re-index posts with short content previews (admin only)
 // This expands previews that were truncated at the old 1000-char limit to the new 3000-char limit
-// Usage: POST /xrpc/app.greengale.admin.expandContentPreviews?limit=50
+// Usage: POST /xrpc/app.greengale.admin.expandContentPreviews?limit=50&concurrency=10
 app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
   const authError = requireAdmin(c)
   if (authError) {
@@ -2819,6 +2819,8 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
   const threshold = Math.min(parseInt(c.req.query('threshold') || '1000'), 2999)
   // Minimum length to consider (default 250 to catch 300-char truncated posts)
   const minLength = Math.max(parseInt(c.req.query('minLength') || '250'), 100)
+  // Concurrency for parallel processing (default 10, max 20)
+  const concurrency = Math.min(parseInt(c.req.query('concurrency') || '10'), 20)
 
   try {
     // Find posts where content_preview is between minLength and threshold chars
@@ -2846,7 +2848,8 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
     let failed = 0
     const errors: string[] = []
 
-    for (const post of posts.results) {
+    // Process in parallel batches
+    const reindexPost = async (post: { uri: unknown }) => {
       try {
         const response = await firehose.fetch('http://internal/reindex', {
           method: 'POST',
@@ -2855,15 +2858,28 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
         })
 
         if (response.ok) {
-          processed++
+          return { success: true }
         } else {
           const errorData = await response.json().catch(() => ({ error: 'Unknown' })) as { error?: string }
-          failed++
-          errors.push(`${post.uri}: ${errorData.error || response.statusText}`)
+          return { success: false, error: `${post.uri}: ${errorData.error || response.statusText}` }
         }
       } catch (err) {
-        failed++
-        errors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        return { success: false, error: `${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}` }
+      }
+    }
+
+    // Process in batches of `concurrency` posts at a time
+    for (let i = 0; i < posts.results.length; i += concurrency) {
+      const batch = posts.results.slice(i, i + concurrency)
+      const results = await Promise.all(batch.map(reindexPost))
+
+      for (const result of results) {
+        if (result.success) {
+          processed++
+        } else {
+          failed++
+          if (result.error) errors.push(result.error)
+        }
       }
     }
 
@@ -2873,6 +2889,7 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
       processed,
       failed,
       threshold,
+      concurrency,
       errors: errors.slice(0, 10), // Only return first 10 errors
     })
   } catch (error) {
@@ -5015,6 +5032,250 @@ app.post('/xrpc/app.greengale.admin.discoverWhiteWindAuthors', async (c) => {
     console.error('Error discovering WhiteWind authors:', error)
     return c.json({
       error: 'Failed to discover WhiteWind authors',
+      details: error instanceof Error ? error.message : 'Unknown',
+    }, 500)
+  }
+})
+
+/**
+ * Discover and backfill site.standard.publication records (admin only)
+ * Used to index publications from Leaflet, Blento, and other platforms.
+ * Usage: POST /xrpc/app.greengale.admin.discoverSiteStandardPublications?limit=20&dryRun=true
+ * Query params:
+ *   - limit: Max publications to process per call (default 20, max 100)
+ *   - cursor: Pagination cursor from previous call
+ *   - dryRun: Preview without indexing
+ *   - skipExisting: Skip publications that already exist in DB (default true)
+ *   - urlFilter: Only index publications matching this URL pattern (e.g., "leaflet.pub")
+ */
+app.post('/xrpc/app.greengale.admin.discoverSiteStandardPublications', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100)
+  const inputCursor = c.req.query('cursor') || undefined
+  const dryRun = c.req.query('dryRun') === 'true'
+  const skipExisting = c.req.query('skipExisting') !== 'false' // Default true
+  const urlFilter = c.req.query('urlFilter') || undefined // e.g., "leaflet.pub"
+
+  // Use regional relay
+  const RELAY_URL = 'https://relay1.us-east.bsky.network'
+  const COLLECTION = 'site.standard.publication'
+
+  try {
+    // Step 1: Fetch DIDs with site.standard.publication from the relay
+    const listUrl = new URL(`${RELAY_URL}/xrpc/com.atproto.sync.listReposByCollection`)
+    listUrl.searchParams.set('collection', COLLECTION)
+    listUrl.searchParams.set('limit', String(limit * 3)) // Fetch extra to account for filtering
+    if (inputCursor) {
+      listUrl.searchParams.set('cursor', inputCursor)
+    }
+
+    const listResponse = await fetch(listUrl.toString())
+    if (!listResponse.ok) {
+      const errorText = await listResponse.text()
+      return c.json({
+        error: 'Failed to fetch from relay',
+        status: listResponse.status,
+        details: errorText,
+      }, 500)
+    }
+
+    const listData = await listResponse.json() as {
+      repos?: Array<{ did: string }>
+      cursor?: string
+    }
+
+    if (!listData.repos?.length) {
+      return c.json({
+        success: true,
+        message: 'No more site.standard.publication records to discover',
+        discovered: 0,
+        processed: 0,
+        cursor: null,
+      })
+    }
+
+    // Step 2: Filter out publications we've already indexed (if skipExisting)
+    let didsToProcess = listData.repos.map(r => r.did)
+
+    if (skipExisting) {
+      // Batch the query to avoid SQLite variable limit
+      const BATCH_SIZE = 50
+      const existingDids = new Set<string>()
+
+      for (let i = 0; i < didsToProcess.length; i += BATCH_SIZE) {
+        const batch = didsToProcess.slice(i, i + BATCH_SIZE)
+        const placeholders = batch.map(() => '?').join(',')
+        const existingPubs = await c.env.DB.prepare(`
+          SELECT author_did FROM publications
+          WHERE author_did IN (${placeholders})
+        `).bind(...batch).all()
+
+        for (const r of existingPubs.results || []) {
+          existingDids.add(r.author_did as string)
+        }
+      }
+
+      didsToProcess = didsToProcess.filter(did => !existingDids.has(did))
+    }
+
+    // Limit to requested amount
+    didsToProcess = didsToProcess.slice(0, limit)
+
+    if (didsToProcess.length === 0) {
+      return c.json({
+        success: true,
+        message: 'All discovered publications already indexed',
+        discovered: listData.repos.length,
+        alreadyIndexed: listData.repos.length,
+        processed: 0,
+        cursor: listData.cursor || null,
+      })
+    }
+
+    // Step 3: Process each publication
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    const results: Array<{
+      did: string
+      handle: string | null
+      url: string | null
+      name: string | null
+      status: string
+    }> = []
+
+    for (const did of didsToProcess) {
+      const pubResult = {
+        did,
+        handle: null as string | null,
+        url: null as string | null,
+        name: null as string | null,
+        status: 'pending',
+      }
+
+      try {
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          pubResult.status = 'failed: could not resolve PDS'
+          results.push(pubResult)
+          continue
+        }
+
+        // Try to get handle from Bluesky API
+        try {
+          const profileRes = await fetch(
+            `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
+          )
+          if (profileRes.ok) {
+            const profile = await profileRes.json() as { handle?: string }
+            pubResult.handle = profile.handle || null
+          }
+        } catch {
+          // Handle lookup failed, continue without it
+        }
+
+        // Fetch site.standard.publication records
+        const recordsUrl = new URL(`${pdsEndpoint}/xrpc/com.atproto.repo.listRecords`)
+        recordsUrl.searchParams.set('repo', did)
+        recordsUrl.searchParams.set('collection', COLLECTION)
+        recordsUrl.searchParams.set('limit', '10')
+
+        const recordsResponse = await fetch(recordsUrl.toString())
+        if (!recordsResponse.ok) {
+          pubResult.status = 'failed: could not fetch records'
+          results.push(pubResult)
+          continue
+        }
+
+        const recordsData = await recordsResponse.json() as {
+          records?: Array<{ uri: string; value: Record<string, unknown> }>
+        }
+
+        const records = recordsData.records || []
+        if (records.length === 0) {
+          pubResult.status = 'no publications found'
+          results.push(pubResult)
+          continue
+        }
+
+        // Find the first publication (optionally filtered by URL)
+        let targetRecord: { uri: string; value: Record<string, unknown> } | undefined
+        for (const record of records) {
+          const recordUrl = record.value?.url as string | undefined
+          pubResult.url = recordUrl || null
+          pubResult.name = (record.value?.name as string) || null
+
+          // If URL filter is set, only process matching publications
+          if (urlFilter && recordUrl && !recordUrl.toLowerCase().includes(urlFilter.toLowerCase())) {
+            continue
+          }
+
+          targetRecord = record
+          break
+        }
+
+        if (!targetRecord) {
+          pubResult.status = urlFilter ? `no publication matching ${urlFilter}` : 'no valid publication'
+          results.push(pubResult)
+          continue
+        }
+
+        if (dryRun) {
+          pubResult.status = 'would_index'
+          results.push(pubResult)
+          continue
+        }
+
+        // Index the publication via firehose reindex
+        try {
+          const reindexResponse = await firehose.fetch('http://internal/reindex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uri: targetRecord.uri }),
+          })
+
+          if (reindexResponse.ok) {
+            pubResult.status = 'indexed'
+          } else {
+            pubResult.status = 'failed: reindex returned error'
+          }
+        } catch (err) {
+          pubResult.status = `failed: ${err instanceof Error ? err.message : 'reindex error'}`
+        }
+
+        results.push(pubResult)
+      } catch (err) {
+        pubResult.status = `failed: ${err instanceof Error ? err.message : 'unknown'}`
+        results.push(pubResult)
+      }
+    }
+
+    // Invalidate search cache if we indexed anything
+    const indexed = results.filter(r => r.status === 'indexed').length
+    if (indexed > 0 && !dryRun) {
+      // Clear publication search cache (starts with "search:")
+      // Note: We can't enumerate KV keys, so just clear common patterns
+    }
+
+    return c.json({
+      success: true,
+      dryRun,
+      urlFilter: urlFilter || null,
+      discovered: listData.repos.length,
+      processed: results.length,
+      indexed,
+      cursor: listData.cursor || null,
+      publications: results,
+    })
+  } catch (error) {
+    console.error('Error discovering site.standard.publications:', error)
+    return c.json({
+      error: 'Failed to discover site.standard.publications',
       details: error instanceof Error ? error.message : 'Unknown',
     }, 500)
   }
