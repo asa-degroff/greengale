@@ -431,15 +431,31 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Extract content based on document type
       let content = ''
       if (isSiteStandardDocument) {
-        // First try textContent (standard.site spec)
-        content = (record?.textContent as string) || ''
+        // Gather all possible content sources and use the longest one
+        // Some platforms truncate textContent but have full content in other fields
+        const candidates: string[] = []
 
-        // If no textContent, check for Leaflet content structure
-        if (!content && record?.content) {
-          if (isLeafletContent(record.content)) {
-            content = extractLeafletContent(record.content)
+        // 1. textContent (standard.site spec - plaintext for search)
+        if (record?.textContent && typeof record.textContent === 'string') {
+          candidates.push(record.textContent)
+        }
+
+        // 2. content as Leaflet format (pub.leaflet.content)
+        if (record?.content && isLeafletContent(record.content)) {
+          const leafletText = extractLeafletContent(record.content)
+          if (leafletText) {
+            candidates.push(leafletText)
           }
         }
+
+        // 3. content as plain string (some platforms use this)
+        if (record?.content && typeof record.content === 'string') {
+          candidates.push(record.content)
+        }
+
+        // Use the longest available content
+        content = candidates.reduce((longest, current) =>
+          current.length > longest.length ? current : longest, '')
       } else {
         content = (record?.content as string) || ''
       }

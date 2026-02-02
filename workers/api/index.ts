@@ -6133,6 +6133,219 @@ app.post('/xrpc/app.greengale.admin.cleanupDuplicatePosts', async (c) => {
   }
 })
 
+// Diagnose content availability for posts with short previews
+// Fetches the actual record from PDS to see what content fields exist
+// Usage: GET /xrpc/app.greengale.admin.diagnoseShortPreviews?limit=10&minLength=250&maxLength=350
+app.get('/xrpc/app.greengale.admin.diagnoseShortPreviews', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50)
+    const minLength = parseInt(c.req.query('minLength') || '250')
+    const maxLength = parseInt(c.req.query('maxLength') || '350')
+
+    // Find posts with short content previews, prioritizing external posts
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey, title, external_url,
+             LENGTH(content_preview) as preview_length,
+             content_preview
+      FROM posts
+      WHERE content_preview IS NOT NULL
+        AND LENGTH(content_preview) >= ?
+        AND LENGTH(content_preview) <= ?
+        AND deleted_at IS NULL
+      ORDER BY
+        CASE WHEN external_url IS NOT NULL THEN 0 ELSE 1 END,
+        indexed_at DESC
+      LIMIT ?
+    `).bind(minLength, maxLength, limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({
+        message: 'No posts with short previews found in the specified range',
+        minLength,
+        maxLength,
+        posts: []
+      })
+    }
+
+    // Import Leaflet parser for extraction test
+    const { extractLeafletContent, isLeafletContent } = await import('../lib/leaflet-parser')
+
+    const diagnostics: Array<{
+      uri: string
+      title: string
+      externalUrl: string | null
+      previewLength: number
+      currentPreview: string
+      sourceContent: {
+        textContent?: { exists: boolean; length: number; sample: string }
+        content?: { type: string; length?: number; sample?: string }
+        rawFields: string[]
+      } | null
+      extractedContent?: { length: number; sample: string }
+      error?: string
+    }> = []
+
+    for (const post of posts.results) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const rkey = post.rkey as string
+
+      try {
+        // Parse URI to get collection
+        const match = uri.match(/^at:\/\/[^/]+\/([^/]+)\//)
+        const collection = match?.[1] || 'unknown'
+
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          diagnostics.push({
+            uri,
+            title: post.title as string,
+            externalUrl: post.external_url as string | null,
+            previewLength: post.preview_length as number,
+            currentPreview: (post.content_preview as string).substring(0, 200) + '...',
+            sourceContent: null,
+            error: 'Could not resolve PDS endpoint',
+          })
+          continue
+        }
+
+        // Fetch the actual record
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (!response.ok) {
+          diagnostics.push({
+            uri,
+            title: post.title as string,
+            externalUrl: post.external_url as string | null,
+            previewLength: post.preview_length as number,
+            currentPreview: (post.content_preview as string).substring(0, 200) + '...',
+            sourceContent: null,
+            error: `Record fetch failed: ${response.status}`,
+          })
+          continue
+        }
+
+        const data = await response.json() as { value: Record<string, unknown> }
+        const record = data.value
+
+        // Analyze content fields
+        const sourceContent: {
+          textContent?: { exists: boolean; length: number; sample: string }
+          content?: { type: string; length?: number; sample?: string }
+          rawFields: string[]
+        } = {
+          rawFields: Object.keys(record),
+        }
+
+        // Check textContent field
+        if (record.textContent) {
+          const text = record.textContent as string
+          sourceContent.textContent = {
+            exists: true,
+            length: text.length,
+            sample: text.substring(0, 500) + (text.length > 500 ? '...' : ''),
+          }
+        }
+
+        // Check content field
+        if (record.content) {
+          const content = record.content as Record<string, unknown>
+          if (typeof content === 'string') {
+            sourceContent.content = {
+              type: 'string',
+              length: content.length,
+              sample: content.substring(0, 500) + (content.length > 500 ? '...' : ''),
+            }
+          } else if (content.$type) {
+            sourceContent.content = {
+              type: content.$type as string,
+              sample: JSON.stringify(content).substring(0, 500) + '...',
+            }
+          } else {
+            sourceContent.content = {
+              type: 'object',
+              sample: JSON.stringify(content).substring(0, 500) + '...',
+            }
+          }
+        }
+
+        // Test our extraction logic - same as firehose indexer
+        let extractedContent: { length: number; sample: string } | undefined
+        const candidates: string[] = []
+
+        // 1. textContent
+        if (record.textContent && typeof record.textContent === 'string') {
+          candidates.push(record.textContent)
+        }
+
+        // 2. Leaflet content
+        if (record.content && isLeafletContent(record.content)) {
+          const leafletText = extractLeafletContent(record.content)
+          if (leafletText) {
+            candidates.push(leafletText)
+          }
+        }
+
+        // 3. content as plain string
+        if (record.content && typeof record.content === 'string') {
+          candidates.push(record.content)
+        }
+
+        // Use longest
+        const bestContent = candidates.reduce((longest, current) =>
+          current.length > longest.length ? current : longest, '')
+
+        if (bestContent) {
+          extractedContent = {
+            length: bestContent.length,
+            sample: bestContent.substring(0, 500) + (bestContent.length > 500 ? '...' : ''),
+          }
+        }
+
+        diagnostics.push({
+          uri,
+          title: post.title as string,
+          externalUrl: post.external_url as string | null,
+          previewLength: post.preview_length as number,
+          currentPreview: (post.content_preview as string).substring(0, 200) + '...',
+          sourceContent,
+          extractedContent,
+        })
+      } catch (err) {
+        diagnostics.push({
+          uri,
+          title: post.title as string,
+          externalUrl: post.external_url as string | null,
+          previewLength: post.preview_length as number,
+          currentPreview: (post.content_preview as string).substring(0, 200) + '...',
+          sourceContent: null,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        })
+      }
+    }
+
+    return c.json({
+      count: diagnostics.length,
+      minLength,
+      maxLength,
+      posts: diagnostics,
+    })
+  } catch (error) {
+    console.error('Diagnose short previews error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
 export default {
   fetch: app.fetch,
   scheduled,
