@@ -5335,19 +5335,45 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
         } while (cursor)
 
         collectionResult.found = allRecords.length
+        // Debug: mark that we reached this point
+        ;(collectionResult as Record<string, unknown>).reachedPostFetch = true
 
         if (allRecords.length === 0) {
           results.push(collectionResult)
           continue
         }
 
-        // Check which posts are already indexed
+        // Debug: mark that we passed the length check
+        ;(collectionResult as Record<string, unknown>).passedLengthCheck = true
+
+        // Check which posts are already indexed (chunk to avoid SQLite placeholder limit)
+        // D1 SQLite has a ~100 variable limit per query
         const uris = allRecords.map(r => r.uri)
-        const placeholders = uris.map(() => '?').join(',')
-        const existingPosts = await c.env.DB.prepare(
-          `SELECT uri FROM posts WHERE uri IN (${placeholders})`
-        ).bind(...uris).all()
-        const existingUris = new Set((existingPosts.results || []).map(r => r.uri as string))
+        const existingUris = new Set<string>()
+        const CHUNK_SIZE = 100
+
+        for (let i = 0; i < uris.length; i += CHUNK_SIZE) {
+          const chunk = uris.slice(i, i + CHUNK_SIZE)
+          const placeholders = chunk.map(() => '?').join(',')
+          const existingPosts = await c.env.DB.prepare(
+            `SELECT uri FROM posts WHERE uri IN (${placeholders})`
+          ).bind(...chunk).all()
+          for (const row of existingPosts.results || []) {
+            existingUris.add(row.uri as string)
+          }
+        }
+
+        // Debug: mark that chunked query completed
+        ;(collectionResult as Record<string, unknown>).chunkedQueryComplete = true
+        ;(collectionResult as Record<string, unknown>).debug = {
+          totalUris: uris.length,
+          existingUrisCount: existingUris.size,
+          dryRun,
+          sampleUris: uris.slice(0, 3),
+        }
+
+        // Debug: about to start loop
+        ;(collectionResult as Record<string, unknown>).startingLoop = true
 
         for (const record of allRecords) {
           const uri = record.uri
@@ -5395,7 +5421,9 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
           }
         }
       } catch (err) {
-        console.error(`Error fetching ${collection} for ${did}:`, err)
+        console.error(`Error processing ${collection} for ${did}:`, err)
+        // Include error in result for debugging
+        ;(collectionResult as Record<string, unknown>).error = err instanceof Error ? err.message : String(err)
       }
 
       results.push(collectionResult)
@@ -5422,15 +5450,25 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
       totalAlreadyIndexed: results.reduce((sum, r) => sum + r.alreadyIndexed, 0),
       totalNewlyIndexed: totalIndexed,
       totalFailed: results.reduce((sum, r) => sum + r.failed, 0),
-      collections: results.map(r => ({
-        collection: r.collection,
-        found: r.found,
-        alreadyIndexed: r.alreadyIndexed,
-        newlyIndexed: r.newlyIndexed,
-        failed: r.failed,
-        // Only include post details for collections with posts
-        ...(r.found > 0 ? { posts: r.posts.slice(0, 20) } : {}),
-      })),
+      collections: results.map(r => {
+        const result = r as Record<string, unknown>
+        return {
+          collection: r.collection,
+          found: r.found,
+          alreadyIndexed: r.alreadyIndexed,
+          newlyIndexed: r.newlyIndexed,
+          failed: r.failed,
+          // Only include post details for collections with posts
+          ...(r.found > 0 ? { posts: r.posts.slice(0, 20) } : {}),
+          // Include debug fields if present
+          ...(result.error ? { error: result.error } : {}),
+          ...(result.debug ? { debug: result.debug } : {}),
+          ...(result.reachedPostFetch !== undefined ? { reachedPostFetch: result.reachedPostFetch } : {}),
+          ...(result.passedLengthCheck !== undefined ? { passedLengthCheck: result.passedLengthCheck } : {}),
+          ...(result.chunkedQueryComplete !== undefined ? { chunkedQueryComplete: result.chunkedQueryComplete } : {}),
+          ...(result.startingLoop !== undefined ? { startingLoop: result.startingLoop } : {}),
+        }
+      }),
     }
 
     return c.json(summary)
