@@ -5957,7 +5957,7 @@ function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
 // Crons: */5 * * * * (watchdog), 0 3 * * * (reconciliation)
 async function scheduled(
   event: ScheduledEvent,
-  env: { DB: D1Database; CACHE: KVNamespace; FIREHOSE: DurableObjectNamespace; VECTORIZE: VectorizeIndex },
+  env: { DB: D1Database; CACHE: KVNamespace; FIREHOSE: DurableObjectNamespace; VECTORIZE: VectorizeIndex; AI: Ai },
   _ctx: ExecutionContext
 ) {
   // Check if this is the daily reconciliation (3 AM UTC)
@@ -6034,14 +6034,135 @@ async function runFirehoseWatchdog(
 }
 
 // Daily reconciliation - runs at 3 AM UTC
-// Verifies embeddings are in sync with D1, cleans up stale data
+// Verifies embeddings are in sync with D1, cleans up stale data, retries failed embeddings
 async function runReconciliation(
-  env: { DB: D1Database; VECTORIZE: VectorizeIndex }
+  env: { DB: D1Database; VECTORIZE: VectorizeIndex; AI: Ai }
 ) {
   console.log('Reconciliation cron triggered')
 
   try {
-    // 1. Find posts not verified in 7 days and verify they still exist
+    // 1. Retry failed embeddings (has_embedding = -2)
+    const failedPosts = await env.DB.prepare(`
+      SELECT uri, author_did, title, created_at
+      FROM posts
+      WHERE visibility = 'public'
+        AND deleted_at IS NULL
+        AND has_embedding = -2
+      LIMIT 25
+    `).all()
+
+    let retried = 0
+    let retrySuccess = 0
+    let retryFailed = 0
+
+    for (const post of failedPosts.results || []) {
+      const uri = post.uri as string
+      const did = post.author_did as string
+      const title = post.title as string | null
+      const createdAt = post.created_at as string | null
+
+      try {
+        // Parse URI to get collection and rkey
+        const uriMatch = uri.match(/^at:\/\/([^/]+)\/([^/]+)\/(.+)$/)
+        if (!uriMatch) continue
+
+        const [, , collection, rkey] = uriMatch
+
+        // Resolve PDS endpoint
+        const pdsEndpoint = await fetchPdsEndpoint(did)
+        if (!pdsEndpoint) {
+          console.log(`Retry skip ${uri}: cannot resolve PDS`)
+          continue
+        }
+
+        // Fetch record from PDS
+        const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+        const response = await fetch(recordUrl)
+
+        if (response.status === 404) {
+          // Post deleted - soft delete it
+          await env.DB.prepare(
+            'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
+          ).bind(uri).run()
+          console.log(`Retry: soft-deleted missing post ${uri}`)
+          continue
+        }
+
+        if (!response.ok) {
+          console.log(`Retry skip ${uri}: PDS returned ${response.status}`)
+          continue
+        }
+
+        const data = await response.json() as { value: Record<string, unknown> }
+        const record = data.value
+
+        // Extract content
+        const extracted = extractContent(record, collection)
+        if (!extracted.success || extracted.wordCount < 20) {
+          await env.DB.prepare(
+            'UPDATE posts SET has_embedding = -1 WHERE uri = ?'
+          ).bind(uri).run()
+          console.log(`Retry: marked as skipped (too short) ${uri}`)
+          retried++
+          continue
+        }
+
+        // Hash content
+        const contentHash = await hashContent(extracted.text)
+
+        // Get subtitle for context
+        const subtitle = collection === 'site.standard.document'
+          ? (record?.description as string) || undefined
+          : (record?.subtitle as string) || undefined
+
+        // Chunk content
+        const chunks = chunkByHeadings(extracted, title || undefined, subtitle)
+
+        // Generate embeddings
+        const texts = chunks.map(c => c.text)
+        const embeddings = await generateEmbeddings(env.AI, texts)
+
+        // Prepare for Vectorize
+        const vectorEmbeddings = await Promise.all(
+          chunks.map(async (chunk, i) => {
+            const id = await getVectorId(uri, chunk.chunkIndex)
+            const metadata: EmbeddingMetadata = {
+              uri,
+              authorDid: did,
+              title: title || undefined,
+              createdAt: createdAt || undefined,
+              chunkIndex: chunk.chunkIndex,
+              totalChunks: chunk.totalChunks,
+              isChunk: chunks.length > 1,
+            }
+            return { id, vector: embeddings[i], metadata }
+          })
+        )
+
+        // Upsert to Vectorize
+        await upsertEmbeddings(env.VECTORIZE, vectorEmbeddings)
+
+        // Update D1
+        await env.DB.prepare(
+          'UPDATE posts SET has_embedding = 1, content_hash = ? WHERE uri = ?'
+        ).bind(contentHash, uri).run()
+
+        retried++
+        retrySuccess++
+        console.log(`Retry success: ${uri} (${chunks.length} chunks)`)
+      } catch (err) {
+        retried++
+        retryFailed++
+        console.error(`Retry failed for ${uri}:`, err)
+        // Leave as -2 to retry next time
+      }
+    }
+
+    if (retried > 0) {
+      console.log(`Embedding retry: ${retrySuccess} success, ${retryFailed} failed out of ${retried} attempted`)
+    }
+
+    // 2. Verify stale posts still exist (not verified in 7 days)
     const staleThreshold = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     const stalePosts = await env.DB.prepare(`
       SELECT uri, author_did, has_embedding
@@ -6102,13 +6223,13 @@ async function runReconciliation(
       }
     }
 
-    // 2. Hard delete posts that have been soft-deleted for over 30 days
+    // 3. Hard delete posts that have been soft-deleted for over 30 days
     const hardDeleteThreshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
     const hardDeleteResult = await env.DB.prepare(`
       DELETE FROM posts WHERE deleted_at IS NOT NULL AND deleted_at < ?
     `).bind(hardDeleteThreshold).run()
 
-    console.log(`Reconciliation complete: verified=${verified}, softDeleted=${softDeleted}, hardDeleted=${hardDeleteResult.meta.changes}`)
+    console.log(`Reconciliation complete: retrySuccess=${retrySuccess}, retryFailed=${retryFailed}, verified=${verified}, softDeleted=${softDeleted}, hardDeleted=${hardDeleteResult.meta.changes}`)
   } catch (error) {
     console.error('Reconciliation error:', error)
   }
