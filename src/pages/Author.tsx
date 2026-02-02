@@ -25,7 +25,6 @@ import {
   buildAuthorOgImage,
   buildAuthorRSSFeed,
 } from '@/lib/useDocumentMeta'
-import { getRecentPalettes, saveRecentPalette, type SavedPalette } from '@/lib/palettes'
 import { linkifyText } from '@/lib/bluesky'
 
 export function AuthorPage() {

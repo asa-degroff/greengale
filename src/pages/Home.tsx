@@ -22,7 +22,6 @@ import {
   useDocumentMeta,
   buildHomeCanonical,
   buildHomeOgImage,
-  buildRecentRSSFeed,
 } from '@/lib/useDocumentMeta'
 import { useGreengaleFeed, useNetworkFeed, useFollowingFeed } from '@/lib/useHomeFeed'
 import { useHomeSearch } from '@/lib/useHomeSearch'
