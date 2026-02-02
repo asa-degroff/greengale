@@ -166,22 +166,30 @@ export async function generateEmbeddings(
 
   // Workers AI can handle batches, but we should limit batch size
   const BATCH_SIZE = 50
-  const results: number[][] = []
 
+  // Split into batches
+  const batches: string[][] = []
   for (let i = 0; i < truncated.length; i += BATCH_SIZE) {
-    const batch = truncated.slice(i, i + BATCH_SIZE)
-    const result = await ai.run(EMBEDDING_MODEL, {
-      text: batch,
-    })
-
-    if (!result.data) {
-      throw new Error('No embeddings returned from Workers AI')
-    }
-
-    results.push(...result.data)
+    batches.push(truncated.slice(i, i + BATCH_SIZE))
   }
 
-  return results
+  // Process batches in parallel
+  const batchResults = await Promise.all(
+    batches.map(async (batch) => {
+      const result = await ai.run(EMBEDDING_MODEL, {
+        text: batch,
+      })
+
+      if (!result.data) {
+        throw new Error('No embeddings returned from Workers AI')
+      }
+
+      return result.data
+    })
+  )
+
+  // Flatten results maintaining order
+  return batchResults.flat()
 }
 
 /**
@@ -256,29 +264,36 @@ export async function upsertEmbeddings(
   // Vectorize batch limit
   const BATCH_SIZE = 100
 
+  // Split into batches
+  const batches: Array<typeof embeddings> = []
   for (let i = 0; i < embeddings.length; i += BATCH_SIZE) {
-    const batch = embeddings.slice(i, i + BATCH_SIZE)
-
-    const vectors: VectorizeVector[] = batch.map(e => ({
-      id: e.id,
-      values: e.vector,
-      metadata: {
-        uri: e.metadata.uri,
-        authorDid: e.metadata.authorDid,
-        ...(e.metadata.title && { title: e.metadata.title.slice(0, 100) }),
-        ...(e.metadata.createdAt && { createdAt: e.metadata.createdAt }),
-        ...(e.metadata.chunkIndex !== undefined && {
-          chunkIndex: e.metadata.chunkIndex,
-        }),
-        ...(e.metadata.totalChunks !== undefined && {
-          totalChunks: e.metadata.totalChunks,
-        }),
-        ...(e.metadata.isChunk !== undefined && { isChunk: e.metadata.isChunk }),
-      },
-    }))
-
-    await vectorize.upsert(vectors)
+    batches.push(embeddings.slice(i, i + BATCH_SIZE))
   }
+
+  // Process batches in parallel
+  await Promise.all(
+    batches.map(async (batch) => {
+      const vectors: VectorizeVector[] = batch.map(e => ({
+        id: e.id,
+        values: e.vector,
+        metadata: {
+          uri: e.metadata.uri,
+          authorDid: e.metadata.authorDid,
+          ...(e.metadata.title && { title: e.metadata.title.slice(0, 100) }),
+          ...(e.metadata.createdAt && { createdAt: e.metadata.createdAt }),
+          ...(e.metadata.chunkIndex !== undefined && {
+            chunkIndex: e.metadata.chunkIndex,
+          }),
+          ...(e.metadata.totalChunks !== undefined && {
+            totalChunks: e.metadata.totalChunks,
+          }),
+          ...(e.metadata.isChunk !== undefined && { isChunk: e.metadata.isChunk }),
+        },
+      }))
+
+      await vectorize.upsert(vectors)
+    })
+  )
 }
 
 /**
@@ -292,15 +307,19 @@ export async function deleteEmbeddings(
 
   // Vectorize batch limit for deletes
   const BATCH_SIZE = 100
-  let totalDeleted = 0
 
+  // Split into batches
+  const batches: string[][] = []
   for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-    const batch = ids.slice(i, i + BATCH_SIZE)
-    const result = await vectorize.deleteByIds(batch)
-    totalDeleted += result.count
+    batches.push(ids.slice(i, i + BATCH_SIZE))
   }
 
-  return totalDeleted
+  // Process batches in parallel
+  const results = await Promise.all(
+    batches.map(batch => vectorize.deleteByIds(batch))
+  )
+
+  return results.reduce((total, result) => total + result.count, 0)
 }
 
 /**

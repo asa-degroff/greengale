@@ -2598,10 +2598,15 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             externalUrl: string | null
           }>()
 
-          // Batch fetch posts (50 at a time to stay under D1's ~100 binding limit)
+          // Batch fetch posts in parallel (50 at a time to stay under D1's ~100 binding limit)
           const BATCH_SIZE = 50
+          const batches: Array<typeof postIds> = []
           for (let i = 0; i < postIds.length; i += BATCH_SIZE) {
-            const batch = postIds.slice(i, i + BATCH_SIZE)
+            batches.push(postIds.slice(i, i + BATCH_SIZE))
+          }
+
+          // Fetch all batches in parallel
+          const batchResults = await Promise.all(batches.map(async (batch) => {
             const placeholders = batch.map(() => '?').join(',')
 
             let postsSql = `
@@ -2659,8 +2664,12 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             }
 
             const postsResult = await c.env.DB.prepare(postsSql).bind(...postsBindings).all()
+            return { batch, results: postsResult.results || [] }
+          }))
 
-            for (const row of postsResult.results || []) {
+          // Process all batch results
+          for (const { batch, results } of batchResults) {
+            for (const row of results) {
               const uri = row.uri as string
               const postMeta = batch.find(p => p.id === uri)
 
@@ -5233,6 +5242,9 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
 
   const dryRun = c.req.query('dryRun') === 'true'
   const collectionFilter = c.req.query('collection') // Optional: filter to specific collection
+  // Limit how many posts to index per invocation (to avoid Cloudflare subrequest limits)
+  const limitParam = c.req.query('limit')
+  const indexLimit = limitParam ? parseInt(limitParam, 10) : 50 // Default to 50 to stay well under 1000 subrequest limit
 
   try {
     const body = await c.req.json() as { did?: string; handle?: string }
@@ -5375,6 +5387,10 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
         // Debug: about to start loop
         ;(collectionResult as Record<string, unknown>).startingLoop = true
 
+        // Track how many we've indexed this invocation (to respect limit)
+        let indexedThisRun = 0
+        let skippedDueToLimit = 0
+
         for (const record of allRecords) {
           const uri = record.uri
           const title = (record.value.title as string) || null
@@ -5391,6 +5407,12 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
             continue
           }
 
+          // Check if we've hit the limit for this invocation
+          if (indexedThisRun >= indexLimit) {
+            skippedDueToLimit++
+            continue
+          }
+
           // Index via firehose DO (handles embeddings, author data, etc.)
           try {
             const reindexResponse = await firehose.fetch('http://internal/reindex', {
@@ -5401,6 +5423,7 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
 
             if (reindexResponse.ok) {
               collectionResult.newlyIndexed++
+              indexedThisRun++
               collectionResult.posts.push({ uri, title, status: 'indexed' })
             } else {
               const errorData = await reindexResponse.json().catch(() => ({})) as { error?: string }
@@ -5419,6 +5442,11 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
               status: `failed: ${err instanceof Error ? err.message : 'Unknown'}`,
             })
           }
+        }
+
+        // Track remaining posts for the response
+        if (skippedDueToLimit > 0) {
+          ;(collectionResult as Record<string, unknown>).remaining = skippedDueToLimit
         }
       } catch (err) {
         console.error(`Error processing ${collection} for ${did}:`, err)
@@ -5450,6 +5478,7 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
       totalAlreadyIndexed: results.reduce((sum, r) => sum + r.alreadyIndexed, 0),
       totalNewlyIndexed: totalIndexed,
       totalFailed: results.reduce((sum, r) => sum + r.failed, 0),
+      indexLimit,
       collections: results.map(r => {
         const result = r as Record<string, unknown>
         return {
@@ -5460,6 +5489,8 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
           failed: r.failed,
           // Only include post details for collections with posts
           ...(r.found > 0 ? { posts: r.posts.slice(0, 20) } : {}),
+          // Include remaining count if we hit the limit
+          ...(result.remaining ? { remaining: result.remaining } : {}),
           // Include debug fields if present
           ...(result.error ? { error: result.error } : {}),
           ...(result.debug ? { debug: result.debug } : {}),
