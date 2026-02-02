@@ -2124,7 +2124,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       }
 
       keywordSql += ` ORDER BY score DESC LIMIT ?`
-      keywordBindings.push(limit * 2)
+      keywordBindings.push(500) // Fixed limit to allow more results for author/handle matches
 
       const keywordQuery = await c.env.DB.prepare(keywordSql).bind(...keywordBindings).all()
 
@@ -2538,7 +2538,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                 )
               )
             ORDER BY score DESC
-            LIMIT 100
+            LIMIT 500
           `
 
           // Bindings must be in SQL order: score bindings first, then where bindings
