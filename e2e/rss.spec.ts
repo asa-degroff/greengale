@@ -1,8 +1,11 @@
 import { test, expect } from '@playwright/test'
 
+// Worker URL for direct API calls (Pages Functions not available in Vite dev server)
+const WORKER_URL = 'http://localhost:8787'
+
 test.describe('RSS Feeds', () => {
   test('recent posts RSS feed returns valid XML', async ({ request }) => {
-    const response = await request.get('/rss')
+    const response = await request.get(`${WORKER_URL}/feed/recent.xml`)
 
     // Check response status
     expect(response.status()).toBe(200)
@@ -30,7 +33,7 @@ test.describe('RSS Feeds', () => {
   })
 
   test('recent posts RSS feed contains posts', async ({ request }) => {
-    const response = await request.get('/rss')
+    const response = await request.get(`${WORKER_URL}/feed/recent.xml`)
     const body = await response.text()
 
     // Should contain at least one post item (unless the DB is empty)
@@ -68,8 +71,8 @@ test.describe('RSS Feeds', () => {
 
     const handle = parts[0]
 
-    // Request the author's RSS feed
-    const response = await request.get(`/${handle}/rss`)
+    // Request the author's RSS feed (directly from worker)
+    const response = await request.get(`${WORKER_URL}/feed/${handle}.xml`)
 
     // Check response status
     expect(response.status()).toBe(200)
@@ -89,14 +92,14 @@ test.describe('RSS Feeds', () => {
   })
 
   test('author RSS feed returns 404 for non-existent author', async ({ request }) => {
-    const response = await request.get('/nonexistent-author-that-does-not-exist-12345/rss')
+    const response = await request.get(`${WORKER_URL}/feed/nonexistent-author-that-does-not-exist-12345.xml`)
 
     // Should return 404 for unknown author
     expect(response.status()).toBe(404)
   })
 
   test('RSS feed has proper cache headers', async ({ request }) => {
-    const response = await request.get('/rss')
+    const response = await request.get(`${WORKER_URL}/feed/recent.xml`)
 
     const cacheControl = response.headers()['cache-control'] || ''
 
@@ -159,7 +162,7 @@ test.describe('RSS Feeds', () => {
   })
 
   test('RSS feed items have valid RFC 2822 dates', async ({ request }) => {
-    const response = await request.get('/rss')
+    const response = await request.get(`${WORKER_URL}/feed/recent.xml`)
     const body = await response.text()
 
     // Extract pubDate values
@@ -176,7 +179,7 @@ test.describe('RSS Feeds', () => {
   })
 
   test('RSS feed escapes special characters', async ({ request }) => {
-    const response = await request.get('/rss')
+    const response = await request.get(`${WORKER_URL}/feed/recent.xml`)
     const body = await response.text()
 
     // Verify XML is well-formed by checking for proper structure
