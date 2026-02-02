@@ -294,7 +294,7 @@
   --site-accent-hover: #79c0ff;
   --sidebar-bg: #161b22;
   --sidebar-border: #30363d;
-  --grid-color: rgba(48, 54, 61, 0.6);
+  --grid-color: rgba(48, 54, 61, 0.25);
   --vignette-color: rgba(13, 17, 23, 0.5);
   --theme-bg: #0d1117;
   --theme-text: #c9d1d9;
@@ -1943,7 +1943,6 @@ html {
   animation: cloud-shimmer 4s ease-in-out infinite;
   animation-delay: -1s;
 }
-
 /* Reduced motion: keep clouds visible but static */
 @media (prefers-reduced-motion: reduce) {
   .cloud-instance {

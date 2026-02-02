@@ -5,9 +5,12 @@ test.describe('Homepage', () => {
     await page.goto('/')
     await page.waitForLoadState('domcontentloaded')
 
-    // Check that the page has the GreenGale branding (text visible anywhere on page)
-    const greenGaleText = page.getByText('GreenGale').first()
-    await expect(greenGaleText).toBeVisible({ timeout: 5000 })
+    // Check that the page has the GreenGale branding
+    // The logo is an image with alt text "GreenGale" or a link with that accessible name
+    const greenGaleLogo = page.getByRole('img', { name: 'GreenGale' })
+      .or(page.getByRole('link', { name: 'GreenGale' }))
+      .first()
+    await expect(greenGaleLogo).toBeVisible({ timeout: 5000 })
   })
 
   test('displays recent posts', async ({ page }) => {

@@ -406,6 +406,52 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     })
   }
 
+  // Handle RSS feeds
+  // /rss → site-wide recent posts feed
+  // /:handle/rss → author-specific feed
+  if (url.pathname === '/rss') {
+    const workerUrl = 'https://greengale.asadegroff.workers.dev/feed/recent.xml'
+    const workerResponse = await fetch(workerUrl)
+    return new Response(await workerResponse.text(), {
+      status: workerResponse.status,
+      headers: {
+        'Content-Type': 'application/rss+xml; charset=utf-8',
+        'Cache-Control': workerResponse.headers.get('Cache-Control') || 'public, max-age=300, s-maxage=1800',
+      },
+    })
+  }
+
+  // Handle /:handle/rss for author RSS feeds
+  const authorRssMatch = url.pathname.match(/^\/([^/]+)\/rss$/)
+  if (authorRssMatch) {
+    const handle = authorRssMatch[1]
+    // Skip reserved paths
+    if (!RESERVED_PATHS.includes(handle)) {
+      const workerUrl = `https://greengale.asadegroff.workers.dev/feed/${encodeURIComponent(handle)}.xml`
+      const workerResponse = await fetch(workerUrl)
+      return new Response(await workerResponse.text(), {
+        status: workerResponse.status,
+        headers: {
+          'Content-Type': 'application/rss+xml; charset=utf-8',
+          'Cache-Control': workerResponse.headers.get('Cache-Control') || 'public, max-age=300, s-maxage=1800',
+        },
+      })
+    }
+  }
+
+  // Handle sitemap.xml
+  if (url.pathname === '/sitemap.xml') {
+    const workerUrl = 'https://greengale.asadegroff.workers.dev/sitemap.xml'
+    const workerResponse = await fetch(workerUrl)
+    return new Response(await workerResponse.text(), {
+      status: workerResponse.status,
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': workerResponse.headers.get('Cache-Control') || 'public, max-age=600, s-maxage=3600',
+      },
+    })
+  }
+
   // Only intercept for bot requests
   const userAgent = request.headers.get('user-agent')
   const cf = (request as Request & { cf?: CfProperties }).cf

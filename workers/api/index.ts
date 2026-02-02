@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { FirehoseConsumer } from '../firehose'
 import { generateOGImage, generateHomepageOGImage, generateProfileOGImage } from '../lib/og-image'
+import { buildRSSFeed, fetchPostContent, markdownToHtml, type RSSChannel, type RSSItem } from '../lib/rss'
+import { buildSitemap, type SitemapUrl } from '../lib/sitemap'
 
 export { FirehoseConsumer }
 
@@ -467,6 +469,410 @@ app.get('/og/:handle/:filename', async (c) => {
   } catch (error) {
     console.error('Error generating OG image:', error)
     return c.json({ error: 'Failed to generate image' }, 500)
+  }
+})
+
+// =============================================================================
+// RSS Feeds
+// =============================================================================
+
+// Cache TTL for RSS feeds (30 minutes)
+const RSS_CACHE_TTL = 30 * 60
+
+// RSS response cache headers (5 minutes browser cache, 30 minutes CDN cache)
+const RSS_CACHE_CONTROL = 'public, max-age=300, s-maxage=1800'
+
+const BASE_URL = 'https://greengale.app'
+
+/**
+ * Generate RSS feed for site-wide recent posts
+ * NOTE: This route must be defined BEFORE /feed/:handle.xml to prevent "recent" being matched as a handle
+ */
+app.get('/feed/recent.xml', async (c) => {
+  const cacheKey = 'rss:recent'
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey)
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'application/rss+xml; charset=utf-8',
+          'Cache-Control': RSS_CACHE_CONTROL,
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    // Use same query pattern as getRecentPosts (limit authors to 3 posts each)
+    const postsResult = await c.env.DB.prepare(`
+      WITH ranked_posts AS (
+        SELECT
+          p.rkey, p.title, p.subtitle, p.created_at, p.content_preview, p.first_image_cid,
+          p.author_did,
+          a.handle, a.display_name, a.pds_endpoint,
+          (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+          ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
+        FROM posts p
+        LEFT JOIN authors a ON p.author_did = a.did
+        LEFT JOIN publications pub ON p.author_did = pub.author_did
+        WHERE p.visibility = 'public'
+          AND p.uri NOT LIKE '%/site.standard.document/%'
+          AND COALESCE(pub.show_in_discover, 1) = 1
+      )
+      SELECT rkey, title, subtitle, created_at, content_preview, first_image_cid,
+             author_did, handle, display_name, pds_endpoint, tags
+      FROM ranked_posts
+      WHERE author_rank <= 3
+      ORDER BY created_at DESC
+      LIMIT 50
+    `).all()
+
+    const posts = postsResult.results || []
+
+    // Build channel metadata
+    const channel: RSSChannel = {
+      title: 'GreenGale - Recent Posts',
+      link: BASE_URL,
+      description: 'Recent blog posts from the GreenGale community',
+      selfLink: `${BASE_URL}/rss`,
+      lastBuildDate: posts.length > 0 ? (posts[0].created_at as string) : undefined,
+    }
+
+    // Fetch full content for all posts in parallel
+    const contentPromises = posts.map(async (p) => {
+      const pdsEndpoint = p.pds_endpoint as string | null
+      const authorDid = p.author_did as string
+      const rkey = p.rkey as string
+
+      if (!pdsEndpoint) return null
+
+      try {
+        return await fetchPostContent(pdsEndpoint, authorDid, rkey)
+      } catch {
+        return null
+      }
+    })
+
+    const fullContents = await Promise.all(contentPromises)
+
+    // Build items with full content
+    const items: RSSItem[] = posts.map((p, index) => {
+      const postHandle = p.handle as string
+      const postTitle = (p.title as string) || 'Untitled'
+      const postLink = `${BASE_URL}/${postHandle}/${p.rkey}`
+      const authorDid = p.author_did as string
+
+      // Parse tags from GROUP_CONCAT result
+      const tagsStr = p.tags as string | null
+      const categories = tagsStr
+        ? tagsStr.split(',').filter(t => t.length > 0)
+        : undefined
+
+      // Build image URL if first_image_cid is available
+      let enclosureUrl: string | undefined
+      if (p.first_image_cid && p.pds_endpoint) {
+        enclosureUrl = `${p.pds_endpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(authorDid)}&cid=${encodeURIComponent(p.first_image_cid as string)}`
+      }
+
+      // Use full content converted to HTML, fall back to preview
+      const fullContent = fullContents[index]
+      const description = fullContent
+        ? markdownToHtml(fullContent)
+        : (p.content_preview as string) || (p.subtitle as string) || ''
+
+      return {
+        title: postTitle,
+        link: postLink,
+        guid: postLink,
+        pubDate: p.created_at as string,
+        description,
+        creator: (p.display_name as string) || postHandle,
+        categories,
+        enclosureUrl,
+        enclosureType: enclosureUrl ? 'image/avif' : undefined,
+      }
+    })
+
+    // Build RSS feed
+    const xml = buildRSSFeed(channel, items)
+
+    // Cache for 30 minutes
+    await c.env.CACHE.put(cacheKey, xml, {
+      expirationTtl: RSS_CACHE_TTL,
+    })
+
+    return new Response(xml, {
+      headers: {
+        'Content-Type': 'application/rss+xml; charset=utf-8',
+        'Cache-Control': RSS_CACHE_CONTROL,
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating recent posts RSS feed:', error)
+    return c.json({ error: 'Failed to generate feed' }, 500)
+  }
+})
+
+/**
+ * Generate RSS feed for an author's posts
+ */
+app.get('/feed/:filename', async (c) => {
+  const filename = c.req.param('filename')
+
+  // Validate filename format (handle.xml)
+  if (!filename || !filename.endsWith('.xml')) {
+    return c.json({ error: 'Invalid feed format' }, 400)
+  }
+
+  // Extract handle from filename (remove .xml extension)
+  const handle = filename.slice(0, -4)
+
+  const cacheKey = `rss:author:${handle}`
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey)
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'application/rss+xml; charset=utf-8',
+          'Cache-Control': RSS_CACHE_CONTROL,
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    // Resolve handle to DID
+    const authorRow = await c.env.DB.prepare(
+      'SELECT did, display_name, description, avatar_url FROM authors WHERE handle = ?'
+    ).bind(handle).first()
+
+    if (!authorRow) {
+      return c.json({ error: 'Author not found' }, 404)
+    }
+
+    const authorDid = authorRow.did as string
+    const authorName = (authorRow.display_name as string) || handle
+    const authorDescription = (authorRow.description as string) || `Blog posts by ${authorName}`
+    const authorAvatar = authorRow.avatar_url as string | null
+
+    // Fetch publication metadata (if exists)
+    const pubRow = await c.env.DB.prepare(
+      'SELECT name, description FROM publications WHERE author_did = ?'
+    ).bind(authorDid).first()
+
+    const pubName = pubRow?.name as string | null
+    const pubDescription = pubRow?.description as string | null
+
+    // Fetch recent posts (limit 50 for RSS)
+    const postsResult = await c.env.DB.prepare(`
+      SELECT
+        p.rkey, p.title, p.subtitle, p.created_at, p.content_preview, p.first_image_cid,
+        a.handle, a.display_name, a.pds_endpoint,
+        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
+      FROM posts p
+      LEFT JOIN authors a ON p.author_did = a.did
+      WHERE p.author_did = ? AND p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+      ORDER BY p.created_at DESC
+      LIMIT 50
+    `).bind(authorDid).all()
+
+    const posts = postsResult.results || []
+
+    // Build channel metadata
+    const channel: RSSChannel = {
+      title: pubName || `${authorName}'s Blog`,
+      link: `${BASE_URL}/${handle}`,
+      description: pubDescription || authorDescription,
+      selfLink: `${BASE_URL}/${handle}/rss`,
+      lastBuildDate: posts.length > 0 ? (posts[0].created_at as string) : undefined,
+      imageUrl: authorAvatar || undefined,
+      imageTitle: authorName,
+    }
+
+    // Fetch full content for all posts in parallel
+    const contentPromises = posts.map(async (p) => {
+      const pdsEndpoint = p.pds_endpoint as string | null
+      const rkey = p.rkey as string
+
+      if (!pdsEndpoint) return null
+
+      try {
+        return await fetchPostContent(pdsEndpoint, authorDid, rkey)
+      } catch {
+        return null
+      }
+    })
+
+    const fullContents = await Promise.all(contentPromises)
+
+    // Build items with full content
+    const items: RSSItem[] = posts.map((p, index) => {
+      const postHandle = (p.handle as string) || handle
+      const postTitle = (p.title as string) || 'Untitled'
+      const postLink = `${BASE_URL}/${postHandle}/${p.rkey}`
+
+      // Parse tags from GROUP_CONCAT result
+      const tagsStr = p.tags as string | null
+      const categories = tagsStr
+        ? tagsStr.split(',').filter(t => t.length > 0)
+        : undefined
+
+      // Build image URL if first_image_cid is available
+      let enclosureUrl: string | undefined
+      if (p.first_image_cid && p.pds_endpoint) {
+        enclosureUrl = `${p.pds_endpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(authorDid)}&cid=${encodeURIComponent(p.first_image_cid as string)}`
+      }
+
+      // Use full content converted to HTML, fall back to preview
+      const fullContent = fullContents[index]
+      const description = fullContent
+        ? markdownToHtml(fullContent)
+        : (p.content_preview as string) || (p.subtitle as string) || ''
+
+      return {
+        title: postTitle,
+        link: postLink,
+        guid: postLink,
+        pubDate: p.created_at as string,
+        description,
+        creator: (p.display_name as string) || postHandle,
+        categories,
+        enclosureUrl,
+        enclosureType: enclosureUrl ? 'image/avif' : undefined,
+      }
+    })
+
+    // Build RSS feed
+    const xml = buildRSSFeed(channel, items)
+
+    // Cache for 30 minutes
+    await c.env.CACHE.put(cacheKey, xml, {
+      expirationTtl: RSS_CACHE_TTL,
+    })
+
+    return new Response(xml, {
+      headers: {
+        'Content-Type': 'application/rss+xml; charset=utf-8',
+        'Cache-Control': RSS_CACHE_CONTROL,
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating author RSS feed:', error)
+    return c.json({ error: 'Failed to generate feed' }, 500)
+  }
+})
+
+// =============================================================================
+// Sitemap
+// =============================================================================
+
+// Cache TTL for sitemap (1 hour - search engines don't need real-time updates)
+const SITEMAP_CACHE_TTL = 60 * 60
+
+// Sitemap response cache headers (10 minutes browser cache, 1 hour CDN cache)
+const SITEMAP_CACHE_CONTROL = 'public, max-age=600, s-maxage=3600'
+
+/**
+ * Generate sitemap.xml for search engine indexing
+ * Includes homepage, all author pages, and all public posts
+ */
+app.get('/sitemap.xml', async (c) => {
+  const cacheKey = 'sitemap'
+
+  try {
+    // Check KV cache first
+    const cached = await c.env.CACHE.get(cacheKey)
+    if (cached) {
+      return new Response(cached, {
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': SITEMAP_CACHE_CONTROL,
+          'X-Cache': 'HIT',
+        },
+      })
+    }
+
+    const urls: SitemapUrl[] = []
+
+    // Add homepage
+    urls.push({
+      loc: BASE_URL,
+      changefreq: 'daily',
+      priority: 1.0,
+    })
+
+    // Get all authors with posts
+    const authorsResult = await c.env.DB.prepare(`
+      SELECT DISTINCT a.handle, MAX(p.created_at) as last_post
+      FROM authors a
+      INNER JOIN posts p ON a.did = p.author_did
+      WHERE p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+      GROUP BY a.handle
+      ORDER BY last_post DESC
+    `).all()
+
+    // Add author pages
+    for (const author of authorsResult.results || []) {
+      const handle = author.handle as string
+      const lastPost = author.last_post as string | null
+
+      urls.push({
+        loc: `${BASE_URL}/${handle}`,
+        lastmod: lastPost || undefined,
+        changefreq: 'weekly',
+        priority: 0.8,
+      })
+    }
+
+    // Get all public posts
+    const postsResult = await c.env.DB.prepare(`
+      SELECT a.handle, p.rkey, p.created_at
+      FROM posts p
+      INNER JOIN authors a ON p.author_did = a.did
+      WHERE p.visibility = 'public'
+        AND p.uri NOT LIKE '%/site.standard.document/%'
+      ORDER BY p.created_at DESC
+      LIMIT 50000
+    `).all()
+
+    // Add post pages
+    for (const post of postsResult.results || []) {
+      const handle = post.handle as string
+      const rkey = post.rkey as string
+      const createdAt = post.created_at as string
+
+      urls.push({
+        loc: `${BASE_URL}/${handle}/${rkey}`,
+        lastmod: createdAt,
+        changefreq: 'monthly',
+        priority: 0.6,
+      })
+    }
+
+    // Build sitemap
+    const xml = buildSitemap(urls)
+
+    // Cache for 1 hour
+    await c.env.CACHE.put(cacheKey, xml, {
+      expirationTtl: SITEMAP_CACHE_TTL,
+    })
+
+    return new Response(xml, {
+      headers: {
+        'Content-Type': 'application/xml; charset=utf-8',
+        'Cache-Control': SITEMAP_CACHE_CONTROL,
+        'X-Cache': 'MISS',
+      },
+    })
+  } catch (error) {
+    console.error('Error generating sitemap:', error)
+    return c.json({ error: 'Failed to generate sitemap' }, 500)
   }
 })
 
@@ -1345,8 +1751,8 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  // Build cache key (v2: filters invalid dates)
-  const cacheKey = `network_posts:v2:${limit}:${cursor || ''}`
+  // Build cache key (v3: fixes avatar field name)
+  const cacheKey = `network_posts:v3:${limit}:${cursor || ''}`
 
   try {
     // Check cache first
@@ -1406,7 +1812,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
         did: row.author_did,
         handle: row.handle || '',
         displayName: row.display_name || null,
-        avatarUrl: row.avatar_url || null,
+        avatar: row.avatar_url || null,
       },
       rkey: row.rkey,
       title: row.title || null,
@@ -3166,6 +3572,54 @@ app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
     return c.json({ success: true, cacheKey, message: `Invalidated cache for ${cacheKey}` })
   } catch (error) {
     console.error('Error invalidating OG cache:', error)
+    return c.json({ error: 'Failed to invalidate cache' }, 500)
+  }
+})
+
+// Invalidate RSS feed cache (admin only)
+// Usage: POST /xrpc/app.greengale.admin.invalidateRSSCache
+// Body: { "handle": "user.bsky.social" } for author feed
+// Or: { "type": "recent" } for recent posts feed
+// Or: { "type": "all" } to clear all RSS caches
+app.post('/xrpc/app.greengale.admin.invalidateRSSCache', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const body = await c.req.json() as { handle?: string; type?: string }
+    const { handle, type } = body
+
+    const invalidated: string[] = []
+
+    if (type === 'all') {
+      // Clear recent feed cache
+      await c.env.CACHE.delete('rss:recent')
+      invalidated.push('rss:recent')
+
+      // Get all author handles and clear their caches
+      const authors = await c.env.DB.prepare('SELECT handle FROM authors').all()
+      for (const author of authors.results || []) {
+        const authorHandle = author.handle as string
+        const cacheKey = `rss:author:${authorHandle}`
+        await c.env.CACHE.delete(cacheKey)
+        invalidated.push(cacheKey)
+      }
+    } else if (type === 'recent') {
+      await c.env.CACHE.delete('rss:recent')
+      invalidated.push('rss:recent')
+    } else if (handle) {
+      const cacheKey = `rss:author:${handle}`
+      await c.env.CACHE.delete(cacheKey)
+      invalidated.push(cacheKey)
+    } else {
+      return c.json({ error: 'Missing parameters: need handle, type=recent, or type=all' }, 400)
+    }
+
+    return c.json({ success: true, invalidated, message: `Invalidated ${invalidated.length} RSS cache(s)` })
+  } catch (error) {
+    console.error('Error invalidating RSS cache:', error)
     return c.json({ error: 'Failed to invalidate cache' }, 500)
   }
 })

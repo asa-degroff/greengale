@@ -31,23 +31,6 @@ interface BlogViewerProps {
   publicationVoiceTheme?: VoiceTheme
 }
 
-// Check if content has SVG code blocks that will be transformed by remark-svg
-// Matches: ```svg or ```xml followed by <svg (matching remark-svg plugin logic)
-function hasSvgCodeBlock(content: string): boolean {
-  // Direct svg language code block
-  if (/^```svg\s*$/m.test(content)) {
-    return true
-  }
-  // XML code block containing SVG (must start with <svg after the fence)
-  const xmlBlockMatch = content.match(/^```xml\s*\n\s*(<svg[\s>])/m)
-  return !!xmlBlockMatch
-}
-
-// Check if content has any fenced code blocks
-function hasCodeBlock(content: string): boolean {
-  return /^```\w*\s*$/m.test(content)
-}
-
 export function BlogViewer({
   content,
   title,
@@ -162,12 +145,6 @@ export function BlogViewer({
     }
   }, [postUrl])
 
-  // Determine if this post has special content that benefits from a raw view
-  // Show toggle for LaTeX, SVG code blocks, or any code blocks
-  const hasSpecialContent = useMemo(() => {
-    return latex || hasSvgCodeBlock(content) || hasCodeBlock(content)
-  }, [latex, content])
-
   // Extract headings for table of contents
   const headings = useMemo(() => extractHeadings(content), [content])
   const headingIds = useMemo(() => headings.map((h) => h.id), [headings])
@@ -268,13 +245,12 @@ export function BlogViewer({
               )}
             </button>
 
-            {/* Raw/Formatted Toggle */}
-            {hasSpecialContent && (
-              <button
-                onClick={() => setShowRaw(!showRaw)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--theme-border)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] hover:border-[var(--theme-text-secondary)] transition-colors"
-                title={showRaw ? 'Show formatted view' : 'Show raw markdown'}
-              >
+            {/* Raw/Formatted Toggle - always visible */}
+            <button
+              onClick={() => setShowRaw(!showRaw)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--theme-border)] text-[var(--theme-text-secondary)] hover:text-[var(--theme-text)] hover:border-[var(--theme-text-secondary)] transition-colors"
+              title={showRaw ? 'Show formatted view' : 'Show raw markdown'}
+            >
                 {showRaw ? (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -291,8 +267,7 @@ export function BlogViewer({
                     <span>Raw</span>
                   </>
                 )}
-              </button>
-            )}
+            </button>
 
             {/* Copy Link Button */}
             {postUrl && (

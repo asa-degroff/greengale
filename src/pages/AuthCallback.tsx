@@ -32,16 +32,23 @@ export function AuthCallbackPage() {
         return
       }
 
-      // Check if this callback originated from a PWA
+      // Check if this is a valid OAuth callback (has code/iss params) or PWA flow
+      const hasOAuthParams = params.has('code') || params.has('iss') || params.has('state')
       const pwaFlag = await isFromPWA()
       setFromPWA(pwaFlag)
+
       if (pwaFlag) {
         console.log('[AuthCallback] PWA flow detected')
+      } else if (!hasOAuthParams) {
+        // No OAuth params and not PWA - user navigated here directly
+        console.log('[AuthCallback] No OAuth params, redirecting to home')
+        navigate('/', { replace: true })
+        return
       }
       // Don't clear the flag yet - we'll clear it after successful export
     }
     checkInitial()
-  }, [])
+  }, [navigate])
 
   // Handle auth state changes
   useEffect(() => {
@@ -90,21 +97,42 @@ export function AuthCallbackPage() {
       }
     }
 
+    // Log auth state changes for debugging
+    console.log('[AuthCallback] Auth state:', { isAuthenticated, isLoading, fromPWA, state })
+
     if (isAuthenticated && !isLoading) {
+      console.log('[AuthCallback] Auth successful, completing flow')
       hasHandledAuth.current = true
       handleAuthComplete(false)
     } else if (!isAuthenticated && !isLoading && fromPWA !== null) {
       // Auth finished but not authenticated - wait a bit for IndexedDB sync
       // On iOS, the OAuth client might still be processing
+      console.log('[AuthCallback] Not authenticated yet, waiting for OAuth processing...')
       const timeout = setTimeout(async () => {
         if (!hasHandledAuth.current) {
+          hasHandledAuth.current = true
           if (fromPWA) {
-            hasHandledAuth.current = true
             // Must verify session exists - if not, it's a real auth failure
             await handleAuthComplete(true)
+          } else {
+            // Normal browser flow: login was cancelled or failed
+            // Check if there's an OAuth code in the URL - if not, it was likely cancelled
+            const params = new URLSearchParams(window.location.search)
+            const hasCode = params.has('code') || params.has('iss')
+            console.log('[AuthCallback] Timeout reached, hasCode:', hasCode, 'search:', window.location.search)
+            if (!hasCode) {
+              // No OAuth response params - user likely cancelled or navigated away
+              console.log('[AuthCallback] No OAuth params found, redirecting to home')
+              navigate('/', { replace: true })
+            } else {
+              // Had OAuth params but auth still failed - show error
+              console.error('[AuthCallback] OAuth callback failed - had params but auth not completed')
+              setError('Login failed. Please try again.')
+              setState('error')
+            }
           }
         }
-      }, 2000)
+      }, 3000) // Give it 3 seconds for the OAuth client to process
       return () => clearTimeout(timeout)
     }
   }, [isAuthenticated, isLoading, fromPWA, state, navigate])

@@ -1,0 +1,8 @@
+# GreenGale robots.txt
+# https://greengale.app
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://greengale.app/sitemap.xml

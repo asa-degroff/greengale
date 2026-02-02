@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS posts (
   first_image_cid TEXT,
   url TEXT,
   path TEXT,
-  has_site_standard INTEGER DEFAULT 0
+  has_site_standard INTEGER DEFAULT 0,
+  site_uri TEXT,
+  external_url TEXT
 );
 
 -- Indexes for common queries
@@ -30,6 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_posts_author_created ON posts(author_did, created
 CREATE INDEX IF NOT EXISTS idx_posts_visibility ON posts(visibility);
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source);
 CREATE INDEX IF NOT EXISTS idx_posts_url ON posts(url);
+CREATE INDEX IF NOT EXISTS idx_posts_site_uri ON posts(site_uri);
+CREATE INDEX IF NOT EXISTS idx_posts_external_url ON posts(external_url);
 
 -- Authors table: caches author profile information
 -- Note: handle is NOT unique because handles can transfer between DIDs

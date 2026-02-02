@@ -6,7 +6,11 @@ import {
   useCallback,
   type ReactNode,
 } from 'react'
-import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser'
+import {
+  BrowserOAuthClient,
+  OAuthSession,
+  AtprotoDohHandleResolver,
+} from '@atproto/oauth-client-browser'
 import { migrateSiteStandardPublication } from './atproto'
 import { markFromPWA, tryBridgeSession, isIOSStandalone } from './pwa-session-bridge'
 
@@ -49,9 +53,20 @@ let oauthClient: BrowserOAuthClient | null = null
 async function getOAuthClient(): Promise<BrowserOAuthClient> {
   if (!oauthClient) {
     console.log('[Auth] Loading BrowserOAuthClient with clientId:', CLIENT_ID)
+    // Use DNS over HTTPS for handle resolution instead of Bluesky's resolver.
+    // This properly resolves did:web handles via DNS TXT records (_atproto.{handle})
+    // and .well-known/atproto-did endpoints, which Bluesky's resolver doesn't support
+    // for non-Bluesky handles.
+    // Note: Use /resolve (JSON API) not /dns-query (binary wireformat)
+    const handleResolver = new AtprotoDohHandleResolver({
+      dohEndpoint: 'https://dns.google/resolve',
+    })
     oauthClient = await BrowserOAuthClient.load({
       clientId: CLIENT_ID,
-      handleResolver: 'https://bsky.social',
+      handleResolver,
+      // Use query response mode instead of fragment for better Firefox compatibility.
+      // Fragment mode can have issues with how Firefox handles URL hash changes.
+      responseMode: 'query',
     })
     console.log('[Auth] BrowserOAuthClient loaded successfully')
   }
@@ -72,6 +87,18 @@ async function checkWhitelist(did: string): Promise<boolean> {
 }
 
 async function resolveHandleFromDid(did: string): Promise<string | null> {
+  // For did:web, derive the handle directly from the DID
+  // did:web:example.com -> example.com
+  // did:web:example.com:path:to:resource -> example.com (domain only)
+  if (did.startsWith('did:web:')) {
+    const webPart = did.slice('did:web:'.length)
+    // Handle is the domain part (before any path segments indicated by colons)
+    // Also decode percent-encoded characters (e.g., %3A for port numbers)
+    const domain = decodeURIComponent(webPart.split(':')[0])
+    return domain || null
+  }
+
+  // For did:plc and others, try Bluesky's API
   try {
     const response = await fetch(
       `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`

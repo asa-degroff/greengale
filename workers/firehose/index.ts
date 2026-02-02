@@ -364,8 +364,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
     const commit = event as JetstreamCommit
     const { did, commit: { operation, collection, rkey, record } } = commit
 
-    // Handle publication records (including site.standard.publication)
-    if (PUBLICATION_COLLECTIONS.includes(collection)) {
+    // Handle publication records
+    // Only index app.greengale.publication - skip site.standard.publication to avoid
+    // overwriting GreenGale publication data with site.standard data
+    if (collection === 'app.greengale.publication') {
       console.log(`Processing ${operation} for publication (${collection}): ${did}`)
       if (operation === 'delete') {
         await this.deletePublication(did)
@@ -584,10 +586,16 @@ export class FirehoseConsumer extends DurableObject<Env> {
         this.env.CACHE.delete('popular_tags:20'),
         this.env.CACHE.delete('popular_tags:50'),
         this.env.CACHE.delete('popular_tags:100'),
+        // Invalidate RSS feeds
+        this.env.CACHE.delete('rss:recent'),
       ]
       // Invalidate tag-specific caches for each tag
       for (const tag of tags) {
         cacheInvalidations.push(this.env.CACHE.delete(`tag_posts:${tag}:50:`))
+      }
+      // Invalidate author's RSS feed if we have their handle
+      if (authorData?.handle) {
+        cacheInvalidations.push(this.env.CACHE.delete(`rss:author:${authorData.handle}`))
       }
       await Promise.all(cacheInvalidations)
 
@@ -759,6 +767,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
         this.env.CACHE.delete('popular_tags:20'),
         this.env.CACHE.delete('popular_tags:50'),
         this.env.CACHE.delete('popular_tags:100'),
+        // Invalidate RSS feeds
+        this.env.CACHE.delete('rss:recent'),
+        handle ? this.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
       ]
       // Invalidate tag-specific caches for each tag
       for (const tag of postTags) {
