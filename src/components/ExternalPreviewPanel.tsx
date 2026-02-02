@@ -102,6 +102,38 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
 
   const externalUrl = post.externalUrl
 
+  // Deduplicate content: if subtitle appears at the start of contentPreview, show only the unique part
+  const contentPreview = post.contentPreview
+  const subtitle = post.subtitle
+  let displayContent: string | null = null
+
+  if (contentPreview) {
+    const content = contentPreview.trim()
+    const subtitleTrimmed = subtitle?.trim()
+
+    if (subtitleTrimmed && content.startsWith(subtitleTrimmed)) {
+      // Remove the subtitle portion from the beginning
+      const remainder = content.slice(subtitleTrimmed.length).trim()
+      // If there's meaningful content after the subtitle, return it
+      if (remainder.length > 20) {
+        displayContent = remainder
+      }
+      // If the content is basically just the subtitle, don't show it (displayContent stays null)
+    } else {
+      displayContent = content
+    }
+  }
+
+  // Check if content appears truncated (doesn't end with sentence-ending punctuation)
+  let contentIsTruncated = false
+  if (displayContent) {
+    const trimmed = displayContent.trim()
+    // If it ends with sentence-ending punctuation, it's probably not truncated
+    // If it's very short, probably not truncated
+    // Otherwise assume it's truncated
+    contentIsTruncated = !/[.!?]$/.test(trimmed) && trimmed.length >= 100
+  }
+
   return (
     <>
       {/* Backdrop - visible on mobile/medium screens, hidden on wide screens where content slides over */}
@@ -190,13 +222,21 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
           </div>
 
           {/* Content preview */}
-          {post.contentPreview && (
+          {displayContent && (
             <div className="mb-6">
               <div className="external-preview-content max-h-[60vh] overflow-y-auto">
                 <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
-                  {post.contentPreview}
+                  {displayContent}
+                  {contentIsTruncated && (
+                    <span className="text-[var(--site-text-secondary)]">...</span>
+                  )}
                 </p>
               </div>
+              {contentIsTruncated && (
+                <p className="mt-2 text-sm text-[var(--site-text-secondary)] italic">
+                  Continue reading on the original site for the full post.
+                </p>
+              )}
             </div>
           )}
 
