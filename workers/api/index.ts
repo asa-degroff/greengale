@@ -6049,6 +6049,90 @@ async function runReconciliation(
   }
 }
 
+// Clean up duplicate posts - finds ghost entries without external_url where
+// a matching external post exists with the same (author, title, date)
+// Usage: POST /xrpc/app.greengale.admin.cleanupDuplicatePosts
+// Optional query params: ?dryRun=true (default true - must set to false to delete)
+app.post('/xrpc/app.greengale.admin.cleanupDuplicatePosts', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const dryRun = c.req.query('dryRun') !== 'false'
+
+    // Find ghost posts without external_url that have a matching external post
+    // with the same author, title, and created_at
+    const duplicates = await c.env.DB.prepare(`
+      SELECT p1.uri, p1.author_did, p1.rkey, p1.title, p1.created_at,
+             p2.uri as external_uri, p2.external_url
+      FROM posts p1
+      INNER JOIN posts p2 ON
+        p2.author_did = p1.author_did
+        AND p2.title = p1.title
+        AND p2.created_at = p1.created_at
+        AND p2.external_url IS NOT NULL
+        AND p2.deleted_at IS NULL
+        AND p2.uri != p1.uri
+      WHERE p1.external_url IS NULL
+        AND p1.deleted_at IS NULL
+      LIMIT 100
+    `).all()
+
+    const ghosts = duplicates.results || []
+
+    if (dryRun) {
+      return c.json({
+        dryRun: true,
+        message: 'Set dryRun=false to delete these ghost entries',
+        count: ghosts.length,
+        ghosts: ghosts.map(g => ({
+          ghostUri: g.uri,
+          ghostRkey: g.rkey,
+          title: g.title,
+          externalUri: g.external_uri,
+          externalUrl: g.external_url,
+        })),
+      })
+    }
+
+    // Delete the ghost entries
+    let deleted = 0
+    const errors: string[] = []
+
+    for (const ghost of ghosts) {
+      try {
+        // Soft delete the ghost entry
+        await c.env.DB.prepare(
+          'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
+        ).bind(ghost.uri).run()
+
+        // Also delete any embeddings
+        const { deletePostEmbeddings } = await import('../lib/embeddings')
+        await deletePostEmbeddings(c.env.VECTORIZE, ghost.uri as string)
+
+        deleted++
+      } catch (err) {
+        errors.push(`${ghost.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      dryRun: false,
+      deleted,
+      found: ghosts.length,
+      errors: errors.length > 0 ? errors : undefined,
+    })
+  } catch (error) {
+    console.error('Cleanup duplicates error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
 export default {
   fetch: app.fetch,
   scheduled,
