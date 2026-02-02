@@ -190,12 +190,16 @@ export function HomePage() {
   const [searchLoadingMore, setSearchLoadingMore] = useState(false)
   // Track when count is stale (filters changed but results not yet loaded)
   const [searchCountStale, setSearchCountStale] = useState(false)
+  // Delayed loading indicator to prevent flickering on fast responses
+  const [searchLoadingVisible, setSearchLoadingVisible] = useState(false)
   const SEARCH_PAGE_SIZE = 25
 
   // AbortController for cancelling in-flight search requests
   const searchAbortControllerRef = useRef<AbortController | null>(null)
   // Debounce ref for filter changes
   const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ref for delayed loading indicator timer
+  const loadingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Set document metadata (title, canonical URL, OG tags)
   useDocumentMeta({
@@ -430,6 +434,13 @@ export function HomePage() {
       setSearchOffset(0)
       // Mark count as stale immediately so it hides while loading
       setSearchCountStale(true)
+      // Delay showing loading indicator to prevent flickering on fast responses
+      if (loadingDelayRef.current) {
+        clearTimeout(loadingDelayRef.current)
+      }
+      loadingDelayRef.current = setTimeout(() => {
+        setSearchLoadingVisible(true)
+      }, 200)
     }
     setSearchFallbackUsed(false)
 
@@ -478,6 +489,12 @@ export function HomePage() {
     } finally {
       setSearchLoading(false)
       setSearchLoadingMore(false)
+      // Clear loading delay timer and hide loading indicator
+      if (loadingDelayRef.current) {
+        clearTimeout(loadingDelayRef.current)
+        loadingDelayRef.current = null
+      }
+      setSearchLoadingVisible(false)
     }
   }, [SEARCH_PAGE_SIZE])
 
@@ -495,6 +512,12 @@ export function HomePage() {
     setSearchTotal(0)
     setSearchHasMore(false)
     setSearchCountStale(false)
+    // Clear loading delay timer
+    if (loadingDelayRef.current) {
+      clearTimeout(loadingDelayRef.current)
+      loadingDelayRef.current = null
+    }
+    setSearchLoadingVisible(false)
   }, [])
 
   const handleLoadMoreSearch = useCallback(() => {
@@ -531,28 +554,33 @@ export function HomePage() {
 
   const handleSearchModeChange = useCallback((mode: SearchMode) => {
     setSearchMode(mode)
+    if (searchQuery) setSearchCountStale(true)  // Mark stale immediately
     triggerDebouncedSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates, searchFields)
   }, [triggerDebouncedSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates, searchFields])
 
   const handleSearchAuthorChange = useCallback((author: string) => {
     setSearchAuthor(author)
+    if (searchQuery) setSearchCountStale(true)  // Mark stale immediately
     triggerDebouncedSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates, searchFields)
   }, [triggerDebouncedSearch, searchQuery, searchMode, searchDateRange, searchCustomDates, searchFields])
 
   const handleSearchDateRangeChange = useCallback((dateRange: DateRange) => {
     setSearchDateRange(dateRange)
+    if (searchQuery) setSearchCountStale(true)  // Mark stale immediately
     triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates, searchFields)
   }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchCustomDates, searchFields])
 
   const handleSearchCustomDatesChange = useCallback((customDates: CustomDateRange) => {
     setSearchCustomDates(customDates)
     if (searchDateRange === 'custom') {
+      if (searchQuery) setSearchCountStale(true)  // Mark stale immediately
       triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates, searchFields)
     }
   }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchFields])
 
   const handleSearchFieldsChange = useCallback((fields: import('@/lib/appview').SearchField[]) => {
     setSearchFields(fields)
+    if (searchQuery) setSearchCountStale(true)  // Mark stale immediately
     triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, fields)
   }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates])
 
@@ -678,7 +706,8 @@ export function HomePage() {
                 </span>
               )}
               {/* Show loading indicator in header when reloading with existing results */}
-              {searchLoading && searchResults.length > 0 && (
+              {/* Uses searchLoadingVisible (delayed) to prevent flickering on fast responses */}
+              {searchLoadingVisible && searchResults.length > 0 && (
                 <svg className="animate-spin h-4 w-4 text-[var(--site-text-secondary)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -698,7 +727,8 @@ export function HomePage() {
             </div>
 
             {/* Loading state - only show when no existing results (initial search) */}
-            {searchLoading && searchResults.length === 0 && (
+            {/* Uses searchLoadingVisible (delayed) to prevent flickering on fast responses */}
+            {searchLoadingVisible && searchResults.length === 0 && (
               <div className="flex flex-col items-center py-12">
                 <svg className="animate-spin h-8 w-8 text-[var(--site-accent)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
