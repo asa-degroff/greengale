@@ -214,10 +214,19 @@ export function SearchFilters({
   const isAllSelected = fields.length === 0 || fields.length === FIELD_OPTIONS.length
 
   function handleFieldToggle(field: SearchField) {
+    // If "All" is currently selected, clicking a field should select ONLY that field
+    if (isAllSelected) {
+      onFieldsChange([field])
+      return
+    }
+
     if (fields.includes(field)) {
-      // Remove field
+      // Remove field - if this leaves only one field, keep it (don't allow empty via toggle)
       const newFields = fields.filter(f => f !== field)
-      // If removing results in empty array, that's "All" mode
+      if (newFields.length === 0) {
+        // Don't allow deselecting the last field - user should click "All" instead
+        return
+      }
       onFieldsChange(newFields)
     } else {
       // Add field
