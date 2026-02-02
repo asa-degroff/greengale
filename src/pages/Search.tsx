@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   searchUnified,
   type UnifiedSearchResult,
   type UnifiedPostResult,
-  type UnifiedAuthorResult,
   type SearchMode,
   type SearchField,
 } from '@/lib/appview'
 import { PostSearchResult } from '@/components/PostSearchResult'
+import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
 import { SearchFilters, dateRangeToAfter, type DateRange } from '@/components/SearchFilters'
 import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
 import { Spinner } from '@/components/Spinner'
@@ -18,24 +18,19 @@ const MIN_QUERY_LENGTH = 2
 const PAGE_SIZE = 25
 const DEBOUNCE_MS = 300
 
-// Static helper functions moved outside component to avoid recreation
-const FIELD_BADGE_COLORS: Record<SearchField, string> = {
-  handle: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
-  name: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
-  pub: 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300',
-  content: 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300',
-}
-
-const FIELD_LABELS: Record<SearchField, string> = {
-  handle: 'Handle',
-  name: 'Name',
-  pub: 'Publication',
-  content: 'Content',
-}
-
 function parseFields(param: string): SearchField[] {
   if (!param) return []
   return param.split(',').filter((f): f is SearchField => VALID_FIELDS.includes(f as SearchField))
+}
+
+// Map unified search field names to SearchResult matchType names
+function mapFieldToMatchType(field: string): 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' {
+  switch (field) {
+    case 'handle': return 'handle'
+    case 'name': return 'displayName'
+    case 'pub': return 'publicationName'
+    default: return 'handle'
+  }
 }
 
 function toPostSearchResultType(result: UnifiedPostResult) {
@@ -59,8 +54,6 @@ function toPostSearchResultType(result: UnifiedPostResult) {
 
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const navigate = useNavigate()
-
   // URL state
   const query = searchParams.get('q') || ''
   const modeParam = searchParams.get('mode') as SearchMode | null
@@ -261,10 +254,6 @@ export function SearchPage() {
     }
   }, [loadingMore, hasMore, performSearch, query])
 
-  const handleAuthorResultClick = useCallback((result: UnifiedAuthorResult) => {
-    navigate(`/${result.handle}`)
-  }, [navigate])
-
   const handleExternalPostClick = useCallback((result: UnifiedPostResult) => {
     setSelectedExternalPost(result)
   }, [])
@@ -355,12 +344,19 @@ export function SearchPage() {
                 />
               )
             } else {
-              // Author result
+              // Author result - use shared component that handles external links
               return (
-                <AuthorResultRow
+                <AuthorSearchResultRow
                   key={result.did}
-                  result={result}
-                  onClick={handleAuthorResultClick}
+                  result={{
+                    did: result.did,
+                    handle: result.handle,
+                    displayName: result.displayName,
+                    avatarUrl: result.avatarUrl,
+                    publication: result.publication,
+                    postsCount: result.postsCount,
+                    matchType: result.matchedFields[0] ? mapFieldToMatchType(result.matchedFields[0]) : 'handle',
+                  }}
                 />
               )
             }
@@ -406,84 +402,5 @@ export function SearchPage() {
         onClose={handleClosePreviewPanel}
       />
     </div>
-  )
-}
-
-// Extracted Author Result Row component to avoid inline function recreation
-interface AuthorResultRowProps {
-  result: UnifiedAuthorResult
-  onClick: (result: UnifiedAuthorResult) => void
-}
-
-function AuthorResultRow({ result, onClick }: AuthorResultRowProps) {
-  const handleClick = useCallback(() => {
-    onClick(result)
-  }, [onClick, result])
-
-  return (
-    <button
-      onClick={handleClick}
-      className="w-full px-4 py-4 flex items-center gap-4 text-left transition-colors bg-[var(--site-bg)] hover:bg-[var(--site-bg-secondary)]"
-    >
-      {/* Avatar */}
-      {result.avatarUrl ? (
-        <img
-          src={result.avatarUrl}
-          alt=""
-          className="w-12 h-12 rounded-full object-cover flex-shrink-0"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-12 h-12 rounded-full bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">
-          <svg className="w-6 h-6 text-[var(--site-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-        </div>
-      )}
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-[var(--site-text)] truncate">
-            {result.displayName || result.handle}
-          </span>
-          <span className="text-xs px-2 py-0.5 rounded bg-gray-600 text-white dark:bg-gray-700 dark:text-gray-300">
-            Author
-          </span>
-          {/* Show which fields matched */}
-          {result.matchedFields.map(field => (
-            <span
-              key={field}
-              className={`text-xs px-2 py-0.5 rounded ${FIELD_BADGE_COLORS[field]}`}
-            >
-              {FIELD_LABELS[field]}
-            </span>
-          ))}
-        </div>
-        <div className="text-sm text-[var(--site-text-secondary)] truncate mt-0.5">
-          @{result.handle}
-          {result.publication && (
-            <span className="ml-2">
-              · {result.publication.name}
-              {result.publication.isExternal && (
-                <span className="ml-1 text-purple-500">
-                  <svg className="w-3 h-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </span>
-              )}
-            </span>
-          )}
-          {result.postsCount > 0 && (
-            <span className="ml-2">· {result.postsCount} post{result.postsCount !== 1 ? 's' : ''}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Arrow */}
-      <svg className="w-5 h-5 text-[var(--site-text-secondary)] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
-    </button>
   )
 }
