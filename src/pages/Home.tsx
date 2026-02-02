@@ -12,12 +12,11 @@ import {
   getRecentPosts,
   getNetworkPosts,
   getFollowingPosts,
-  searchPosts,
-  searchPublications,
+  searchUnified,
   type AppViewPost,
-  type PostSearchResult,
+  type UnifiedSearchResult,
+  type UnifiedPostResult,
   type SearchMode,
-  type LegacyUnifiedSearchResult,
 } from '@/lib/appview'
 import { SearchFilters, dateRangeToParams, type DateRange, type CustomDateRange } from '@/components/SearchFilters'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
@@ -146,7 +145,7 @@ export function HomePage() {
   // Search state
   const [searchActive, setSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<LegacyUnifiedSearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<UnifiedSearchResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
   const [searchAuthor, setSearchAuthor] = useState('')
@@ -154,7 +153,7 @@ export function HomePage() {
   const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>({})
   const [searchFields, setSearchFields] = useState<import('@/lib/appview').SearchField[]>([])
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
-  const [selectedExternalPost, setSelectedExternalPost] = useState<PostSearchResult | null>(null)
+  const [selectedExternalPost, setSelectedExternalPost] = useState<UnifiedPostResult | null>(null)
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1)
 
   // AbortController for cancelling in-flight search requests
@@ -384,31 +383,20 @@ export function HomePage() {
     try {
       const dateParams = dateRangeToParams(dateRange, customDates)
 
-      // Call both APIs in parallel
-      const [pubResponse, postResponse] = await Promise.all([
-        searchPublications(query, 5, signal),  // Top 5 authors/publications
-        searchPosts(query, {
-          mode,
-          limit: 50,
-          author: author || undefined,
-          after: dateParams.after,
-          before: dateParams.before,
-          fields: fields.length > 0 ? fields : undefined,
-          signal,
-        })
-      ])
+      // Use unified search API (returns both posts and authors in a single paginated response)
+      const response = await searchUnified(query, {
+        limit: 100,
+        mode,
+        author: author || undefined,
+        after: dateParams.after,
+        before: dateParams.before,
+        fields: fields.length > 0 ? fields : undefined,
+        signal,
+      })
 
-      // Merge: authors first (excluding post/tag matches since posts are in main results), then posts
-      const unified: LegacyUnifiedSearchResult[] = [
-        ...pubResponse.results
-          .filter(r => r.matchType !== 'postTitle' && r.matchType !== 'tag')
-          .map(r => ({ type: 'author' as const, data: r })),
-        ...postResponse.posts.map(p => ({ type: 'post' as const, data: p }))
-      ]
-
-      setSearchResults(unified)
+      setSearchResults(response.results)
       setSearchSelectedIndex(-1)  // Reset selection on new results
-      if (postResponse.fallback === 'keyword') {
+      if (response.fallback === 'keyword') {
         setSearchFallbackUsed(true)
       }
     } catch (err) {
@@ -492,13 +480,13 @@ export function HomePage() {
     if (!result) return
 
     if (result.type === 'author') {
-      navigate(`/${result.data.handle}`)
+      navigate(`/${result.handle}`)
     } else {
       // Post result
-      if (result.data.externalUrl) {
-        setSelectedExternalPost(result.data)
+      if (result.externalUrl) {
+        setSelectedExternalPost(result)
       } else {
-        navigate(`/${result.data.handle}/${result.data.rkey}`)
+        navigate(`/${result.handle}/${result.rkey}`)
       }
     }
   }, [searchResults, navigate])

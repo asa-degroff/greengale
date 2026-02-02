@@ -1,9 +1,15 @@
 import { useNavigate } from 'react-router-dom'
-import type { PostSearchResult as PostSearchResultType } from '@/lib/appview'
+import type { PostSearchResult as PostSearchResultType, UnifiedPostResult } from '@/lib/appview'
+
+/**
+ * Common post result type that works with both legacy PostSearchResult
+ * and the new UnifiedPostResult from the unified search API
+ */
+type PostResultType = PostSearchResultType | UnifiedPostResult
 
 interface PostSearchResultProps {
-  result: PostSearchResultType
-  onExternalPostClick?: (post: PostSearchResultType) => void
+  result: PostResultType
+  onExternalPostClick?: (post: PostResultType) => void
   isSelected?: boolean
   onMouseEnter?: () => void
 }
@@ -24,7 +30,7 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
     }
   }
 
-  function getMatchTypeBadge(matchType: PostSearchResultType['matchType']) {
+  function getMatchTypeBadge(matchType: PostResultType['matchType']) {
     switch (matchType) {
       case 'semantic':
         return {

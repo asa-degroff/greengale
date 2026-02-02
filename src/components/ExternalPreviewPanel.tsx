@@ -1,8 +1,14 @@
 import { useEffect, useRef } from 'react'
-import type { PostSearchResult } from '@/lib/appview'
+import type { PostSearchResult, UnifiedPostResult } from '@/lib/appview'
+
+/**
+ * Common post result type that works with both legacy PostSearchResult
+ * and the new UnifiedPostResult from the unified search API
+ */
+type PostResultType = PostSearchResult | UnifiedPostResult
 
 interface ExternalPreviewPanelProps {
-  post: PostSearchResult | null
+  post: PostResultType | null
   onClose: () => void
 }
 

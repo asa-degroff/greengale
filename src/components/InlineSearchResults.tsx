@@ -1,17 +1,43 @@
 import { useEffect, useRef } from 'react'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
-import type { PostSearchResult as PostSearchResultType, LegacyUnifiedSearchResult } from '@/lib/appview'
+import type { UnifiedSearchResult, UnifiedPostResult, UnifiedAuthorResult } from '@/lib/appview'
 
 interface InlineSearchResultsProps {
-  results: LegacyUnifiedSearchResult[]
+  results: UnifiedSearchResult[]
   loading: boolean
   query: string
   onClear: () => void
-  onExternalPostClick: (result: PostSearchResultType) => void
+  onExternalPostClick: (result: UnifiedPostResult) => void
   fallbackUsed?: boolean
   selectedIndex: number
   onSelectResult: (index: number) => void
+}
+
+/**
+ * Convert UnifiedAuthorResult to the legacy SearchResult format
+ * expected by AuthorSearchResultRow
+ */
+function toSearchResult(author: UnifiedAuthorResult) {
+  // Map matchedFields to a single matchType for the badge
+  const matchedFields = author.matchedFields
+  let matchType: 'handle' | 'displayName' | 'publicationName' | 'publicationUrl' = 'handle'
+  if (matchedFields.includes('pub')) {
+    matchType = 'publicationName'
+  } else if (matchedFields.includes('name')) {
+    matchType = 'displayName'
+  } else if (matchedFields.includes('handle')) {
+    matchType = 'handle'
+  }
+
+  return {
+    did: author.did,
+    handle: author.handle,
+    displayName: author.displayName,
+    avatarUrl: author.avatarUrl,
+    publication: author.publication,
+    matchType,
+  }
 }
 
 export function InlineSearchResults({
@@ -90,16 +116,16 @@ export function InlineSearchResults({
           {results.map((result, index) => (
             result.type === 'author' ? (
               <AuthorSearchResultRow
-                key={`author-${result.data.did}`}
-                result={result.data}
+                key={`author-${result.did}`}
+                result={toSearchResult(result)}
                 isSelected={index === selectedIndex}
                 onMouseEnter={() => onSelectResult(index)}
               />
             ) : (
               <PostSearchResult
-                key={result.data.uri}
-                result={result.data}
-                onExternalPostClick={result.data.externalUrl ? onExternalPostClick : undefined}
+                key={result.uri}
+                result={result}
+                onExternalPostClick={result.externalUrl ? (post => onExternalPostClick(post as UnifiedPostResult)) : undefined}
                 isSelected={index === selectedIndex}
                 onMouseEnter={() => onSelectResult(index)}
               />
