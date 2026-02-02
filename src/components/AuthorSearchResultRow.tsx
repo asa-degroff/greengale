@@ -115,6 +115,9 @@ export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: Auth
           <span className="font-medium text-[var(--site-text)] truncate">
             {result.displayName || result.handle}
           </span>
+          <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-gray-600 text-white dark:bg-gray-700 dark:text-gray-300">
+            Author
+          </span>
           <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${badge.className}`}>
             {badge.label}
           </span>
@@ -135,14 +138,17 @@ export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: Auth
         <div className="text-sm text-[var(--site-text-secondary)] truncate mt-1">
           @{result.handle}
           {result.publication && (
-            <span className="ml-2 text-[var(--site-accent)]">
-              {result.publication.name}
+            <span className="ml-2">
+              · {result.publication.name}
               {isExternal && result.publication.url && (
                 <span className="ml-1 text-purple-600 dark:text-purple-400">
                   ({getExternalDomain(result.publication.url)})
                 </span>
               )}
             </span>
+          )}
+          {result.postsCount !== undefined && result.postsCount > 0 && (
+            <span className="ml-2">· {result.postsCount} post{result.postsCount !== 1 ? 's' : ''}</span>
           )}
         </div>
       </div>

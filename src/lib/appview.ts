@@ -234,6 +234,8 @@ export interface SearchResult {
   }
   // Optional tag info for tag matches
   tag?: string
+  // Number of posts by this author
+  postsCount?: number
 }
 
 export interface SearchPublicationsResponse {

@@ -107,6 +107,7 @@ function toSearchResult(author: UnifiedAuthorResult) {
     avatarUrl: author.avatarUrl,
     publication: author.publication,
     matchType,
+    postsCount: author.postsCount,
   }
 }
 

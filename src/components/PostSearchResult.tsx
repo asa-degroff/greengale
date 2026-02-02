@@ -44,7 +44,7 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
         }
       case 'both':
         return {
-          label: 'Both',
+          label: 'Keyword + Semantic',
           className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
         }
     }
