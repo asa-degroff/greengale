@@ -342,9 +342,11 @@ export function HomePage() {
           <h2><i>Beta</i></h2>
         </div>
 
-        <div className="relative bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)] overflow-hidden min-h-[180px]">
-          {/* Decorative floating clouds */}
-          <CloudField className="text-[var(--site-text-secondary)]" />
+        <div className="relative bg-[var(--site-bg-secondary)] rounded-lg p-8 mb-12 border border-[var(--site-border)] min-h-[180px]">
+          {/* Decorative floating clouds - wrapped to contain overflow without clipping search dropdown */}
+          <div className="absolute inset-0 overflow-hidden rounded-lg pointer-events-none">
+            <CloudField className="text-[var(--site-text-secondary)]" />
+          </div>
 
           <h2 className="relative text-xl font-bold mb-4 text-[var(--site-text)]">
             Find a Blog
