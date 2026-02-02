@@ -1917,18 +1917,18 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
   const beforeFilter = c.req.query('before')?.trim() || undefined
 
   // Field filter: comma-separated list of fields to search
-  // Valid fields: handle, name, pub, title, content
+  // Valid fields: handle, name, pub, content
+  // 'content' searches title, subtitle, content_preview, and tags
   // If omitted or empty, search all fields
   const fieldsParam = c.req.query('fields')?.trim() || undefined
-  const validFields = ['handle', 'name', 'pub', 'title', 'content']
+  const validFields = ['handle', 'name', 'pub', 'content']
   const fields = fieldsParam
     ? fieldsParam.split(',').filter(f => validFields.includes(f))
     : undefined
 
   // Determine if we should run semantic search
-  // Semantic search only works on content fields (title, content)
-  const contentFields = ['title', 'content']
-  const hasContentFields = !fields || fields.some(f => contentFields.includes(f))
+  // Semantic search only works on content fields
+  const hasContentFields = !fields || fields.includes('content')
 
   // Cache key includes mode and filters
   const fieldsKey = fields ? fields.sort().join(',') : ''
@@ -2004,20 +2004,18 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       const searchHandle = !fields || fields.includes('handle')
       const searchName = !fields || fields.includes('name')
       const searchPub = !fields || fields.includes('pub')
-      const searchTitle = !fields || fields.includes('title')
       const searchContent = !fields || fields.includes('content')
 
       // Build score CASE expression based on selected fields
       const scoreCases: string[] = []
       const scoreBindings: string[] = []
 
-      if (searchTitle) {
+      // Content field searches title, subtitle, content_preview, and tags
+      if (searchContent) {
         scoreCases.push("WHEN LOWER(p.title) LIKE ? ESCAPE '\\' THEN 1.0")
         scoreBindings.push(containsPattern)
         scoreCases.push("WHEN LOWER(p.subtitle) LIKE ? ESCAPE '\\' THEN 0.9")
         scoreBindings.push(containsPattern)
-      }
-      if (searchContent) {
         scoreCases.push("WHEN LOWER(p.content_preview) LIKE ? ESCAPE '\\' THEN 0.8")
         scoreBindings.push(containsPattern)
       }
@@ -2040,16 +2038,14 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
       const whereConditions: string[] = []
       const whereBindings: string[] = []
 
-      if (searchTitle) {
+      // Content field searches title, subtitle, content_preview, and tags
+      if (searchContent) {
         whereConditions.push("LOWER(p.title) LIKE ? ESCAPE '\\'")
         whereBindings.push(containsPattern)
         whereConditions.push("LOWER(p.subtitle) LIKE ? ESCAPE '\\'")
         whereBindings.push(containsPattern)
-      }
-      if (searchContent) {
         whereConditions.push("LOWER(p.content_preview) LIKE ? ESCAPE '\\'")
         whereBindings.push(containsPattern)
-        // Also search tags when content is selected
         whereConditions.push("EXISTS (SELECT 1 FROM post_tags pt WHERE pt.post_uri = p.uri AND LOWER(pt.tag) LIKE ? ESCAPE '\\')")
         whereBindings.push(containsPattern)
       }
@@ -2305,9 +2301,10 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
   const beforeFilter = c.req.query('before')?.trim() || undefined
 
   // Field filter for post-filtering (not pre-filtering)
-  // Valid fields: handle, name, pub, title, content
+  // Valid fields: handle, name, pub, content
+  // 'content' includes title, subtitle, content_preview, and tags
   const fieldsParam = c.req.query('fields')?.trim() || undefined
-  const validFields = ['handle', 'name', 'pub', 'title', 'content']
+  const validFields = ['handle', 'name', 'pub', 'content']
   const selectedFields = fieldsParam
     ? fieldsParam.split(',').filter(f => validFields.includes(f))
     : []
@@ -2554,7 +2551,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
               keywordResults.push({
                 id: row.uri as string,
                 score: row.score as number,
-                matchedFields: ['title', 'content'], // Default - will be refined
+                matchedFields: ['content'], // Default - includes title, subtitle, content_preview
               })
             }
           } catch (error) {
@@ -2690,9 +2687,9 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             const post = postMap.get(postMeta.id)
             if (!post) continue
 
-            // Get matched fields from keyword results (semantic matches get content/title)
+            // Get matched fields from keyword results (semantic matches get content)
             const keywordMatch = keywordResults.find(k => k.id === postMeta.id)
-            const matchedFields = keywordMatch?.matchedFields || ['title', 'content']
+            const matchedFields = keywordMatch?.matchedFields || ['content']
 
             fullResults.push({
               type: 'post',
@@ -2744,7 +2741,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
       offset,
       limit,
       hasMore,
-      ...(mode === 'semantic' && fullResults!.every(r => r.type === 'author' || r.matchedFields.includes('title') || r.matchedFields.includes('content')) && { fallback: undefined }),
+      ...(mode === 'semantic' && fullResults!.every(r => r.type === 'author' || r.matchedFields.includes('content')) && { fallback: undefined }),
     }
 
     return c.json(response)
@@ -3133,9 +3130,10 @@ app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
 })
 
 // Re-index a specific post from PDS (admin only)
-// This fetches fresh data including theme and updates the database
+// This fetches fresh data including theme, external URLs, and updates the database
+// Uses the firehose DO for complete reindexing logic
 // Usage: POST /xrpc/app.greengale.admin.reindexPost
-// Body: { "handle": "user.bsky.social", "rkey": "abc123" }
+// Body: { "handle": "user.bsky.social", "rkey": "abc123" } or { "did": "did:plc:...", "rkey": "abc123" }
 app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
   const authError = requireAdmin(c)
   if (authError) {
@@ -3154,7 +3152,7 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
     // Resolve handle to DID if needed
     if (!did && handle) {
       const authorRow = await c.env.DB.prepare(
-        'SELECT did, pds_endpoint FROM authors WHERE handle = ?'
+        'SELECT did FROM authors WHERE handle = ?'
       ).bind(handle).first()
 
       if (!authorRow) {
@@ -3168,12 +3166,12 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
     }
 
     // Get PDS endpoint
-    let pdsEndpoint = await fetchPdsEndpoint(did)
+    const pdsEndpoint = await fetchPdsEndpoint(did)
     if (!pdsEndpoint) {
       return c.json({ error: 'Could not determine PDS endpoint' }, 500)
     }
 
-    // Try each collection
+    // Try each collection to find the post
     const collections = [
       'app.greengale.document',
       'app.greengale.blog.entry',
@@ -3181,175 +3179,179 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
       'site.standard.document',
     ]
 
-    let found = false
-    let result: Record<string, unknown> = {}
+    let foundUri: string | null = null
+    let foundCollection: string | null = null
 
     for (const collection of collections) {
       try {
         const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
         const response = await fetch(recordUrl)
 
-        if (!response.ok) continue
-
-        const data = await response.json() as {
-          uri: string
-          cid: string
-          value: Record<string, unknown>
+        if (response.ok) {
+          foundUri = `at://${did}/${collection}/${rkey}`
+          foundCollection = collection
+          break
         }
-
-        found = true
-        const uri = data.uri
-        const value = data.value
-        const source = collection === 'com.whtwnd.blog.entry' ? 'whitewind' : 'greengale'
-        const isV2 = collection === 'app.greengale.document'
-        const isSiteStandard = collection === 'site.standard.document'
-
-        const title = (value.title as string) || null
-        // site.standard uses 'description' instead of 'subtitle'
-        const subtitle = isSiteStandard
-          ? (value.description as string) || null
-          : (value.subtitle as string) || null
-
-        // Extract content based on document type (same logic as firehose indexer)
-        let content = ''
-        if (isSiteStandard) {
-          // Import Leaflet parser
-          const { extractLeafletContent, isLeafletContent } = await import('../lib/leaflet-parser')
-
-          // Gather all possible content sources and use the longest one
-          const candidates: string[] = []
-
-          // 1. textContent (standard.site spec)
-          if (value.textContent && typeof value.textContent === 'string') {
-            candidates.push(value.textContent)
-          }
-
-          // 2. content as Leaflet format
-          if (value.content && isLeafletContent(value.content)) {
-            const leafletText = extractLeafletContent(value.content)
-            if (leafletText) {
-              candidates.push(leafletText)
-            }
-          }
-
-          // 3. content as plain string
-          if (value.content && typeof value.content === 'string') {
-            candidates.push(value.content)
-          }
-
-          // Use the longest available content
-          content = candidates.reduce((longest, current) =>
-            current.length > longest.length ? current : longest, '')
-        } else {
-          content = (value.content as string) || ''
-        }
-
-        const visibility = (value.visibility as string) || 'public'
-        const createdAt = (isV2 || isSiteStandard)
-          ? (value.publishedAt as string) || null
-          : (value.createdAt as string) || null
-        const hasLatex = source === 'greengale' && !isSiteStandard && value.latex === true
-        const documentPath = (isV2 || isSiteStandard) ? (value.path as string) || null : null
-        const documentUrl = isV2 ? (value.url as string) || null : null
-
-        // Theme extraction
-        let themePreset: string | null = null
-        if (value.theme) {
-          const themeData = value.theme as Record<string, unknown>
-          if (themeData.custom) {
-            themePreset = JSON.stringify(themeData.custom)
-          } else if (themeData.preset) {
-            themePreset = themeData.preset as string
-          }
-        }
-
-        // First image CID
-        let firstImageCid: string | null = null
-        const blobs = value.blobs as Array<Record<string, unknown>> | undefined
-        if (blobs?.length) {
-          for (const blob of blobs) {
-            const blobref = blob.blobref as Record<string, unknown> | undefined
-            if (blobref?.ref) {
-              const ref = blobref.ref as Record<string, unknown>
-              if (typeof ref.$link === 'string') {
-                firstImageCid = ref.$link
-                break
-              }
-            }
-          }
-        }
-
-        // Content preview
-        const contentPreview = content
-          .replace(/[#*`\[\]()!]/g, '')
-          .replace(/\n+/g, ' ')
-          .slice(0, 3000)
-
-        // Slug
-        const slug = title
-          ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-          : null
-
-        // Update the post (using ON CONFLICT DO UPDATE to update existing)
-        await c.env.DB.prepare(`
-          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(uri) DO UPDATE SET
-            title = excluded.title,
-            subtitle = excluded.subtitle,
-            slug = excluded.slug,
-            visibility = excluded.visibility,
-            content_preview = excluded.content_preview,
-            has_latex = excluded.has_latex,
-            theme_preset = excluded.theme_preset,
-            first_image_cid = excluded.first_image_cid,
-            url = excluded.url,
-            path = excluded.path,
-            indexed_at = datetime('now')
-        `).bind(
-          uri, did, rkey, title, subtitle, slug, source, visibility,
-          createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
-          documentUrl, documentPath
-        ).run()
-
-        // Invalidate OG cache
-        const authorRow = await c.env.DB.prepare(
-          'SELECT handle FROM authors WHERE did = ?'
-        ).bind(did).first()
-        if (authorRow?.handle) {
-          await c.env.CACHE.delete(`og:${authorRow.handle}:${rkey}`)
-        }
-
-        // Invalidate recent posts cache
-        await c.env.CACHE.delete('recent_posts:24:')
-
-        result = {
-          success: true,
-          uri,
-          collection,
-          title,
-          themePreset,
-          firstImageCid,
-          contentLength: content.length,
-          contentPreviewLength: contentPreview.length,
-          contentSample: content.substring(0, 200),
-          message: `Re-indexed post and invalidated caches`,
-        }
-        break
-      } catch (err) {
-        // Try next collection
+      } catch {
         continue
       }
     }
 
-    if (!found) {
+    if (!foundUri || !foundCollection) {
       return c.json({ error: 'Post not found in any collection' }, 404)
     }
 
-    return c.json(result)
+    // Use the firehose DO for complete reindexing (includes external URL resolution)
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    const reindexResponse = await firehose.fetch('http://internal/reindex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uri: foundUri }),
+    })
+
+    if (!reindexResponse.ok) {
+      const errorData = await reindexResponse.json().catch(() => ({ error: 'Unknown' })) as { error?: string }
+      return c.json({ error: errorData.error || 'Reindex failed' }, 500)
+    }
+
+    // Invalidate caches
+    const authorRow = await c.env.DB.prepare(
+      'SELECT handle FROM authors WHERE did = ?'
+    ).bind(did).first()
+    if (authorRow?.handle) {
+      await c.env.CACHE.delete(`og:${authorRow.handle}:${rkey}`)
+    }
+    await c.env.CACHE.delete('recent_posts:24:')
+
+    // Get the updated post info
+    const updatedPost = await c.env.DB.prepare(`
+      SELECT title, content_preview, external_url FROM posts WHERE uri = ?
+    `).bind(foundUri).first()
+
+    return c.json({
+      success: true,
+      uri: foundUri,
+      collection: foundCollection,
+      title: updatedPost?.title,
+      contentPreviewLength: (updatedPost?.content_preview as string)?.length || 0,
+      externalUrl: updatedPost?.external_url,
+      message: 'Re-indexed post via firehose DO',
+    })
   } catch (error) {
     console.error('Error re-indexing post:', error)
     return c.json({ error: 'Failed to re-index post', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
+// Fix site.standard.document posts missing external URLs (admin only)
+// These are external platform posts (Leaflet, etc.) that were indexed before external URL resolution
+// Usage: POST /xrpc/app.greengale.admin.fixMissingExternalUrls?limit=100&concurrency=20
+app.post('/xrpc/app.greengale.admin.fixMissingExternalUrls', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500)
+  const concurrency = Math.min(parseInt(c.req.query('concurrency') || '20'), 50)
+
+  try {
+    // Get total count of affected posts
+    const countResult = await c.env.DB.prepare(`
+      SELECT COUNT(*) as total FROM posts
+      WHERE uri LIKE '%/site.standard.document/%'
+        AND external_url IS NULL
+        AND deleted_at IS NULL
+    `).first()
+    const totalRemaining = (countResult?.total as number) || 0
+
+    // Find site.standard.document posts without external_url
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey, title
+      FROM posts
+      WHERE uri LIKE '%/site.standard.document/%'
+        AND external_url IS NULL
+        AND deleted_at IS NULL
+      ORDER BY indexed_at ASC
+      LIMIT ?
+    `).bind(limit).all()
+
+    if (!posts.results?.length) {
+      return c.json({
+        message: 'No posts with missing external URLs found',
+        processed: 0,
+        remaining: 0,
+      })
+    }
+
+    // Get the firehose DO to trigger re-indexing
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    let processed = 0
+    let failed = 0
+    let fixed = 0
+    const errors: string[] = []
+
+    // Process in parallel batches
+    const reindexPost = async (post: { uri: unknown; title: unknown }) => {
+      try {
+        const response = await firehose.fetch('http://internal/reindex', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uri: post.uri }),
+        })
+
+        if (response.ok) {
+          // Check if external_url was set
+          const updated = await c.env.DB.prepare(
+            'SELECT external_url FROM posts WHERE uri = ?'
+          ).bind(post.uri).first()
+
+          return {
+            success: true,
+            fixed: !!updated?.external_url,
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown' })) as { error?: string }
+          return { success: false, error: `${post.title}: ${errorData.error || response.statusText}` }
+        }
+      } catch (err) {
+        return { success: false, error: `${post.title}: ${err instanceof Error ? err.message : 'Unknown error'}` }
+      }
+    }
+
+    // Process in batches
+    for (let i = 0; i < posts.results.length; i += concurrency) {
+      const batch = posts.results.slice(i, i + concurrency)
+      const results = await Promise.all(batch.map(reindexPost))
+
+      for (const result of results) {
+        if (result.success) {
+          processed++
+          if (result.fixed) fixed++
+        } else {
+          failed++
+          if (result.error) errors.push(result.error)
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      total: posts.results.length,
+      processed,
+      fixed,
+      failed,
+      remaining: Math.max(0, totalRemaining - processed),
+      concurrency,
+      errors: errors.slice(0, 10),
+    })
+  } catch (error) {
+    console.error('Error fixing missing external URLs:', error)
+    return c.json({ error: 'Failed to fix external URLs', details: error instanceof Error ? error.message : 'Unknown' }, 500)
   }
 })
 
@@ -3423,37 +3425,56 @@ app.post('/xrpc/app.greengale.admin.reindexEmptyPreviews', async (c) => {
 
 // Re-index posts with short content previews (admin only)
 // This expands previews that were truncated at the old 1000-char limit to the new 3000-char limit
-// Usage: POST /xrpc/app.greengale.admin.expandContentPreviews?limit=50&concurrency=10
+// Usage: POST /xrpc/app.greengale.admin.expandContentPreviews?limit=50&concurrency=20
 app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
   const authError = requireAdmin(c)
   if (authError) {
     return c.json({ error: authError.error }, authError.status)
   }
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200)
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 500)
   // Default threshold is 1000 (old limit) - posts at exactly this length were likely truncated
   const threshold = Math.min(parseInt(c.req.query('threshold') || '1000'), 2999)
   // Minimum length to consider (default 250 to catch 300-char truncated posts)
   const minLength = Math.max(parseInt(c.req.query('minLength') || '250'), 100)
-  // Concurrency for parallel processing (default 10, max 20)
-  const concurrency = Math.min(parseInt(c.req.query('concurrency') || '10'), 20)
+  // Concurrency for parallel processing (default 20, max 50)
+  const concurrency = Math.min(parseInt(c.req.query('concurrency') || '20'), 50)
+  // Skip posts indexed within the last N minutes (to avoid re-processing recently expanded posts)
+  const skipRecentMinutes = parseInt(c.req.query('skipRecentMinutes') || '0')
 
   try {
-    // Find posts where content_preview is between minLength and threshold chars
-    // These are likely truncated at an old limit
-    const posts = await c.env.DB.prepare(`
-      SELECT uri, author_did, rkey, LENGTH(content_preview) as preview_length
-      FROM posts
+    // Build query with optional recent skip
+    let whereClause = `
       WHERE content_preview IS NOT NULL
         AND LENGTH(content_preview) >= ?
         AND LENGTH(content_preview) <= ?
         AND deleted_at IS NULL
-      ORDER BY indexed_at DESC
+    `
+    const params: (number | string)[] = [minLength, threshold]
+
+    if (skipRecentMinutes > 0) {
+      whereClause += ` AND indexed_at < datetime('now', '-${skipRecentMinutes} minutes')`
+    }
+
+    // Get total count of matching posts
+    const countResult = await c.env.DB.prepare(`
+      SELECT COUNT(*) as total FROM posts ${whereClause}
+    `).bind(...params).first()
+    const totalRemaining = (countResult?.total as number) || 0
+
+    // Find posts where content_preview is between minLength and threshold chars
+    // These are likely truncated at an old limit
+    // Order by oldest indexed first to prioritize posts that haven't been touched
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey, LENGTH(content_preview) as preview_length
+      FROM posts
+      ${whereClause}
+      ORDER BY indexed_at ASC
       LIMIT ?
-    `).bind(minLength, threshold, limit).all()
+    `).bind(...params, limit).all()
 
     if (!posts.results?.length) {
-      return c.json({ message: 'No posts with short previews found', processed: 0, minLength, threshold })
+      return c.json({ message: 'No posts with short previews found', processed: 0, remaining: 0, minLength, threshold })
     }
 
     // Get the firehose DO to trigger re-indexing
@@ -3504,6 +3525,8 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
       total: posts.results.length,
       processed,
       failed,
+      remaining: Math.max(0, totalRemaining - processed),
+      minLength,
       threshold,
       concurrency,
       errors: errors.slice(0, 10), // Only return first 10 errors
@@ -6168,6 +6191,205 @@ app.post('/xrpc/app.greengale.admin.cleanupDuplicatePosts', async (c) => {
     })
   } catch (error) {
     console.error('Cleanup duplicates error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
+// Clean up duplicate posts with same author/title/date but different content lengths
+// Keeps the one with the longer content_preview, deletes the shorter ones
+// Usage: POST /xrpc/app.greengale.admin.cleanupDuplicatesByContent?dryRun=true
+app.post('/xrpc/app.greengale.admin.cleanupDuplicatesByContent', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const dryRun = c.req.query('dryRun') !== 'false'
+    const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500)
+
+    // Find groups of posts with same author, title, and created_at
+    // where there are multiple entries with different preview lengths
+    const duplicateGroups = await c.env.DB.prepare(`
+      SELECT
+        p1.uri as uri,
+        p1.author_did,
+        p1.title,
+        p1.created_at,
+        p1.external_url,
+        LENGTH(p1.content_preview) as preview_length,
+        (
+          SELECT MAX(LENGTH(p2.content_preview))
+          FROM posts p2
+          WHERE p2.author_did = p1.author_did
+            AND p2.title = p1.title
+            AND p2.created_at = p1.created_at
+            AND p2.deleted_at IS NULL
+        ) as max_preview_length
+      FROM posts p1
+      WHERE p1.deleted_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM posts p2
+          WHERE p2.author_did = p1.author_did
+            AND p2.title = p1.title
+            AND p2.created_at = p1.created_at
+            AND p2.uri != p1.uri
+            AND p2.deleted_at IS NULL
+        )
+      ORDER BY p1.author_did, p1.title, p1.created_at
+      LIMIT ?
+    `).bind(limit).all()
+
+    // Filter to find entries that should be deleted (not the max preview length)
+    const toDelete = (duplicateGroups.results || []).filter(
+      row => (row.preview_length as number) < (row.max_preview_length as number)
+    )
+
+    if (dryRun) {
+      // Group by title for clearer output
+      const grouped: Record<string, Array<{ uri: string; previewLength: number; externalUrl: string | null; willDelete: boolean }>> = {}
+      for (const row of duplicateGroups.results || []) {
+        const key = `${row.author_did}|${row.title}|${row.created_at}`
+        if (!grouped[key]) grouped[key] = []
+        grouped[key].push({
+          uri: row.uri as string,
+          previewLength: row.preview_length as number,
+          externalUrl: row.external_url as string | null,
+          willDelete: (row.preview_length as number) < (row.max_preview_length as number),
+        })
+      }
+
+      return c.json({
+        dryRun: true,
+        message: 'Set dryRun=false to delete the shorter duplicates',
+        totalDuplicateEntries: duplicateGroups.results?.length || 0,
+        toDeleteCount: toDelete.length,
+        groups: Object.entries(grouped).slice(0, 20).map(([key, entries]) => ({
+          key: key.split('|')[1], // Just the title
+          entries,
+        })),
+      })
+    }
+
+    // Delete the shorter duplicates
+    let deleted = 0
+    const errors: string[] = []
+
+    for (const row of toDelete) {
+      try {
+        // Soft delete
+        await c.env.DB.prepare(
+          'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
+        ).bind(row.uri).run()
+
+        // Delete embeddings
+        const { deletePostEmbeddings } = await import('../lib/embeddings')
+        await deletePostEmbeddings(c.env.VECTORIZE, row.uri as string)
+
+        deleted++
+      } catch (err) {
+        errors.push(`${row.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      dryRun: false,
+      deleted,
+      found: toDelete.length,
+      errors: errors.length > 0 ? errors : undefined,
+    })
+  } catch (error) {
+    console.error('Cleanup duplicates by content error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
+// Clean up posts with invalid external URLs (e.g., ending in /index)
+// These are incorrectly indexed posts that don't actually work
+// Usage: POST /xrpc/app.greengale.admin.cleanupInvalidExternalUrls?dryRun=true
+app.post('/xrpc/app.greengale.admin.cleanupInvalidExternalUrls', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const dryRun = c.req.query('dryRun') !== 'false'
+    const limit = Math.min(parseInt(c.req.query('limit') || '200'), 1000)
+
+    // Find posts with external_url ending in /index or other invalid patterns
+    const invalidPosts = await c.env.DB.prepare(`
+      SELECT uri, author_did, title, external_url, LENGTH(content_preview) as preview_length
+      FROM posts
+      WHERE external_url IS NOT NULL
+        AND (
+          external_url LIKE '%/index'
+          OR external_url LIKE '%/index/'
+        )
+        AND deleted_at IS NULL
+      ORDER BY indexed_at DESC
+      LIMIT ?
+    `).bind(limit).all()
+
+    const posts = invalidPosts.results || []
+
+    if (dryRun) {
+      // Get total count
+      const countResult = await c.env.DB.prepare(`
+        SELECT COUNT(*) as total FROM posts
+        WHERE external_url IS NOT NULL
+          AND (external_url LIKE '%/index' OR external_url LIKE '%/index/')
+          AND deleted_at IS NULL
+      `).first()
+
+      return c.json({
+        dryRun: true,
+        message: 'Set dryRun=false to delete these posts with invalid URLs',
+        totalFound: (countResult?.total as number) || 0,
+        sample: posts.slice(0, 20).map(p => ({
+          uri: p.uri,
+          title: p.title,
+          externalUrl: p.external_url,
+          previewLength: p.preview_length,
+        })),
+      })
+    }
+
+    // Delete the invalid posts
+    let deleted = 0
+    const errors: string[] = []
+
+    for (const post of posts) {
+      try {
+        // Soft delete
+        await c.env.DB.prepare(
+          'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
+        ).bind(post.uri).run()
+
+        // Delete embeddings
+        const { deletePostEmbeddings } = await import('../lib/embeddings')
+        await deletePostEmbeddings(c.env.VECTORIZE, post.uri as string)
+
+        deleted++
+      } catch (err) {
+        errors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      }
+    }
+
+    return c.json({
+      dryRun: false,
+      deleted,
+      found: posts.length,
+      errors: errors.length > 0 ? errors : undefined,
+    })
+  } catch (error) {
+    console.error('Cleanup invalid URLs error:', error)
     return c.json(
       { error: error instanceof Error ? error.message : 'Unknown error' },
       500

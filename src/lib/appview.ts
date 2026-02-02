@@ -327,10 +327,9 @@ export type SearchMode = 'keyword' | 'semantic' | 'hybrid'
  * - handle: Search author handles
  * - name: Search author display names
  * - pub: Search publication names and URLs
- * - title: Search post titles and subtitles
- * - content: Search post content preview and tags
+ * - content: Search post titles, subtitles, content preview and tags
  */
-export type SearchField = 'handle' | 'name' | 'pub' | 'title' | 'content'
+export type SearchField = 'handle' | 'name' | 'pub' | 'content'
 
 /**
  * Search for posts using semantic, keyword, or hybrid search

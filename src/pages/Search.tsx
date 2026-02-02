@@ -12,7 +12,7 @@ import { PostSearchResult } from '@/components/PostSearchResult'
 import { SearchFilters, dateRangeToAfter, type DateRange } from '@/components/SearchFilters'
 import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
 
-const VALID_FIELDS: SearchField[] = ['handle', 'name', 'pub', 'title', 'content']
+const VALID_FIELDS: SearchField[] = ['handle', 'name', 'pub', 'content']
 
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -244,8 +244,6 @@ export function SearchPage() {
         return 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300'
       case 'pub':
         return 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300'
-      case 'title':
-        return 'bg-cyan-600 text-white dark:bg-cyan-900/30 dark:text-cyan-300'
       case 'content':
         return 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300'
     }
@@ -259,8 +257,6 @@ export function SearchPage() {
         return 'Name'
       case 'pub':
         return 'Publication'
-      case 'title':
-        return 'Title'
       case 'content':
         return 'Content'
     }

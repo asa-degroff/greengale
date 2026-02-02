@@ -27,7 +27,6 @@ const FIELD_OPTIONS: { value: SearchField; label: string }[] = [
   { value: 'handle', label: 'Handle' },
   { value: 'name', label: 'Name' },
   { value: 'pub', label: 'Publication' },
-  { value: 'title', label: 'Title' },
   { value: 'content', label: 'Content' },
 ]
 
