@@ -241,3 +241,48 @@ export function renderTextWithFacets(
 
   return result
 }
+
+/**
+ * Auto-detect URLs in plain text and render them as clickable links.
+ * Useful for content without facets (like author bios).
+ */
+export function linkifyText(text: string): React.ReactNode[] {
+  if (!text) return []
+
+  // URL regex that matches http(s) URLs
+  // Handles common URL characters including paths, query strings, and fragments
+  // Stops at common punctuation that usually ends a sentence
+  const urlRegex = /https?:\/\/[^\s<>"\[\]{}|\\^`]+[^\s<>"\[\]{}|\\^`.,;:!?)\]}"']/gi
+
+  const result: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = urlRegex.exec(text)) !== null) {
+    // Add text before the URL
+    if (match.index > lastIndex) {
+      result.push(text.slice(lastIndex, match.index))
+    }
+
+    // Add the URL as a link
+    const url = match[0]
+    result.push(
+      React.createElement('a', {
+        key: match.index,
+        href: url,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        className: 'text-[var(--site-accent)] hover:underline break-all',
+      }, url)
+    )
+
+    lastIndex = match.index + url.length
+  }
+
+  // Add remaining text after last URL
+  if (lastIndex < text.length) {
+    result.push(text.slice(lastIndex))
+  }
+
+  return result.length > 0 ? result : [text]
+}

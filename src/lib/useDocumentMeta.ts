@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react'
 
 /**
+ * RSS feed link configuration
+ */
+export interface RSSFeedConfig {
+  /** Title for the RSS feed (shown in browser RSS menu) */
+  title: string
+  /** URL to the RSS feed */
+  href: string
+}
+
+/**
  * Configuration for document metadata (title, canonical URL, meta tags)
  */
 export interface DocumentMetaConfig {
@@ -16,6 +26,8 @@ export interface DocumentMetaConfig {
   ogType?: 'website' | 'article'
   /** Whether to add noindex meta tag */
   noindex?: boolean
+  /** RSS feed link for feed discovery */
+  rssFeed?: RSSFeedConfig
 }
 
 const SITE_NAME = 'GreenGale'
@@ -69,6 +81,33 @@ function setLinkTag(rel: string, href: string): HTMLLinkElement {
  */
 function removeLinkTag(rel: string): void {
   const link = document.querySelector(`link[rel="${rel}"]`)
+  link?.remove()
+}
+
+/**
+ * Helper to set an RSS feed link tag (for feed discovery)
+ */
+function setRSSFeedLink(href: string, title: string): HTMLLinkElement {
+  // Use a specific selector to find existing RSS link
+  let link = document.querySelector('link[rel="alternate"][type="application/rss+xml"]') as HTMLLinkElement | null
+
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'alternate'
+    link.type = 'application/rss+xml'
+    document.head.appendChild(link)
+  }
+
+  link.href = href
+  link.title = title
+  return link
+}
+
+/**
+ * Helper to remove the RSS feed link tag
+ */
+function removeRSSFeedLink(): void {
+  const link = document.querySelector('link[rel="alternate"][type="application/rss+xml"]')
   link?.remove()
 }
 
@@ -140,6 +179,11 @@ export function useDocumentMeta(config: DocumentMetaConfig): void {
       setMetaTag('robots', 'noindex, nofollow')
     }
 
+    // Set RSS feed link for feed discovery
+    if (config.rssFeed) {
+      setRSSFeedLink(config.rssFeed.href, config.rssFeed.title)
+    }
+
     // Cleanup on unmount
     return () => {
       // Restore original title
@@ -160,6 +204,11 @@ export function useDocumentMeta(config: DocumentMetaConfig): void {
       if (config.noindex) {
         removeMetaTag('robots')
       }
+
+      // Remove RSS feed link
+      if (config.rssFeed) {
+        removeRSSFeedLink()
+      }
     }
   }, [
     config.title,
@@ -168,6 +217,8 @@ export function useDocumentMeta(config: DocumentMetaConfig): void {
     config.ogImage,
     config.ogType,
     config.noindex,
+    config.rssFeed?.href,
+    config.rssFeed?.title,
   ])
 }
 
@@ -211,4 +262,18 @@ export function buildAuthorOgImage(handle: string): string {
  */
 export function buildHomeOgImage(): string {
   return `${APPVIEW_URL}/og/site.png`
+}
+
+/**
+ * Build the RSS feed URL for an author
+ */
+export function buildAuthorRSSFeed(handle: string): string {
+  return `${BASE_URL}/${handle}/rss`
+}
+
+/**
+ * Build the RSS feed URL for the site-wide recent posts
+ */
+export function buildRecentRSSFeed(): string {
+  return `${BASE_URL}/rss`
 }

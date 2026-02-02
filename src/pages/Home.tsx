@@ -25,6 +25,7 @@ import {
   useDocumentMeta,
   buildHomeCanonical,
   buildHomeOgImage,
+  buildRecentRSSFeed,
 } from '@/lib/useDocumentMeta'
 
 type FeedTab = 'greengale' | 'following' | 'network'
@@ -126,12 +127,16 @@ export function HomePage() {
   const [feedFromCache, setFeedFromCache] = useState(false)
   const { isOnline } = useNetworkStatus()
 
-  // Set document metadata (title, canonical URL, OG tags)
+  // Set document metadata (title, canonical URL, OG tags, RSS feed)
   useDocumentMeta({
     title: 'GreenGale',
     canonical: buildHomeCanonical(),
     description: 'Markdown blog platform powered by your internet handle.',
     ogImage: buildHomeOgImage(),
+    rssFeed: {
+      title: 'GreenGale - Recent Posts',
+      href: buildRecentRSSFeed(),
+    },
   })
 
   useEffect(() => {

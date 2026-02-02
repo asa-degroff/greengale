@@ -7,6 +7,7 @@ import {
   getBlueskyWebUrl,
   getBlueskyShareUrl,
   renderTextWithFacets,
+  linkifyText,
   type BlueskyFacet,
 } from '../bluesky'
 
@@ -334,6 +335,103 @@ describe('Bluesky Utilities', () => {
       const link = result[1] as React.ReactElement
       expect(link.props.target).toBe('_blank')
       expect(link.props.rel).toBe('noopener noreferrer')
+    })
+  })
+
+  describe('linkifyText', () => {
+    it('returns text as-is when no URLs present', () => {
+      const result = linkifyText('Hello world, no links here!')
+      expect(result).toHaveLength(1)
+      expect(result[0]).toBe('Hello world, no links here!')
+    })
+
+    it('returns empty array for empty string', () => {
+      const result = linkifyText('')
+      expect(result).toHaveLength(0)
+    })
+
+    it('detects and linkifies https URLs', () => {
+      const result = linkifyText('Check out https://example.com for more info')
+      expect(result).toHaveLength(3)
+      expect(result[0]).toBe('Check out ')
+      expect((result[1] as React.ReactElement).props.href).toBe('https://example.com')
+      expect(result[2]).toBe(' for more info')
+    })
+
+    it('detects and linkifies http URLs', () => {
+      const result = linkifyText('Visit http://example.com today')
+      expect(result).toHaveLength(3)
+      expect((result[1] as React.ReactElement).props.href).toBe('http://example.com')
+    })
+
+    it('handles multiple URLs in text', () => {
+      const result = linkifyText('See https://foo.com and https://bar.com for details')
+      expect(result).toHaveLength(5)
+      expect((result[1] as React.ReactElement).props.href).toBe('https://foo.com')
+      expect((result[3] as React.ReactElement).props.href).toBe('https://bar.com')
+    })
+
+    it('handles URL at start of text', () => {
+      const result = linkifyText('https://example.com is great')
+      expect(result).toHaveLength(2)
+      expect((result[0] as React.ReactElement).props.href).toBe('https://example.com')
+      expect(result[1]).toBe(' is great')
+    })
+
+    it('handles URL at end of text', () => {
+      const result = linkifyText('Visit https://example.com')
+      expect(result).toHaveLength(2)
+      expect(result[0]).toBe('Visit ')
+      expect((result[1] as React.ReactElement).props.href).toBe('https://example.com')
+    })
+
+    it('handles URL as entire text', () => {
+      const result = linkifyText('https://example.com')
+      expect(result).toHaveLength(1)
+      expect((result[0] as React.ReactElement).props.href).toBe('https://example.com')
+    })
+
+    it('preserves URL paths and query strings', () => {
+      const result = linkifyText('Check https://example.com/path/to/page?query=value&other=123')
+      const link = result[1] as React.ReactElement
+      expect(link.props.href).toBe('https://example.com/path/to/page?query=value&other=123')
+    })
+
+    it('handles URLs with fragments', () => {
+      const result = linkifyText('See https://example.com/docs#section-1 for details')
+      const link = result[1] as React.ReactElement
+      expect(link.props.href).toBe('https://example.com/docs#section-1')
+    })
+
+    it('stops URL at trailing punctuation', () => {
+      const result = linkifyText('Visit https://example.com.')
+      expect(result).toHaveLength(3)
+      expect(result[0]).toBe('Visit ')
+      expect((result[1] as React.ReactElement).props.href).toBe('https://example.com')
+      expect(result[2]).toBe('.')
+    })
+
+    it('stops URL at trailing comma', () => {
+      const result = linkifyText('See https://example.com, https://other.com for more')
+      expect(result).toHaveLength(5)
+      expect(result[0]).toBe('See ')
+      expect((result[1] as React.ReactElement).props.href).toBe('https://example.com')
+      expect(result[2]).toBe(', ')
+      expect((result[3] as React.ReactElement).props.href).toBe('https://other.com')
+      expect(result[4]).toBe(' for more')
+    })
+
+    it('opens links in new tab with security attributes', () => {
+      const result = linkifyText('Visit https://example.com')
+      const link = result[1] as React.ReactElement
+      expect(link.props.target).toBe('_blank')
+      expect(link.props.rel).toBe('noopener noreferrer')
+    })
+
+    it('handles complex URLs with subdomains', () => {
+      const result = linkifyText('My site is https://blog.subdomain.example.co.uk/posts/123')
+      const link = result[1] as React.ReactElement
+      expect(link.props.href).toBe('https://blog.subdomain.example.co.uk/posts/123')
     })
   })
 })
