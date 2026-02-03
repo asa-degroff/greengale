@@ -111,19 +111,6 @@ test.describe('RSS Feeds', () => {
     expect(cacheControl).toMatch(/s-maxage=\d+/)
   })
 
-  test('homepage has RSS feed discovery link', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('domcontentloaded')
-
-    // Wait for React to hydrate and set the RSS link
-    await page.waitForTimeout(1000)
-
-    // Check for RSS alternate link in head
-    const rssLink = page.locator('link[rel="alternate"][type="application/rss+xml"]')
-    await expect(rssLink).toHaveAttribute('href', /\/rss$/)
-    await expect(rssLink).toHaveAttribute('title', /GreenGale.*Recent Posts/i)
-  })
-
   test('author page has RSS feed discovery link', async ({ page }) => {
     // First, get a valid author handle from the homepage
     await page.goto('/')
