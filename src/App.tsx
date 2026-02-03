@@ -8,6 +8,7 @@ import { AuthorPage } from '@/pages/Author'
 import { PostPage } from '@/pages/Post'
 import { AuthCallbackPage } from '@/pages/AuthCallback'
 import { EditorPage } from '@/pages/Editor'
+import { AgentsPage } from '@/pages/Agents'
 import { TagPage } from '@/pages/Tag'
 import { SearchPage } from '@/pages/Search'
 import { ExternalPreviewPage } from '@/pages/ExternalPreview'
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
       { path: '/edit/:rkey', element: <EditorPage /> },
       { path: '/terms', element: <TermsPage /> },
       { path: '/privacy', element: <PrivacyPage /> },
+      { path: '/agents', element: <AgentsPage /> },
       { path: '/tag/:tag', element: <TagPage /> },
       { path: '/search', element: <SearchPage /> },
       { path: '/external', element: <ExternalPreviewPage /> },

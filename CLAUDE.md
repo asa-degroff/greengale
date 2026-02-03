@@ -64,6 +64,7 @@ src/
 │   ├── Author.tsx           # /:handle - author's posts
 │   ├── Post.tsx             # /:handle/:rkey - single post
 │   ├── Editor.tsx           # /new, /edit/:rkey - post creation
+│   ├── Agents.tsx           # /agents - AI agent integration docs
 │   └── AuthCallback.tsx     # OAuth callback handler
 ├── lib/
 │   ├── __tests__/           # Unit tests (see Testing section)
@@ -662,9 +663,38 @@ npm run db:migrate
 | `/` | HomePage | Public |
 | `/new` | EditorPage | Whitelisted |
 | `/edit/:rkey` | EditorPage | Whitelisted |
+| `/agents` | AgentsPage | Public |
 | `/:handle` | AuthorPage | Public |
 | `/:handle/:rkey` | PostPage | Public |
 | `/auth/callback` | AuthCallbackPage | Public |
+
+## Agent Integration
+
+GreenGale provides documentation for AI agents to publish blog posts programmatically.
+
+**Files:**
+- `public/llms.txt` - Index file following the [llms.txt standard](https://llmstxt.org/)
+- `public/llms-full.txt` - Complete documentation with schema, auth, and code examples
+- `src/pages/Agents.tsx` - Human-readable `/agents` page with copyable skills
+
+**Key Information for Agents:**
+- **Collection**: `app.greengale.document`
+- **Record Key**: TID format (13 base32-sortable characters)
+- **API**: `com.atproto.repo.putRecord` on user's PDS
+- **Auth**: App password via `com.atproto.server.createSession`
+
+**Required Fields:**
+| Field | Description |
+|-------|-------------|
+| `content` | Markdown content (max 100K chars) |
+| `title` | Post title (max 1K chars) |
+| `url` | Always `https://greengale.app` |
+| `path` | Format: `/{handle}/{rkey}` |
+| `publishedAt` | ISO 8601 timestamp |
+
+**Optional Fields:** `subtitle`, `visibility` (public/url/author), `tags`, `theme`
+
+See `/llms-full.txt` for complete examples in Python and TypeScript.
 
 ## Deployment
 

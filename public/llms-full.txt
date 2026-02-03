@@ -1,0 +1,1049 @@
+# GreenGale - Complete Agent Documentation
+
+> GreenGale is a markdown blog platform built on AT Protocol. This document provides everything an AI agent needs to publish blog posts on behalf of users.
+
+## Overview
+
+GreenGale stores blog posts in users' Personal Data Servers (PDS) using the AT Protocol. Posts are written to the `app.greengale.document` collection and automatically indexed by GreenGale for discovery.
+
+**Key Concepts:**
+- **DID**: Decentralized Identifier (e.g., `did:plc:abc123`) - uniquely identifies a user
+- **Handle**: Human-readable username (e.g., `alice.bsky.social`)
+- **PDS**: Personal Data Server - where user data is stored
+- **TID**: Timestamp Identifier - unique record key format
+- **Collection**: Namespace for records (e.g., `app.greengale.document`)
+
+## Authentication
+
+### Option 1: App Password (Recommended for Agents)
+
+App passwords are the simplest way for agents to authenticate. Users create them at:
+- Bluesky: https://bsky.app/settings/app-passwords
+- Other PDS: Check the PDS settings
+
+```python
+import requests
+
+# Default PDS (Bluesky) - can be customized for self-hosted PDS
+pds_host = "https://bsky.social"
+
+# Create a session
+session = requests.post(
+    f"{pds_host}/xrpc/com.atproto.server.createSession",
+    json={
+        "identifier": "your-handle.bsky.social",  # or DID
+        "password": "xxxx-xxxx-xxxx-xxxx"  # app password
+    }
+).json()
+
+# Extract key fields from session response
+access_token = session["accessJwt"]  # JWT for authenticated requests
+did = session["did"]                 # User's DID (e.g., "did:plc:abc123")
+handle = session["handle"]           # User's handle (e.g., "alice.bsky.social")
+
+# For self-hosted PDS: resolve actual endpoint from didDoc
+pds_endpoint = pds_host
+did_doc = session.get("didDoc", {})
+for service in did_doc.get("service", []):
+    if service.get("id") == "#atproto_pds":
+        pds_endpoint = service.get("serviceEndpoint", pds_host)
+        break
+
+# Use for authenticated requests
+headers = {"Authorization": f"Bearer {access_token}"}
+```
+
+**Session Response Fields:**
+| Field | Description |
+|-------|-------------|
+| `accessJwt` | JWT token for authenticated requests |
+| `did` | User's Decentralized Identifier |
+| `handle` | User's handle (username) |
+| `didDoc` | DID Document with service endpoints (for self-hosted PDS) |
+
+### Option 2: OAuth (For Interactive Apps)
+
+OAuth is more complex but provides better security for interactive applications. See the AT Protocol OAuth documentation for details.
+
+## Document Schema
+
+The `app.greengale.document` collection stores blog posts.
+
+### Required Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | string | Markdown content (max 100,000 chars) |
+| `title` | string | Document title (max 1,000 chars) |
+| `url` | string (uri) | Base publication URL (use `https://greengale.app`) |
+| `path` | string | Document path (e.g., `/{handle}/{rkey}`) |
+| `publishedAt` | string (datetime) | ISO 8601 timestamp |
+
+### Optional Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `subtitle` | string | Subtitle/description (max 1,000 chars) |
+| `visibility` | enum | `public` (default), `url` (unlisted), `author` (private) |
+| `theme` | object | Visual theme configuration |
+| `tags` | array | String tags for categorization (max 100 items) |
+| `latex` | boolean | Legacy field, LaTeX is always enabled |
+| `blobs` | array | Uploaded image metadata |
+
+### Theme Object
+
+You can use a preset theme OR custom colors (or both, where custom overrides preset):
+
+**Option 1: Preset Theme**
+```json
+{
+  "theme": {
+    "preset": "github-dark"
+  }
+}
+```
+
+**Available Presets:** `github-light`, `github-dark`, `dracula`, `nord`, `solarized-light`, `solarized-dark`, `monokai`
+
+**Option 2: Custom Colors**
+```json
+{
+  "theme": {
+    "custom": {
+      "background": "#042a34",
+      "text": "#f0fbff",
+      "accent": "#b856e6",
+      "codeBackground": "#16213e"
+    }
+  }
+}
+```
+
+| Color Field | Required | Description |
+|-------------|----------|-------------|
+| `background` | Yes* | Page background color (hex) |
+| `text` | Yes* | Primary text color (hex) |
+| `accent` | Yes* | Links and accent color (hex) |
+| `codeBackground` | No | Code block background (hex, defaults to slightly darker than background) |
+
+*Required when using custom theme without a preset.
+
+**Option 3: Preset with Custom Overrides**
+```json
+{
+  "theme": {
+    "preset": "nord",
+    "custom": {
+      "accent": "#ff6b6b"
+    }
+  }
+}
+```
+
+### Blobs Array (Images)
+
+The `blobs` array stores metadata for uploaded images. Each entry contains:
+
+```json
+{
+  "blobs": [
+    {
+      "alt": "Description of the image for accessibility",
+      "name": "original-filename.jpg",
+      "blobref": {
+        "$type": "blob",
+        "ref": {
+          "$link": "bafkreibv764or3kn5txrz5djnxooe7vucj2dbgtrkr5fpvfwa2vfymuvba"
+        },
+        "mimeType": "image/avif",
+        "size": 724091
+      }
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `blobref` | Yes | AT Protocol blob reference object |
+| `blobref.$type` | Yes | Always `"blob"` |
+| `blobref.ref.$link` | Yes | CID (Content Identifier) from upload response |
+| `blobref.mimeType` | Yes | MIME type (e.g., `image/avif`, `image/jpeg`) |
+| `blobref.size` | Yes | File size in bytes |
+| `alt` | No | Alt text for accessibility (max 1000 chars, highly recommended) |
+| `name` | No | Original filename |
+
+See the "Uploading Images" section below for the complete workflow
+
+### Complete Record Example
+
+```json
+{
+  "$type": "app.greengale.document",
+  "content": "# Hello World\n\nThis is my first blog post written by an AI agent.\n\n## Features\n\n- Markdown support\n- LaTeX math: $E = mc^2$\n- Code highlighting\n\n```python\nprint('Hello from GreenGale!')\n```",
+  "title": "Hello World",
+  "subtitle": "My first AI-authored blog post",
+  "url": "https://greengale.app",
+  "path": "/alice.bsky.social/3abc123xyz789",
+  "publishedAt": "2024-01-15T10:30:00.000Z",
+  "visibility": "public",
+  "theme": {
+    "preset": "github-dark"
+  },
+  "tags": ["ai", "introduction", "hello-world"]
+}
+```
+
+## TID Generation
+
+Record keys must be TIDs (Timestamp Identifiers): 13 base32-sortable characters encoding a microsecond timestamp plus a clock ID.
+
+### Python Implementation (Method 1 - Simple)
+
+```python
+import time
+import random
+
+S32_CHARS = "234567abcdefghijklmnopqrstuvwxyz"
+
+def generate_tid():
+    # Microsecond timestamp
+    timestamp = int(time.time() * 1_000_000)
+
+    # Encode timestamp into 11 base32 characters
+    tid = ""
+    for _ in range(11):
+        tid = S32_CHARS[timestamp & 0x1f] + tid
+        timestamp //= 32
+
+    # Add 2 random characters for clock ID
+    tid += S32_CHARS[random.randint(0, 31)]
+    tid += S32_CHARS[random.randint(0, 31)]
+
+    return tid
+
+# Example: "3k62k5s7xys2a"
+```
+
+### Python Implementation (Method 2 - Bit-packed)
+
+Alternative algorithm that packs timestamp and clock ID into a single integer:
+
+```python
+import time
+import random
+
+S32_CHARS = "234567abcdefghijklmnopqrstuvwxyz"
+
+def generate_tid():
+    # Microsecond timestamp + 10-bit clock ID packed together
+    timestamp_us = int(time.time() * 1_000_000)
+    clock_id = random.randint(0, 1023)
+    tid_int = (timestamp_us << 10) | clock_id
+
+    # Encode as 13 base32 characters (5 bits each = 65 bits total)
+    tid = ""
+    for _ in range(13):
+        tid = S32_CHARS[tid_int & 0x1F] + tid
+        tid_int >>= 5
+
+    return tid
+```
+
+### JavaScript/TypeScript Implementation
+
+```typescript
+const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz';
+
+function generateTid(): string {
+  const now = Date.now() * 1000; // microseconds
+  let tid = '';
+  let timestamp = now;
+
+  for (let i = 0; i < 11; i++) {
+    tid = S32_CHAR[timestamp & 0x1f] + tid;
+    timestamp = Math.floor(timestamp / 32);
+  }
+
+  tid += S32_CHAR[Math.floor(Math.random() * 32)];
+  tid += S32_CHAR[Math.floor(Math.random() * 32)];
+
+  return tid;
+}
+```
+
+## Publishing a Post
+
+### Step 1: Authenticate
+
+```python
+import requests
+
+session = requests.post(
+    "https://bsky.social/xrpc/com.atproto.server.createSession",
+    json={
+        "identifier": "your-handle.bsky.social",
+        "password": "your-app-password"
+    }
+).json()
+
+access_token = session["accessJwt"]
+did = session["did"]
+handle = session["handle"]
+```
+
+### Step 2: Create the Record
+
+```python
+from datetime import datetime, timezone
+
+rkey = generate_tid()
+
+record = {
+    "$type": "app.greengale.document",
+    "content": "# My Blog Post\n\nContent here...",
+    "title": "My Blog Post",
+    "url": "https://greengale.app",
+    "path": f"/{handle}/{rkey}",
+    "publishedAt": datetime.now(timezone.utc).isoformat(),
+    "visibility": "public"
+}
+```
+
+### Step 3: Save to PDS
+
+Two endpoints are available:
+- **`putRecord`** - Creates or updates a record (idempotent, recommended)
+- **`createRecord`** - Creates a new record (fails if rkey already exists)
+
+```python
+# Option A: putRecord (recommended - creates or updates)
+response = requests.post(
+    "https://bsky.social/xrpc/com.atproto.repo.putRecord",
+    headers={"Authorization": f"Bearer {access_token}"},
+    json={
+        "repo": did,
+        "collection": "app.greengale.document",
+        "rkey": rkey,
+        "record": record
+    }
+)
+
+# Option B: createRecord (fails if record exists)
+response = requests.post(
+    "https://bsky.social/xrpc/com.atproto.repo.createRecord",
+    headers={"Authorization": f"Bearer {access_token}"},
+    json={
+        "repo": did,
+        "collection": "app.greengale.document",
+        "rkey": rkey,  # Optional for createRecord - will auto-generate if omitted
+        "record": record
+    }
+)
+
+if response.ok:
+    result = response.json()
+    post_url = f"https://greengale.app/{handle}/{rkey}"
+    print(f"Published: {post_url}")
+else:
+    print(f"Error: {response.json()}")
+```
+
+## Complete Python Example
+
+```python
+"""
+GreenGale Blog Publisher
+Publishes a markdown blog post to GreenGale via AT Protocol.
+"""
+
+import requests
+import time
+import random
+from datetime import datetime, timezone
+
+S32_CHARS = "234567abcdefghijklmnopqrstuvwxyz"
+
+def generate_tid():
+    timestamp = int(time.time() * 1_000_000)
+    tid = ""
+    for _ in range(11):
+        tid = S32_CHARS[timestamp & 0x1f] + tid
+        timestamp //= 32
+    tid += S32_CHARS[random.randint(0, 31)]
+    tid += S32_CHARS[random.randint(0, 31)]
+    return tid
+
+def publish_to_greengale(
+    identifier: str,
+    app_password: str,
+    title: str,
+    content: str,
+    subtitle: str = None,
+    tags: list[str] = None,
+    visibility: str = "public",
+    theme_preset: str = None
+):
+    """
+    Publish a blog post to GreenGale.
+
+    Args:
+        identifier: Bluesky handle or DID
+        app_password: AT Protocol app password
+        title: Post title
+        content: Markdown content
+        subtitle: Optional subtitle
+        tags: Optional list of tags
+        visibility: 'public', 'url', or 'author'
+        theme_preset: Optional theme preset name
+
+    Returns:
+        dict with 'url' (post URL) and 'uri' (AT-URI)
+    """
+    # Authenticate
+    session = requests.post(
+        "https://bsky.social/xrpc/com.atproto.server.createSession",
+        json={"identifier": identifier, "password": app_password}
+    )
+    session.raise_for_status()
+    session_data = session.json()
+
+    access_token = session_data["accessJwt"]
+    did = session_data["did"]
+    handle = session_data["handle"]
+
+    # Generate record key
+    rkey = generate_tid()
+
+    # Build record
+    record = {
+        "$type": "app.greengale.document",
+        "content": content,
+        "title": title,
+        "url": "https://greengale.app",
+        "path": f"/{handle}/{rkey}",
+        "publishedAt": datetime.now(timezone.utc).isoformat(),
+        "visibility": visibility
+    }
+
+    if subtitle:
+        record["subtitle"] = subtitle
+    if tags:
+        record["tags"] = tags
+    if theme_preset:
+        record["theme"] = {"preset": theme_preset}
+
+    # Save to PDS
+    response = requests.post(
+        "https://bsky.social/xrpc/com.atproto.repo.putRecord",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "repo": did,
+            "collection": "app.greengale.document",
+            "rkey": rkey,
+            "record": record
+        }
+    )
+    response.raise_for_status()
+    result = response.json()
+
+    return {
+        "url": f"https://greengale.app/{handle}/{rkey}",
+        "uri": result["uri"],
+        "cid": result["cid"]
+    }
+
+# Example usage
+if __name__ == "__main__":
+    result = publish_to_greengale(
+        identifier="your-handle.bsky.social",
+        app_password="xxxx-xxxx-xxxx-xxxx",
+        title="Hello from AI",
+        content="# Hello World\n\nThis post was published by an AI agent!",
+        subtitle="An automated blog post",
+        tags=["ai", "automation"],
+        theme_preset="github-dark"
+    )
+    print(f"Published: {result['url']}")
+```
+
+## Complete TypeScript Example
+
+```typescript
+/**
+ * GreenGale Blog Publisher
+ * Publishes a markdown blog post to GreenGale via AT Protocol.
+ */
+
+const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz';
+
+function generateTid(): string {
+  const now = Date.now() * 1000;
+  let tid = '';
+  let timestamp = now;
+
+  for (let i = 0; i < 11; i++) {
+    tid = S32_CHAR[timestamp & 0x1f] + tid;
+    timestamp = Math.floor(timestamp / 32);
+  }
+
+  tid += S32_CHAR[Math.floor(Math.random() * 32)];
+  tid += S32_CHAR[Math.floor(Math.random() * 32)];
+
+  return tid;
+}
+
+interface PublishOptions {
+  identifier: string;
+  appPassword: string;
+  title: string;
+  content: string;
+  subtitle?: string;
+  tags?: string[];
+  visibility?: 'public' | 'url' | 'author';
+  themePreset?: string;
+}
+
+interface PublishResult {
+  url: string;
+  uri: string;
+  cid: string;
+}
+
+async function publishToGreengale(options: PublishOptions): Promise<PublishResult> {
+  const {
+    identifier,
+    appPassword,
+    title,
+    content,
+    subtitle,
+    tags,
+    visibility = 'public',
+    themePreset
+  } = options;
+
+  // Authenticate
+  const sessionRes = await fetch(
+    'https://bsky.social/xrpc/com.atproto.server.createSession',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password: appPassword })
+    }
+  );
+
+  if (!sessionRes.ok) {
+    throw new Error(`Authentication failed: ${await sessionRes.text()}`);
+  }
+
+  const session = await sessionRes.json();
+  const { accessJwt, did, handle } = session;
+
+  // Generate record key
+  const rkey = generateTid();
+
+  // Build record
+  const record: Record<string, unknown> = {
+    $type: 'app.greengale.document',
+    content,
+    title,
+    url: 'https://greengale.app',
+    path: `/${handle}/${rkey}`,
+    publishedAt: new Date().toISOString(),
+    visibility
+  };
+
+  if (subtitle) record.subtitle = subtitle;
+  if (tags?.length) record.tags = tags;
+  if (themePreset) record.theme = { preset: themePreset };
+
+  // Save to PDS
+  const putRes = await fetch(
+    'https://bsky.social/xrpc/com.atproto.repo.putRecord',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessJwt}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        repo: did,
+        collection: 'app.greengale.document',
+        rkey,
+        record
+      })
+    }
+  );
+
+  if (!putRes.ok) {
+    throw new Error(`Failed to publish: ${await putRes.text()}`);
+  }
+
+  const result = await putRes.json();
+
+  return {
+    url: `https://greengale.app/${handle}/${rkey}`,
+    uri: result.uri,
+    cid: result.cid
+  };
+}
+
+// Example usage
+const result = await publishToGreengale({
+  identifier: 'your-handle.bsky.social',
+  appPassword: 'xxxx-xxxx-xxxx-xxxx',
+  title: 'Hello from AI',
+  content: '# Hello World\n\nThis post was published by an AI agent!',
+  subtitle: 'An automated blog post',
+  tags: ['ai', 'automation'],
+  themePreset: 'github-dark'
+});
+
+console.log(`Published: ${result.url}`);
+```
+
+## Updating an Existing Post
+
+To update a post, use the same `rkey` with `com.atproto.repo.putRecord`. The entire record is replaced.
+
+```python
+# Update existing post (same rkey, new content)
+record["content"] = "# Updated Content\n\nThis post has been updated."
+record["publishedAt"] = datetime.now(timezone.utc).isoformat()  # Update timestamp
+
+response = requests.post(
+    "https://bsky.social/xrpc/com.atproto.repo.putRecord",
+    headers={"Authorization": f"Bearer {access_token}"},
+    json={
+        "repo": did,
+        "collection": "app.greengale.document",
+        "rkey": existing_rkey,  # Use the same rkey
+        "record": record
+    }
+)
+```
+
+## Deleting a Post
+
+```python
+response = requests.post(
+    "https://bsky.social/xrpc/com.atproto.repo.deleteRecord",
+    headers={"Authorization": f"Bearer {access_token}"},
+    json={
+        "repo": did,
+        "collection": "app.greengale.document",
+        "rkey": rkey_to_delete
+    }
+)
+```
+
+## Uploading Images
+
+Images are stored as blobs in the user's PDS. The workflow is:
+
+1. **Upload the image blob** to get a CID (Content Identifier)
+2. **Add blob metadata** to the document's `blobs` array
+3. **Insert markdown image** in the content with the blob URL
+
+### Step 1: Upload the Blob
+
+```python
+import requests
+
+def detect_mime_type(image_bytes: bytes) -> str:
+    """Detect MIME type from magic bytes."""
+    if image_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    elif image_bytes[:3] == b'\xff\xd8\xff':
+        return 'image/jpeg'
+    elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+        return 'image/webp'
+    elif image_bytes[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    elif image_bytes[4:12] == b'ftypavif':
+        return 'image/avif'
+    return 'image/jpeg'  # fallback
+
+def compress_if_needed(image_bytes: bytes, max_size: int = 1_000_000) -> bytes:
+    """Compress image if over max size (requires Pillow)."""
+    if len(image_bytes) <= max_size:
+        return image_bytes
+
+    from PIL import Image
+    import io
+
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode in ('RGBA', 'P'):
+        img = img.convert('RGB')
+
+    quality = 85
+    while len(image_bytes) > max_size and quality > 20:
+        output = io.BytesIO()
+        if quality < 50:
+            # Also resize if compression alone isn't enough
+            new_size = (int(img.width * 0.8), int(img.height * 0.8))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        img.save(output, format='JPEG', quality=quality, optimize=True)
+        image_bytes = output.getvalue()
+        quality -= 10
+
+    return image_bytes
+
+def upload_image(access_token: str, pds_endpoint: str, image_data: bytes) -> dict:
+    """Upload an image and return the blob reference."""
+    # Detect MIME type from magic bytes
+    mime_type = detect_mime_type(image_data)
+
+    # Compress if over 1MB (AT Protocol limit)
+    if len(image_data) > 1_000_000:
+        image_data = compress_if_needed(image_data)
+        mime_type = 'image/jpeg'  # Compression converts to JPEG
+
+    response = requests.post(
+        f"{pds_endpoint}/xrpc/com.atproto.repo.uploadBlob",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": mime_type
+        },
+        data=image_data
+    )
+    response.raise_for_status()
+    return response.json()["blob"]
+
+# Example response:
+# {
+#   "$type": "blob",
+#   "ref": {"$link": "bafkreibv764or3kn5txrz5djnxooe7vucj2dbgtrkr5fpvfwa2vfymuvba"},
+#   "mimeType": "image/jpeg",
+#   "size": 724091
+# }
+```
+
+**Uploading from URL:**
+```python
+def upload_image_from_url(access_token: str, pds_endpoint: str, image_url: str) -> dict:
+    """Download and upload an image from URL."""
+    response = requests.get(image_url, timeout=30)
+    response.raise_for_status()
+    return upload_image(access_token, pds_endpoint, response.content)
+```
+
+### Step 2: Build the Blob Metadata
+
+```python
+def create_blob_metadata(blob_response: dict, alt_text: str, filename: str) -> dict:
+    """Create the blob metadata entry for the document."""
+    return {
+        "alt": alt_text,  # Accessibility description (highly recommended!)
+        "name": filename,
+        "blobref": blob_response  # The response from uploadBlob
+    }
+```
+
+### Step 3: Generate the Markdown Image URL
+
+The image URL format is:
+```
+https://{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}
+```
+
+```python
+from urllib.parse import quote
+
+def get_image_markdown(pds_endpoint: str, did: str, cid: str, alt_text: str = "") -> str:
+    """Generate markdown for an embedded image."""
+    url = f"{pds_endpoint}/xrpc/com.atproto.sync.getBlob?did={quote(did)}&cid={quote(cid)}"
+    return f"![{alt_text}]({url})"
+
+# Example:
+# ![Salt evaporation ponds](https://bsky.social/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aabc123&cid=bafkreibv764...)
+```
+
+### Complete Image Upload Example
+
+```python
+import requests
+from urllib.parse import quote
+
+def publish_post_with_images(
+    handle: str,
+    app_password: str,
+    title: str,
+    content_template: str,
+    images: list[dict]  # [{"path": "photo.jpg", "alt": "Description"}]
+) -> str:
+    """Publish a post with embedded images."""
+
+    # Authenticate
+    session = requests.post(
+        "https://bsky.social/xrpc/com.atproto.server.createSession",
+        json={"identifier": handle, "password": app_password}
+    ).json()
+
+    access_token = session["accessJwt"]
+    did = session["did"]
+    pds = "https://bsky.social"  # or session's PDS endpoint
+
+    # Upload images and collect blob metadata
+    blobs = []
+    image_markdowns = []
+
+    for img in images:
+        # Upload
+        with open(img["path"], 'rb') as f:
+            image_data = f.read()
+
+        mime_type = "image/jpeg"  # Detect from file or extension
+        response = requests.post(
+            f"{pds}/xrpc/com.atproto.repo.uploadBlob",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": mime_type
+            },
+            data=image_data
+        )
+        response.raise_for_status()
+        blob = response.json()["blob"]
+
+        # Get CID from blob reference
+        cid = blob["ref"]["$link"]
+
+        # Add to blobs array
+        blobs.append({
+            "alt": img.get("alt", ""),
+            "name": img["path"].split("/")[-1],
+            "blobref": blob
+        })
+
+        # Generate markdown
+        url = f"{pds}/xrpc/com.atproto.sync.getBlob?did={quote(did)}&cid={quote(cid)}"
+        image_markdowns.append(f"![{img.get('alt', '')}]({url})")
+
+    # Build content with images
+    # Replace placeholders like {image_0}, {image_1} with actual markdown
+    content = content_template
+    for i, md in enumerate(image_markdowns):
+        content = content.replace(f"{{image_{i}}}", md)
+
+    # Create the document record
+    from datetime import datetime, timezone
+    rkey = generate_tid()  # See TID generation above
+
+    record = {
+        "$type": "app.greengale.document",
+        "content": content,
+        "title": title,
+        "url": "https://greengale.app",
+        "path": f"/{session['handle']}/{rkey}",
+        "publishedAt": datetime.now(timezone.utc).isoformat(),
+        "visibility": "public",
+        "blobs": blobs  # Include all uploaded images
+    }
+
+    # Save to PDS
+    response = requests.post(
+        f"{pds}/xrpc/com.atproto.repo.putRecord",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "repo": did,
+            "collection": "app.greengale.document",
+            "rkey": rkey,
+            "record": record
+        }
+    )
+    response.raise_for_status()
+
+    return f"https://greengale.app/{session['handle']}/{rkey}"
+
+# Usage
+url = publish_post_with_images(
+    "your.handle",
+    "xxxx-xxxx-xxxx-xxxx",
+    "My Photo Essay",
+    """# My Photo Essay
+
+Here's my first photo:
+
+{image_0}
+
+And here's another:
+
+{image_1}
+
+Hope you enjoyed!
+""",
+    images=[
+        {"path": "photo1.jpg", "alt": "A beautiful sunset over the mountains"},
+        {"path": "photo2.jpg", "alt": "Close-up of wildflowers in a meadow"}
+    ]
+)
+print(url)
+```
+
+### Image Best Practices
+
+1. **Always include alt text** - Essential for accessibility and also used by screen readers and search engines
+2. **AT Protocol blob limit** - Maximum 1MB per blob; resize large images before uploading
+3. **Recommended format** - AVIF for best compression, JPEG/PNG also supported
+4. **Include blobs array** - Even though images work without it, the `blobs` array enables features like content warnings and proper attribution
+
+### Content Labels (Optional)
+
+For sensitive images, you can add content warning labels:
+
+```python
+{
+    "alt": "Image description",
+    "name": "image.jpg",
+    "blobref": { ... },
+    "labels": {
+        "values": [
+            {"val": "graphic-media"}  # or: nudity, sexual, porn
+        ]
+    }
+}
+```
+
+Available label values: `nudity`, `sexual`, `porn`, `graphic-media`
+
+## Reading Posts
+
+### Get a Single Post
+
+```python
+# Public endpoint - no auth required
+response = requests.get(
+    "https://greengale.asadegroff.workers.dev/xrpc/app.greengale.feed.getPost",
+    params={"author": "alice.bsky.social", "rkey": "3abc123xyz789"}
+)
+post = response.json()
+```
+
+### Get Recent Posts
+
+```python
+response = requests.get(
+    "https://greengale.asadegroff.workers.dev/xrpc/app.greengale.feed.getRecentPosts",
+    params={"limit": 24}
+)
+posts = response.json()["posts"]
+```
+
+### Get Author's Posts
+
+```python
+response = requests.get(
+    "https://greengale.asadegroff.workers.dev/xrpc/app.greengale.feed.getAuthorPosts",
+    params={"author": "alice.bsky.social", "limit": 24}
+)
+posts = response.json()["posts"]
+```
+
+## Markdown Features
+
+GreenGale supports extended markdown:
+
+### Standard Markdown
+- Headings, paragraphs, lists
+- Bold, italic, strikethrough
+- Links and images
+- Code blocks with syntax highlighting
+- Blockquotes
+- Tables (GFM)
+
+### LaTeX Math
+```markdown
+Inline math: $E = mc^2$
+
+Display math:
+$$
+\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+$$
+```
+
+### Inline SVG
+````markdown
+```svg
+<svg viewBox="0 0 100 100" width="200" height="200">
+  <circle cx="50" cy="50" r="40" fill="#3b82f6"/>
+</svg>
+```
+````
+
+### Bluesky Embeds
+```markdown
+https://bsky.app/profile/alice.bsky.social/post/3abc123
+```
+Links to Bluesky posts are automatically embedded.
+
+## Error Handling
+
+Common errors and solutions:
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `InvalidToken` | Expired or invalid JWT | Re-authenticate with `createSession` |
+| `RecordNotFound` | Post doesn't exist | Check rkey and collection |
+| `InvalidRecord` | Schema validation failed | Check required fields and types |
+| `RepoNotFound` | Invalid DID/handle | Verify the identifier |
+
+## Rate Limits
+
+AT Protocol has rate limits. For bulk operations:
+- Add delays between requests (100-500ms)
+- Handle 429 (Too Many Requests) with exponential backoff
+- Batch reads where possible
+
+## Agent Skill Template
+
+Copy this skill for your AI agent:
+
+```
+You can publish blog posts to GreenGale using the AT Protocol.
+
+AUTHENTICATION:
+- Use com.atproto.server.createSession with handle and app password
+- Store the accessJwt for subsequent requests
+- PDS endpoint: https://bsky.social (or user's custom PDS)
+
+PUBLISHING A POST:
+1. Generate a TID (13 base32 chars: timestamp + random)
+2. Create record with $type: "app.greengale.document"
+3. Required fields: content, title, url, path, publishedAt
+4. POST to com.atproto.repo.putRecord with repo, collection, rkey, record
+
+RECORD STRUCTURE:
+{
+  "$type": "app.greengale.document",
+  "content": "<markdown content>",
+  "title": "<post title>",
+  "url": "https://greengale.app",
+  "path": "/<handle>/<rkey>",
+  "publishedAt": "<ISO8601 timestamp>",
+  "visibility": "public",
+  "subtitle": "<optional>",
+  "tags": ["<optional>"],
+  "theme": {"custom": {"background": "#hex", "text": "#hex", "accent": "#hex"}},
+  "blobs": [<image metadata if uploading images>]
+}
+
+CUSTOM THEME (optional):
+- Use "theme": {"preset": "github-dark"} for preset themes
+- Or use custom hex colors: {"custom": {"background": "#042a34", "text": "#f0fbff", "accent": "#b856e6"}}
+- Optional: add "codeBackground": "#hex" for code blocks
+- Presets: github-light, github-dark, dracula, nord, solarized-light, solarized-dark, monokai
+
+UPLOADING IMAGES (optional):
+1. POST image data to /xrpc/com.atproto.repo.uploadBlob with Content-Type header
+2. Get blob response: {"$type": "blob", "ref": {"$link": "<cid>"}, "mimeType": "...", "size": N}
+3. Add to blobs array: {"alt": "<description>", "name": "<filename>", "blobref": <blob response>}
+4. Insert markdown: ![alt](https://{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid})
+5. Max blob size: 1MB. Always include alt text for accessibility.
+
+POST URL FORMAT: https://greengale.app/{handle}/{rkey}
+```
+
+## Support
+
+- GitHub: https://github.com/asa-degroff/greengale
+- Issues: https://github.com/asa-degroff/greengale/issues

@@ -164,6 +164,18 @@ function ClockIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function RobotIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="11" width="18" height="10" rx="2" />
+      <circle cx="12" cy="5" r="2" />
+      <line x1="12" y1="7" x2="12" y2="11" />
+      <circle cx="8" cy="16" r="1" fill="currentColor" />
+      <circle cx="16" cy="16" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+
 function Logo({ className = '' }: { className?: string }) {
   return (
     <div
@@ -553,6 +565,10 @@ export function Sidebar({ children }: SidebarProps) {
     { href: 'https://buymeacoffee.com/asadegroff', label: 'Donate', icon: CoffeeIcon },
   ]
 
+  const docLinks = [
+    { to: '/agents', label: 'Agents', icon: RobotIcon },
+  ]
+
   const legalLinks = [
     { to: '/terms', label: 'Terms' },
     { to: '/privacy', label: 'Privacy Policy' },
@@ -639,6 +655,21 @@ export function Sidebar({ children }: SidebarProps) {
                     <Icon className="w-4 h-4" />
                     <span>{link.label}</span>
                   </a>
+                )
+              })}
+              <div className="border-t border-[var(--sidebar-border)] my-1" />
+              {docLinks.map((link) => {
+                const Icon = link.icon
+                return (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-3 px-3 py-2 pl-11 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)]"
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{link.label}</span>
+                  </Link>
                 )
               })}
               <div className="border-t border-[var(--sidebar-border)] my-1" />
