@@ -557,6 +557,39 @@ Admin endpoints require `X-Admin-Secret` header:
 - `POST /xrpc/app.greengale.admin.backfillAuthor` - Index all posts from a specific author (body: `{"did":"..."}` or `{"handle":"..."}`)
 - `POST /xrpc/app.greengale.admin.discoverWhiteWindAuthors?limit=20` - Discover and backfill WhiteWind authors from the network
 - `POST /xrpc/app.greengale.admin.invalidateOGCache?handle=&rkey=` - Invalidate OG image cache
+- `POST /xrpc/app.greengale.admin.invalidateRSSCache` - Invalidate RSS feed cache (body: `{"handle":"..."}` for author, or `{"type":"all"}` for all)
+
+**RSS Feed endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /feed/recent.xml` | Site-wide recent posts RSS feed |
+| `GET /feed/:handle.xml` | Author-specific RSS feed |
+
+### RSS Feed Cache Invalidation
+
+RSS feeds are cached in KV for 30 minutes (`rss:recent`, `rss:author:${handle}`). The cache is automatically invalidated when:
+
+1. **Firehose indexes a post** - Both `rss:recent` and the author's RSS feed are invalidated
+2. **Firehose deletes a post** - Same as above
+
+**Important for future development:** When adding new admin endpoints or backfill operations that create, update, or delete posts, you MUST also invalidate RSS caches:
+
+```typescript
+// After indexing/updating posts:
+await Promise.all([
+  c.env.CACHE.delete('recent_posts:24:'),  // Feed cache
+  c.env.CACHE.delete('rss:recent'),         // RSS cache
+  authorHandle ? c.env.CACHE.delete(`rss:author:${authorHandle}`) : Promise.resolve(),
+])
+```
+
+**Endpoints that currently invalidate RSS caches:**
+- `workers/firehose/index.ts` - Real-time post indexing and deletion
+- `backfillAuthor` - Manual author backfill
+- `backfillMissedPosts` - Backfill missed posts
+- `discoverWhiteWindAuthors` - WhiteWind author discovery
+- `reindexPost` (in refreshSinglePost) - Single post re-index
+- Duplicate cleanup operations
 
 ## Database Schema
 
