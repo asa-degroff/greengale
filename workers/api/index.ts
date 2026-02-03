@@ -3715,10 +3715,15 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
     const authorRow = await c.env.DB.prepare(
       'SELECT handle FROM authors WHERE did = ?'
     ).bind(did).first()
-    if (authorRow?.handle) {
-      await c.env.CACHE.delete(`og:${authorRow.handle}:${rkey}`)
+    const authorHandle = authorRow?.handle as string | undefined
+    if (authorHandle) {
+      await c.env.CACHE.delete(`og:${authorHandle}:${rkey}`)
     }
-    await c.env.CACHE.delete('recent_posts:24:')
+    await Promise.all([
+      c.env.CACHE.delete('recent_posts:24:'),
+      c.env.CACHE.delete('rss:recent'),
+      authorHandle ? c.env.CACHE.delete(`rss:author:${authorHandle}`) : Promise.resolve(),
+    ])
 
     // Get the updated post info
     const updatedPost = await c.env.DB.prepare(`
@@ -4701,7 +4706,10 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
 
     // Invalidate cache if we indexed anything
     if (indexed > 0) {
-      await c.env.CACHE.delete('recent_posts:24:')
+      await Promise.all([
+        c.env.CACHE.delete('recent_posts:24:'),
+        c.env.CACHE.delete('rss:recent'),
+      ])
     }
 
     return c.json({
@@ -5375,6 +5383,7 @@ app.post('/xrpc/app.greengale.admin.cleanupDualPublishedDuplicates', async (c) =
         c.env.CACHE.delete('recent_posts:24:'),
         c.env.CACHE.delete('recent_posts:50:'),
         c.env.CACHE.delete('recent_posts:100:'),
+        c.env.CACHE.delete('rss:recent'),
       ])
       cacheCleared = true
     } catch (e) {
@@ -5946,11 +5955,20 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
     // Invalidate cache if we indexed anything
     const totalIndexed = results.reduce((sum, r) => sum + r.newlyIndexed, 0)
     if (totalIndexed > 0 && !dryRun) {
+      // Get author's handle for RSS cache invalidation
+      const authorRow = await c.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(did).first()
+      const authorHandle = authorRow?.handle as string | undefined
+
       await Promise.all([
         c.env.CACHE.delete('recent_posts:12:'),
         c.env.CACHE.delete('recent_posts:24:'),
         c.env.CACHE.delete('recent_posts:50:'),
         c.env.CACHE.delete('recent_posts:100:'),
+        // Invalidate RSS feeds
+        c.env.CACHE.delete('rss:recent'),
+        authorHandle ? c.env.CACHE.delete(`rss:author:${authorHandle}`) : Promise.resolve(),
       ])
     }
 
@@ -6209,6 +6227,7 @@ app.post('/xrpc/app.greengale.admin.discoverWhiteWindAuthors', async (c) => {
         c.env.CACHE.delete('recent_posts:24:'),
         c.env.CACHE.delete('recent_posts:50:'),
         c.env.CACHE.delete('recent_posts:100:'),
+        c.env.CACHE.delete('rss:recent'),
       ])
     }
 
