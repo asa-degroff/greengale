@@ -5,6 +5,23 @@
  * legitimate SVG functionality for diagrams and illustrations.
  */
 
+// Counter for generating unique SVG IDs
+let svgCounter = 0
+
+/**
+ * Reset the SVG counter (for testing purposes)
+ */
+export function resetSvgCounter(): void {
+  svgCounter = 0
+}
+
+/**
+ * Generate a unique prefix for namespacing SVG IDs and classes
+ */
+function generateUniquePrefix(): string {
+  return `svg${++svgCounter}_`
+}
+
 // Allowed SVG elements (no scripts, no foreignObject, no handlers)
 // Note: all names must be lowercase since tagName.toLowerCase() is used for matching
 const ALLOWED_ELEMENTS = new Set([
@@ -280,7 +297,7 @@ const ELEMENT_ATTRIBUTES: Record<string, Set<string>> = {
 
 // Dangerous patterns in style attributes
 const DANGEROUS_STYLE_PATTERNS = [
-  /url\s*\(/i, // url() can load external resources
+  /url\s*\(\s*(?!["']?#)/i, // url() that doesn't reference internal #id
   /expression\s*\(/i, // IE expression()
   /javascript:/i,
   /data:/i, // data: URIs in styles
@@ -413,6 +430,118 @@ function sanitizeElement(element: Element): Element | null {
 }
 
 /**
+ * Namespace all IDs and class names in an SVG to prevent conflicts
+ * when multiple SVGs are rendered on the same page.
+ */
+function namespaceSvg(svgElement: Element, prefix: string): void {
+  // Collect all IDs in the SVG
+  const idMap = new Map<string, string>()
+  const elementsWithId = svgElement.querySelectorAll('[id]')
+  for (const el of elementsWithId) {
+    const oldId = el.getAttribute('id')!
+    const newId = prefix + oldId
+    idMap.set(oldId, newId)
+    el.setAttribute('id', newId)
+  }
+
+  // Collect all classes and create a class map
+  const classMap = new Map<string, string>()
+  const elementsWithClass = svgElement.querySelectorAll('[class]')
+  for (const el of elementsWithClass) {
+    const classes = el.getAttribute('class')!.split(/\s+/)
+    const newClasses = classes.map((cls) => {
+      if (!classMap.has(cls)) {
+        classMap.set(cls, prefix + cls)
+      }
+      return classMap.get(cls)!
+    })
+    el.setAttribute('class', newClasses.join(' '))
+  }
+
+  // Update all href references (href="#id" -> href="#prefix_id")
+  const elementsWithHref = svgElement.querySelectorAll('[href]')
+  for (const el of elementsWithHref) {
+    const href = el.getAttribute('href')!
+    if (href.startsWith('#')) {
+      const oldId = href.slice(1)
+      if (idMap.has(oldId)) {
+        el.setAttribute('href', '#' + idMap.get(oldId))
+      }
+    }
+  }
+
+  // Update all style attributes containing url(#id)
+  const elementsWithStyle = svgElement.querySelectorAll('[style]')
+  for (const el of elementsWithStyle) {
+    let style = el.getAttribute('style')!
+    for (const [oldId, newId] of idMap) {
+      // Match url(#id), url('#id'), url("#id")
+      style = style.replace(
+        new RegExp(`url\\((['"]?)#${escapeRegExp(oldId)}\\1\\)`, 'g'),
+        `url($1#${newId}$1)`
+      )
+    }
+    el.setAttribute('style', style)
+  }
+
+  // Update all presentation attributes that reference IDs (fill, stroke, filter, clip-path, mask, marker-*)
+  const urlAttributes = [
+    'fill',
+    'stroke',
+    'filter',
+    'clip-path',
+    'mask',
+    'marker-start',
+    'marker-mid',
+    'marker-end',
+  ]
+  for (const attr of urlAttributes) {
+    const elementsWithAttr = svgElement.querySelectorAll(`[${attr}]`)
+    for (const el of elementsWithAttr) {
+      let value = el.getAttribute(attr)!
+      for (const [oldId, newId] of idMap) {
+        value = value.replace(
+          new RegExp(`url\\((['"]?)#${escapeRegExp(oldId)}\\1\\)`, 'g'),
+          `url($1#${newId}$1)`
+        )
+      }
+      el.setAttribute(attr, value)
+    }
+  }
+
+  // Update <style> elements - replace class selectors and url() references
+  const styleElements = svgElement.querySelectorAll('style')
+  for (const styleEl of styleElements) {
+    let css = styleEl.textContent || ''
+
+    // Replace class selectors (.classname -> .prefix_classname)
+    for (const [oldClass, newClass] of classMap) {
+      css = css.replace(
+        new RegExp(`\\.${escapeRegExp(oldClass)}(?![a-zA-Z0-9_-])`, 'g'),
+        `.${newClass}`
+      )
+    }
+
+    // Replace url(#id) references
+    for (const [oldId, newId] of idMap) {
+      css = css.replace(
+        new RegExp(`url\\((['"]?)#${escapeRegExp(oldId)}\\1\\)`, 'g'),
+        `url($1#${newId}$1)`
+      )
+    }
+
+    styleEl.textContent = css
+  }
+}
+
+/**
+ * Escape special regex characters in a string
+ */
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
  * Parse and sanitize SVG content
  *
  * @param svgContent - Raw SVG string from user input
@@ -448,6 +577,10 @@ export function sanitizeSvg(svgContent: string): string | null {
   if (!cleanSvg) {
     return null
   }
+
+  // Namespace IDs and classes to prevent conflicts between multiple SVGs
+  const prefix = generateUniquePrefix()
+  namespaceSvg(cleanSvg, prefix)
 
   // Serialize back to string
   const serializer = new XMLSerializer()

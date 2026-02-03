@@ -1,10 +1,15 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect } from 'vitest'
-import { sanitizeSvg, wrapSvg } from '../svg-sanitizer'
+import { describe, it, expect, beforeEach } from 'vitest'
+import { sanitizeSvg, wrapSvg, resetSvgCounter } from '../svg-sanitizer'
 
 describe('SVG Sanitizer', () => {
+  // Reset counter before each test for predictable prefixes
+  beforeEach(() => {
+    resetSvgCounter()
+  })
+
   describe('XSS Prevention', () => {
     it('removes script tags', () => {
       const input = '<svg><script>alert(1)</script><circle r="10"/></svg>'
@@ -62,16 +67,54 @@ describe('SVG Sanitizer', () => {
       const input = '<svg><defs><circle id="myCircle" r="10"/></defs><use href="#myCircle"/></svg>'
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
-      expect(result).toContain('href="#myCircle"')
+      // IDs are namespaced with svg1_ prefix, href references are updated to match
+      expect(result).toContain('id="svg1_myCircle"')
+      expect(result).toContain('href="#svg1_myCircle"')
     })
   })
 
   describe('Dangerous Style Patterns', () => {
-    it('removes style with url()', () => {
+    it('removes style with external url()', () => {
       const input = '<svg><rect style="background: url(https://evil.com/track.gif)" width="10" height="10"/></svg>'
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
-      expect(result).not.toContain('url(')
+      expect(result).not.toContain('url(https://evil.com')
+    })
+
+    it('allows style with internal url(#id) reference', () => {
+      const input = '<svg><defs><filter id="glow"><feGaussianBlur stdDeviation="2"/></filter></defs><rect style="filter: url(#glow)" width="10" height="10"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      // ID and url() reference are namespaced
+      expect(result).toContain('id="svg1_glow"')
+      expect(result).toContain('url(#svg1_glow)')
+    })
+
+    it('allows style element with internal url(#id) references', () => {
+      const input = '<svg><defs><filter id="blur"><feGaussianBlur stdDeviation="2"/></filter></defs><style>.edge { filter: url(#blur); }</style><rect class="edge" width="10" height="10"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      // IDs, classes, and url() references are all namespaced
+      expect(result).toContain('id="svg1_blur"')
+      expect(result).toContain('url(#svg1_blur)')
+      expect(result).toContain('.svg1_edge')
+      expect(result).toContain('class="svg1_edge"')
+    })
+
+    it('allows quoted internal url references', () => {
+      const input = `<svg><defs><filter id="glow"><feGaussianBlur stdDeviation="2"/></filter></defs><style>.edge { filter: url('#glow'); }</style><rect class="edge" width="10" height="10"/></svg>`
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      // Quoted url() references are also namespaced
+      expect(result).toContain(`url('#svg1_glow')`)
+    })
+
+    it('allows double-quoted internal url references', () => {
+      const input = `<svg><defs><filter id="glow"><feGaussianBlur stdDeviation="2"/></filter></defs><rect style='filter: url("#glow")' width="10" height="10"/></svg>`
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      // XML serializer encodes quotes as &quot;, IDs are namespaced
+      expect(result).toContain('url(&quot;#svg1_glow&quot;)')
     })
 
     it('removes style with expression()', () => {
@@ -88,11 +131,11 @@ describe('SVG Sanitizer', () => {
       expect(result).not.toContain('javascript:')
     })
 
-    it('removes style elements with dangerous CSS', () => {
+    it('removes style elements with external url() in CSS', () => {
       const input = '<svg><style>rect { background: url(evil.com) }</style><rect width="10" height="10"/></svg>'
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
-      expect(result).not.toContain('url(')
+      expect(result).not.toContain('url(evil.com)')
     })
 
     it('allows safe inline styles', () => {
@@ -206,12 +249,13 @@ describe('SVG Sanitizer', () => {
       expect(result).toContain('stroke-width="2"')
     })
 
-    it('preserves id and class attributes', () => {
+    it('preserves id and class attributes (namespaced)', () => {
       const input = '<svg><circle id="myCircle" class="highlight" r="10"/></svg>'
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
-      expect(result).toContain('id="myCircle"')
-      expect(result).toContain('class="highlight"')
+      // IDs and classes are namespaced with svg1_ prefix
+      expect(result).toContain('id="svg1_myCircle"')
+      expect(result).toContain('class="svg1_highlight"')
     })
 
     it('removes unknown attributes', () => {
@@ -262,6 +306,88 @@ describe('SVG Sanitizer', () => {
       const svg = '<svg><circle r="10"/></svg>'
       const result = wrapSvg(svg)
       expect(result).toBe('<div class="svg-container"><svg><circle r="10"/></svg></div>')
+    })
+  })
+
+  describe('Namespacing', () => {
+    it('namespaces multiple SVGs with different prefixes', () => {
+      const svg1 = '<svg><defs><filter id="glow"/></defs><rect class="edge" filter="url(#glow)"/></svg>'
+      const svg2 = '<svg><defs><filter id="glow"/></defs><rect class="edge" filter="url(#glow)"/></svg>'
+
+      const result1 = sanitizeSvg(svg1)
+      const result2 = sanitizeSvg(svg2)
+
+      expect(result1).not.toBeNull()
+      expect(result2).not.toBeNull()
+
+      // First SVG gets svg1_ prefix
+      expect(result1).toContain('id="svg1_glow"')
+      expect(result1).toContain('class="svg1_edge"')
+      expect(result1).toContain('filter="url(#svg1_glow)"')
+
+      // Second SVG gets svg2_ prefix
+      expect(result2).toContain('id="svg2_glow"')
+      expect(result2).toContain('class="svg2_edge"')
+      expect(result2).toContain('filter="url(#svg2_glow)"')
+    })
+
+    it('namespaces CSS selectors in style elements', () => {
+      const input = '<svg><style>.foo { fill: red; } .bar { stroke: blue; }</style><rect class="foo bar"/></svg>'
+      const result = sanitizeSvg(input)
+
+      expect(result).not.toBeNull()
+      expect(result).toContain('.svg1_foo')
+      expect(result).toContain('.svg1_bar')
+      expect(result).toContain('class="svg1_foo svg1_bar"')
+    })
+
+    it('namespaces gradient references in fill/stroke attributes', () => {
+      const input = `<svg>
+        <defs>
+          <linearGradient id="grad1"/>
+        </defs>
+        <rect fill="url(#grad1)"/>
+      </svg>`
+      const result = sanitizeSvg(input)
+
+      expect(result).not.toBeNull()
+      expect(result).toContain('id="svg1_grad1"')
+      expect(result).toContain('fill="url(#svg1_grad1)"')
+    })
+
+    it('namespaces clip-path and mask references', () => {
+      const input = `<svg>
+        <defs>
+          <clipPath id="myClip"><rect/></clipPath>
+          <mask id="myMask"><rect/></mask>
+        </defs>
+        <rect clip-path="url(#myClip)" mask="url(#myMask)"/>
+      </svg>`
+      const result = sanitizeSvg(input)
+
+      expect(result).not.toBeNull()
+      expect(result).toContain('id="svg1_myClip"')
+      expect(result).toContain('id="svg1_myMask"')
+      expect(result).toContain('clip-path="url(#svg1_myClip)"')
+      expect(result).toContain('mask="url(#svg1_myMask)"')
+    })
+
+    it('handles url() with various quote styles in CSS', () => {
+      const input = `<svg>
+        <defs><filter id="f1"/><filter id="f2"/><filter id="f3"/></defs>
+        <style>
+          .a { filter: url(#f1); }
+          .b { filter: url('#f2'); }
+          .c { filter: url("#f3"); }
+        </style>
+        <rect class="a b c"/>
+      </svg>`
+      const result = sanitizeSvg(input)
+
+      expect(result).not.toBeNull()
+      expect(result).toContain('url(#svg1_f1)')
+      expect(result).toContain(`url('#svg1_f2')`)
+      expect(result).toContain(`url("#svg1_f3")`)
     })
   })
 })
