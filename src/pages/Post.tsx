@@ -88,7 +88,7 @@ export function PostPage() {
     let cancelled = false
 
     // Check if this is a fresh-after-edit request (coming from editor)
-    const isRefetchFromEditor = refetchSignal && refetchSignal !== processedRefetchSignalRef.current
+    const isRefetchFromEditor = !!(refetchSignal && refetchSignal !== processedRefetchSignalRef.current)
     if (isRefetchFromEditor) {
       processedRefetchSignalRef.current = refetchSignal
       // Clear old data immediately so user doesn't see stale content
