@@ -150,13 +150,14 @@ registerRoute(
   })
 )
 
-// PDS content (full post records): StaleWhileRevalidate, 30min cache
-// Enables offline reading of previously viewed posts
+// PDS content (full post records): NetworkFirst, 30min cache
+// NetworkFirst ensures fresh content after edits while enabling offline reading
 registerRoute(
   ({ url }) =>
     url.pathname.includes('/xrpc/com.atproto.repo.getRecord'),
-  new StaleWhileRevalidate({
+  new NetworkFirst({
     cacheName: 'pds-content-cache',
+    networkTimeoutSeconds: 5,
     plugins: [
       new CacheableResponsePlugin({ statuses: [200] }),
       new ExpirationPlugin({
@@ -192,9 +193,30 @@ registerRoute(
   })
 )
 
-// Listen for skip waiting message from client
+// Listen for messages from client
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting()
+  }
+
+  // Clear cached PDS content for a specific post (used after editing)
+  if (event.data && event.data.type === 'CLEAR_POST_CACHE') {
+    const { did, rkey } = event.data
+    if (did && rkey) {
+      caches.open('pds-content-cache').then((cache) => {
+        cache.keys().then((keys) => {
+          keys.forEach((request) => {
+            // Match requests for this specific post's record
+            if (
+              request.url.includes('/xrpc/com.atproto.repo.getRecord') &&
+              request.url.includes(encodeURIComponent(did)) &&
+              request.url.includes(encodeURIComponent(rkey))
+            ) {
+              cache.delete(request)
+            }
+          })
+        })
+      })
+    }
   }
 })

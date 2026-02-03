@@ -453,12 +453,19 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
 export async function getBlogEntry(
   identifier: string,
   rkey: string,
-  viewerDid?: string
+  viewerDid?: string,
+  options?: { skipCache?: boolean }
 ): Promise<BlogEntry | null> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
-  const agent = new AtpAgent({ service: pdsEndpoint })
+  // Use a custom fetch that bypasses browser cache when skipCache is true
+  const fetchFn = options?.skipCache
+    ? (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, cache: 'no-store' })
+    : undefined
+
+  const agent = new AtpAgent({ service: pdsEndpoint, fetch: fetchFn })
 
   // Query all collections in parallel for faster loading
   // Priority order: V2 document > V1 GreenGale > WhiteWind

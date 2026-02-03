@@ -79,13 +79,25 @@ export function PostPage() {
     hasLoadedRef.current = false
   }, [handle, rkey])
 
+  // Track the last refetchSignal we processed to avoid re-processing on re-renders
+  const processedRefetchSignalRef = useRef<number | undefined>(undefined)
+
   useEffect(() => {
     if (!handle || !rkey) return
 
     let cancelled = false
 
+    // Check if this is a fresh-after-edit request (coming from editor)
+    const isRefetchFromEditor = refetchSignal && refetchSignal !== processedRefetchSignalRef.current
+    if (isRefetchFromEditor) {
+      processedRefetchSignalRef.current = refetchSignal
+      // Clear old data immediately so user doesn't see stale content
+      setEntry(null)
+      hasLoadedRef.current = false
+    }
+
     async function load() {
-      // Only show loading state on initial load, not on background refetches
+      // Only show loading state on initial load or after edit, not on background refetches
       // This prevents the UI from flashing blank when session?.did changes
       if (!hasLoadedRef.current) {
         setLoading(true)
@@ -95,7 +107,7 @@ export function PostPage() {
 
       try {
         const [entryResult, authorResult, publicationResult] = await Promise.all([
-          getBlogEntry(handle!, rkey!, session?.did),
+          getBlogEntry(handle!, rkey!, session?.did, { skipCache: isRefetchFromEditor }),
           getAuthorProfile(handle!),
           getPublication(handle!).catch(() => null),
         ])

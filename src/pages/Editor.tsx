@@ -1136,6 +1136,14 @@ export function EditorPage() {
       // Invalidate caches so updated content is shown
       if (handle) deleteCachedPost(handle, resultRkey)
       invalidateFeedCache()
+      // Clear service worker PDS cache for this post
+      if (session?.did && navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({
+          type: 'CLEAR_POST_CACHE',
+          did: session.did,
+          rkey: resultRkey,
+        })
+      }
       // Save custom palette to recent palettes if using custom theme
       if (theme === 'custom' && customColors.background && customColors.text && customColors.accent) {
         saveRecentPalette({
