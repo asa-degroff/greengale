@@ -11,6 +11,52 @@ import { dateRangeToParams, type DateRange, type CustomDateRange } from '@/compo
 const SEARCH_PAGE_SIZE = 25
 const LOADING_DELAY_MS = 200
 const FILTER_DEBOUNCE_MS = 150
+const SESSION_STORAGE_KEY = 'greengale:home-search'
+
+// State that gets persisted to sessionStorage
+interface PersistedSearchState {
+  searchActive: boolean
+  searchQuery: string
+  searchResults: UnifiedSearchResult[]
+  searchMode: SearchMode
+  searchAuthor: string
+  searchDateRange: DateRange
+  searchCustomDates: CustomDateRange
+  searchFields: SearchField[]
+  searchTotal: number
+  searchHasMore: boolean
+  searchOffset: number
+  searchFallbackUsed: boolean
+  searchSelectedIndex: number
+}
+
+function saveSearchState(state: PersistedSearchState): void {
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // sessionStorage not available or quota exceeded
+  }
+}
+
+function loadSearchState(): PersistedSearchState | null {
+  try {
+    const stored = sessionStorage.getItem(SESSION_STORAGE_KEY)
+    if (stored) {
+      return JSON.parse(stored) as PersistedSearchState
+    }
+  } catch {
+    // sessionStorage not available or invalid JSON
+  }
+  return null
+}
+
+function clearSearchState(): void {
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY)
+  } catch {
+    // sessionStorage not available
+  }
+}
 
 interface UseHomeSearchResult {
   // State
@@ -49,24 +95,27 @@ interface UseHomeSearchResult {
 export function useHomeSearch(
   navigate: (path: string) => void
 ): UseHomeSearchResult {
-  // Search state
-  const [searchActive, setSearchActive] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<UnifiedSearchResult[]>([])
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
-  const [searchAuthor, setSearchAuthor] = useState('')
-  const [searchDateRange, setSearchDateRange] = useState<DateRange>('any')
-  const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>({})
-  const [searchFields, setSearchFields] = useState<SearchField[]>([])
-  const [searchFallbackUsed, setSearchFallbackUsed] = useState(false)
-  const [selectedExternalPost, setSelectedExternalPost] = useState<UnifiedPostResult | null>(null)
-  const [searchSelectedIndex, setSearchSelectedIndex] = useState(-1)
+  // Load persisted state on initial mount
+  const persistedState = useRef(loadSearchState()).current
 
-  // Pagination state
-  const [searchOffset, setSearchOffset] = useState(0)
-  const [searchTotal, setSearchTotal] = useState(0)
-  const [searchHasMore, setSearchHasMore] = useState(false)
+  // Search state - initialize from persisted state if available
+  const [searchActive, setSearchActive] = useState(persistedState?.searchActive ?? false)
+  const [searchQuery, setSearchQuery] = useState(persistedState?.searchQuery ?? '')
+  const [searchResults, setSearchResults] = useState<UnifiedSearchResult[]>(persistedState?.searchResults ?? [])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchMode, setSearchMode] = useState<SearchMode>(persistedState?.searchMode ?? 'hybrid')
+  const [searchAuthor, setSearchAuthor] = useState(persistedState?.searchAuthor ?? '')
+  const [searchDateRange, setSearchDateRange] = useState<DateRange>(persistedState?.searchDateRange ?? 'any')
+  const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>(persistedState?.searchCustomDates ?? {})
+  const [searchFields, setSearchFields] = useState<SearchField[]>(persistedState?.searchFields ?? [])
+  const [searchFallbackUsed, setSearchFallbackUsed] = useState(persistedState?.searchFallbackUsed ?? false)
+  const [selectedExternalPost, setSelectedExternalPost] = useState<UnifiedPostResult | null>(null)
+  const [searchSelectedIndex, setSearchSelectedIndex] = useState(persistedState?.searchSelectedIndex ?? -1)
+
+  // Pagination state - initialize from persisted state if available
+  const [searchOffset, setSearchOffset] = useState(persistedState?.searchOffset ?? 0)
+  const [searchTotal, setSearchTotal] = useState(persistedState?.searchTotal ?? 0)
+  const [searchHasMore, setSearchHasMore] = useState(persistedState?.searchHasMore ?? false)
   const [searchLoadingMore, setSearchLoadingMore] = useState(false)
   const [searchCountStale, setSearchCountStale] = useState(false)
   const [searchLoadingVisible, setSearchLoadingVisible] = useState(false)
@@ -84,6 +133,41 @@ export function useHomeSearch(
       if (searchAbortControllerRef.current) searchAbortControllerRef.current.abort()
     }
   }, [])
+
+  // Persist search state to sessionStorage when it changes
+  useEffect(() => {
+    if (searchActive) {
+      saveSearchState({
+        searchActive,
+        searchQuery,
+        searchResults,
+        searchMode,
+        searchAuthor,
+        searchDateRange,
+        searchCustomDates,
+        searchFields,
+        searchTotal,
+        searchHasMore,
+        searchOffset,
+        searchFallbackUsed,
+        searchSelectedIndex,
+      })
+    }
+  }, [
+    searchActive,
+    searchQuery,
+    searchResults,
+    searchMode,
+    searchAuthor,
+    searchDateRange,
+    searchCustomDates,
+    searchFields,
+    searchTotal,
+    searchHasMore,
+    searchOffset,
+    searchFallbackUsed,
+    searchSelectedIndex,
+  ])
 
   const performSearch = useCallback(async (
     query: string,
@@ -187,6 +271,8 @@ export function useHomeSearch(
       loadingDelayRef.current = null
     }
     setSearchLoadingVisible(false)
+    // Clear persisted state
+    clearSearchState()
   }, [])
 
   const handleLoadMoreSearch = useCallback(() => {
