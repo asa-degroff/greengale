@@ -2271,7 +2271,7 @@ export function EditorPage() {
                           </svg>
                         </span>
                         <span className="text-[var(--site-text)]">
-                          Publish to standard.site
+                          Publish to Standard Site
                           {visibility !== 'public' && <span className="text-xs text-[var(--site-text-secondary)] ml-1">(public only)</span>}
                         </span>
                       </label>
