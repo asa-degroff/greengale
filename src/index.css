@@ -1896,32 +1896,40 @@ html {
 @keyframes section-fade-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translate3d(0, 8px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 .animate-section-fade-in {
   animation: section-fade-in 0.3s ease-in-out;
+  /* GPU acceleration hints for iOS Safari */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 /* Blog card animation in masonry grid */
 @keyframes card-fade-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translate3d(0, 8px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 .animate-card-fade-in {
   animation: card-fade-in 0.15s ease-in-out backwards;
+  /* GPU acceleration hints for iOS Safari */
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 /* Respect reduced motion preferences */
@@ -1930,6 +1938,7 @@ html {
   .animate-card-fade-in,
   .animate-fade-in {
     animation: none;
+    will-change: auto;
   }
 }
 
