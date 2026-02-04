@@ -171,44 +171,46 @@ interface CloudFieldProps {
   className?: string
 }
 
-interface CloudInstance {
+interface CloudConfig {
   id: number
   variant: 'large' | 'medium' | 'small'
   seed: number
   top: number // percentage
   size: number // scale factor
   duration: number // animation duration in seconds
-  delay: number // initial delay
   opacity: number
 }
 
+// Base cloud configurations without delays
+const cloudConfigs: CloudConfig[] = [
+  // Far background - slower, smaller, more transparent
+  { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 68, opacity: 0.25 },
+  { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 75, opacity: 0.2 },
+
+  // Mid layer
+  { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 52, opacity: 0.35 },
+  { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 57, opacity: 0.3 },
+
+  // Foreground - larger, faster, more visible
+  { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 42, opacity: 0.45 },
+  { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 48, opacity: 0.4 },
+
+  // Extra variety
+  { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 63, opacity: 0.22 },
+  { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 60, opacity: 0.28 },
+]
+
+// Generate randomized delays once on module load for consistent rendering
+// Negative delay positions clouds at random points along their animation path
+const randomDelays = cloudConfigs.map((cloud) => -Math.random() * cloud.duration)
+
 export function CloudField({ className = '' }: CloudFieldProps) {
-  // Predefined cloud instances for consistent rendering
-  // These are positioned to create a pleasing parallax effect
-  const clouds: CloudInstance[] = [
-    // Far background - slower, smaller, more transparent
-    { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 68, delay: 0, opacity: 0.25 },
-    { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 75, delay: -30, opacity: 0.2 },
-
-    // Mid layer
-    { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 52, delay: -15, opacity: 0.35 },
-    { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 57, delay: -38, opacity: 0.3 },
-
-    // Foreground - larger, faster, more visible
-    { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 42, delay: -8, opacity: 0.45 },
-    { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 48, delay: -27, opacity: 0.4 },
-
-    // Extra variety
-    { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 63, delay: -45, opacity: 0.22 },
-    { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 60, delay: -22, opacity: 0.28 },
-  ]
-
   return (
     <div
       className={`cloud-field ${className}`}
       aria-hidden="true"
     >
-      {clouds.map((cloud) => (
+      {cloudConfigs.map((cloud, index) => (
         <div
           key={cloud.id}
           className="cloud-instance"
@@ -219,7 +221,7 @@ export function CloudField({ className = '' }: CloudFieldProps) {
             height: `${120 * cloud.size}px`,
             opacity: cloud.opacity,
             animationDuration: `${cloud.duration}s`,
-            animationDelay: `${cloud.delay}s`,
+            animationDelay: `${randomDelays[index]}s`,
           }}
         >
           <AnimatedCloud variant={cloud.variant} seed={cloud.seed} />
