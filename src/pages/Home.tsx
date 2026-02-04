@@ -286,7 +286,7 @@ export function HomePage() {
             externalQuery={search.searchQuery}
           />
           <div
-            className="grid transition-[grid-template-rows] duration-200 ease-out"
+            className="grid transition-[grid-template-rows] duration-300 ease-in-out"
             style={{ gridTemplateRows: search.searchActive ? '1fr' : '0fr' }}
           >
             <div className="overflow-hidden">
@@ -386,7 +386,7 @@ interface SearchResultsSectionProps {
 
 function SearchResultsSection({ search, onMouseEnter }: SearchResultsSectionProps) {
   return (
-    <div className="mb-12">
+    <div className="mb-12 animate-section-fade-in">
       {/* Results header */}
       <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--site-border)]">
         {!search.searchCountStale && (
@@ -531,7 +531,7 @@ function FeedSection({
   onRefresh,
 }: FeedSectionProps) {
   return (
-    <div className="mb-12 min-h-[400px]">
+    <div className="mb-12 min-h-[400px] animate-section-fade-in">
       {/* Tab navigation */}
       <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
         <button
@@ -599,7 +599,7 @@ function FeedSection({
       {/* Sliding feed panels */}
       <div className="overflow-hidden">
         <div
-          className="flex transition-transform duration-300 ease-out"
+          className="flex transition-transform duration-300 ease-in-out"
           style={{
             transform: `translateX(-${
               activeTab === 'greengale' ? 0 :

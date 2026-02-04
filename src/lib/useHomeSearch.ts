@@ -124,19 +124,29 @@ export function useHomeSearch(
   const searchAbortControllerRef = useRef<AbortController | null>(null)
   const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current)
       if (loadingDelayRef.current) clearTimeout(loadingDelayRef.current)
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
       if (searchAbortControllerRef.current) searchAbortControllerRef.current.abort()
     }
   }, [])
 
-  // Persist search state to sessionStorage when it changes
+  // Persist search state to sessionStorage when it changes (debounced to reduce writes)
   useEffect(() => {
-    if (searchActive) {
+    if (!searchActive) return
+
+    // Clear any pending save
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current)
+    }
+
+    // Debounce saves to avoid excessive writes during rapid state changes
+    saveDebounceRef.current = setTimeout(() => {
       saveSearchState({
         searchActive,
         searchQuery,
@@ -152,6 +162,30 @@ export function useHomeSearch(
         searchFallbackUsed,
         searchSelectedIndex,
       })
+    }, 100)
+
+    // Save immediately on unmount to preserve state before navigation
+    return () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current)
+      }
+      if (searchActive) {
+        saveSearchState({
+          searchActive,
+          searchQuery,
+          searchResults,
+          searchMode,
+          searchAuthor,
+          searchDateRange,
+          searchCustomDates,
+          searchFields,
+          searchTotal,
+          searchHasMore,
+          searchOffset,
+          searchFallbackUsed,
+          searchSelectedIndex,
+        })
+      }
     }
   }, [
     searchActive,
