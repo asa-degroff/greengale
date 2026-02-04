@@ -111,6 +111,16 @@ function BookIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function HelpCircleIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <circle cx="12" cy="17" r="0.5" fill="currentColor" />
+    </svg>
+  )
+}
+
 function PaletteIcon({ className = '' }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -560,6 +570,7 @@ export function Sidebar({ children }: SidebarProps) {
   const externalLinks = [
     { href: 'https://bsky.app/profile/greengale.app', label: '@greengale.app', icon: BlueskyIcon },
     { href: 'https://github.com/asa-degroff/greengale', label: 'GitHub', icon: GitHubIcon },
+    { href: 'https://greengale.app/greengale.app/3md4torvxnd2p', label: 'User Guide', icon: HelpCircleIcon },
     { href: 'https://greengale.app/greengale.app/3md4qenz7b72o', label: 'Lexicon Docs', icon: BookIcon },
     { href: 'https://atproto.com', label: 'AT Protocol', icon: ExternalLinkIcon },
     { href: 'https://buymeacoffee.com/asadegroff', label: 'Donate', icon: CoffeeIcon },
