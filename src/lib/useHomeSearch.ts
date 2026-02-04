@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useTransition } from 'react'
 import {
   searchUnified,
   type UnifiedSearchResult,
@@ -127,6 +127,9 @@ export function useHomeSearch(
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Track if search is being intentionally cleared (to prevent cleanup from re-saving)
   const isClearingRef = useRef(false)
+
+  // Use transition for clearing search to avoid blocking navigation
+  const [, startClearTransition] = useTransition()
 
   // Cleanup on unmount
   useEffect(() => {
@@ -300,33 +303,40 @@ export function useHomeSearch(
       saveDebounceRef.current = null
     }
 
-    setSearchActive(false)
-    setSearchQuery('')
-    setSearchResults([])
-    setSearchFallbackUsed(false)
-    setSearchAuthor('')
-    setSearchDateRange('any')
-    setSearchCustomDates({})
-    setSearchFields([])
-    setSearchOffset(0)
-    setSearchTotal(0)
-    setSearchHasMore(false)
-    setSearchCountStale(false)
+    // Clear persisted state immediately (synchronous)
+    clearSearchState()
+
+    // Clear loading delay timer synchronously
     if (loadingDelayRef.current) {
       clearTimeout(loadingDelayRef.current)
       loadingDelayRef.current = null
     }
-    setSearchLoadingVisible(false)
-    // Clear persisted state
-    clearSearchState()
 
-    // Clear again after React processes state updates and effect cleanups
-    // setTimeout ensures this runs after React's commit phase completes
-    setTimeout(() => {
-      clearSearchState()
+    // Use startTransition for state updates to mark them as low-priority
+    // This prevents these updates from blocking React Router's navigation transitions
+    startClearTransition(() => {
+      setSearchActive(false)
+      setSearchQuery('')
+      setSearchResults([])
+      setSelectedExternalPost(null)
+      setSearchSelectedIndex(-1)
+      setSearchFallbackUsed(false)
+      setSearchAuthor('')
+      setSearchDateRange('any')
+      setSearchCustomDates({})
+      setSearchFields([])
+      setSearchOffset(0)
+      setSearchTotal(0)
+      setSearchHasMore(false)
+      setSearchCountStale(false)
+      setSearchLoadingVisible(false)
+    })
+
+    // Reset the flag after a microtask to ensure effects see the flag during cleanup
+    queueMicrotask(() => {
       isClearingRef.current = false
-    }, 0)
-  }, [])
+    })
+  }, [startClearTransition])
 
   const handleLoadMoreSearch = useCallback(() => {
     if (!searchLoadingMore && searchHasMore && searchQuery) {
