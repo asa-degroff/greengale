@@ -1889,7 +1889,48 @@ html {
 }
 
 .animate-fade-in {
-  animation: fade-in 0.15s ease-out;
+  animation: fade-in 0.15s ease-in-out;
+}
+
+/* Section transition animation - used for search results / feed switching */
+@keyframes section-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-section-fade-in {
+  animation: section-fade-in 0.3s ease-in-out;
+}
+
+/* Blog card animation in masonry grid */
+@keyframes card-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-fade-in {
+  animation: card-fade-in 0.35s ease-in-out backwards;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-section-fade-in,
+  .animate-card-fade-in,
+  .animate-fade-in {
+    animation: none;
+  }
 }
 
 .animate-cube-shimmer {

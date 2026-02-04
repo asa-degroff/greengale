@@ -60,6 +60,8 @@ export function MasonryGrid({
   const cachedHeightsRef = useRef<number[]>([])
   const isScrollingRef = useRef(false)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Track which items have been animated to avoid re-animating on layout changes
+  const animatedKeysRef = useRef<Set<string | number>>(new Set())
 
   // Parse column configuration
   const columnConfig = useMemo((): ResponsiveColumns => {
@@ -264,6 +266,31 @@ export function MasonryGrid({
   // Reset refs array length
   itemRefs.current = itemRefs.current.slice(0, childArray.length)
 
+  // Determine which items are new (need animation) and calculate their stagger index
+  const itemAnimationInfo = useMemo(() => {
+    const info: { isNew: boolean; staggerIndex: number }[] = []
+    let newItemCount = 0
+
+    childArray.forEach((child, index) => {
+      const key = isValidElement(child) && child.key ? child.key : index
+      const isNew = !animatedKeysRef.current.has(key)
+      info.push({
+        isNew,
+        staggerIndex: isNew ? newItemCount++ : 0,
+      })
+    })
+
+    return info
+  }, [childArray])
+
+  // Mark items as animated after render
+  useEffect(() => {
+    childArray.forEach((child, index) => {
+      const key = isValidElement(child) && child.key ? child.key : index
+      animatedKeysRef.current.add(key)
+    })
+  }, [childArray])
+
   return (
     <div
       ref={containerRef}
@@ -273,6 +300,7 @@ export function MasonryGrid({
       {childArray.map((child, index) => {
         const position = positions[index]
         const hasPosition = position !== undefined
+        const { isNew, staggerIndex } = itemAnimationInfo[index] || { isNew: false, staggerIndex: 0 }
 
         return (
           <div
@@ -280,6 +308,7 @@ export function MasonryGrid({
             ref={(el) => {
               itemRefs.current[index] = el
             }}
+            className={hasPosition && isNew ? 'animate-card-fade-in' : ''}
             style={
               hasPosition
                 ? {
@@ -287,6 +316,7 @@ export function MasonryGrid({
                     left: position.left,
                     top: position.top,
                     width: position.width,
+                    ...(isNew && { animationDelay: `${staggerIndex * 50}ms` }),
                   }
                 : {
                     // Initial render: position off-screen until layout is calculated
