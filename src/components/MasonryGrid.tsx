@@ -238,15 +238,28 @@ export function MasonryGrid({
   // Recalculate when children or columns change
   useEffect(() => {
     cachedHeightsRef.current = []
-    // Immediate calculation
-    requestLayout()
-    // Also recalculate after a delay to catch lazy-loaded images
-    const timer = setTimeout(() => {
+    // Call calculateLayout directly on mount/change - don't use requestLayout
+    // which may be skipped due to scroll state from previous component
+    // Use RAF to ensure DOM is ready
+    const initialRaf = requestAnimationFrame(() => {
+      calculateLayout()
+    })
+    // Retry after short delay in case container wasn't ready
+    const timer1 = setTimeout(() => {
       cachedHeightsRef.current = []
       calculateLayout()
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [childArray, currentColumns, requestLayout, calculateLayout])
+    }, 50)
+    // Final retry after longer delay to catch lazy-loaded images
+    const timer2 = setTimeout(() => {
+      cachedHeightsRef.current = []
+      calculateLayout()
+    }, 150)
+    return () => {
+      cancelAnimationFrame(initialRaf)
+      clearTimeout(timer1)
+      clearTimeout(timer2)
+    }
+  }, [childArray, currentColumns, calculateLayout])
 
   // Additional recalculation for images that load later
   useEffect(() => {

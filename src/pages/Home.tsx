@@ -389,20 +389,18 @@ function SearchResultsSection({ search, onMouseEnter }: SearchResultsSectionProp
     <div className="mb-12 animate-section-fade-in">
       {/* Results header */}
       <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--site-border)]">
-        {!search.searchCountStale && (
-          <span className="text-sm text-[var(--site-text-secondary)]">
-            {search.searchTotal > search.searchResults.length
-              ? `Showing ${search.searchResults.length} of ${search.searchTotal} results`
-              : `${search.searchTotal} result${search.searchTotal !== 1 ? 's' : ''}`
-            } for "{search.searchQuery}"
-            {search.searchFallbackUsed && (
-              <span className="ml-1 text-amber-600 dark:text-amber-400">
-                (keyword fallback)
-              </span>
-            )}
-          </span>
-        )}
-        {search.searchLoadingVisible && search.searchResults.length > 0 && (
+        <span className={`text-sm text-[var(--site-text-secondary)] transition-opacity duration-150 ${search.searchCountStale ? 'opacity-50' : 'opacity-100'}`}>
+          {search.searchTotal > search.searchResults.length
+            ? `Showing ${search.searchResults.length} of ${search.searchTotal} results`
+            : `${search.searchTotal} result${search.searchTotal !== 1 ? 's' : ''}`
+          } for "{search.searchQuery}"
+          {search.searchFallbackUsed && (
+            <span className="ml-1 text-amber-600 dark:text-amber-400">
+              (keyword fallback)
+            </span>
+          )}
+        </span>
+        {(search.searchLoadingVisible || search.searchCountStale) && search.searchResults.length > 0 && (
           <Spinner size="sm" className="text-[var(--site-text-secondary)]" />
         )}
         <div className="flex-1" />

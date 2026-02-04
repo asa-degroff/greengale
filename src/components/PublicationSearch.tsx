@@ -22,6 +22,8 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Track if initial sync with externalQuery has happened (to avoid clearing persisted state on mount)
+  const hasInitialSyncRef = useRef(false)
 
   // Minimum query length before searching (must match API requirement)
   const MIN_QUERY_LENGTH = 2
@@ -61,15 +63,24 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
       clearTimeout(debounceRef.current)
     }
 
+    const trimmed = query.trim()
+
+    // Call onClear immediately when input is empty (no debounce for clearing)
+    // This ensures sessionStorage is cleared even if user refreshes quickly
+    // BUT skip on initial mount before externalQuery sync to avoid clearing persisted state
+    if (trimmed.length === 0) {
+      if (hasInitialSyncRef.current) {
+        onClear?.()
+      }
+      return
+    }
+
+    // Debounce actual searches
     debounceRef.current = setTimeout(() => {
       performSearch(query)
       // Notify parent of query change (only for meaningful queries)
-      // Use trimmed for validation but preserve original query with whitespace
-      const trimmed = query.trim()
       if (trimmed.length >= MIN_QUERY_LENGTH) {
         onQueryChange?.(query)
-      } else if (trimmed.length === 0) {
-        onClear?.()
       }
     }, 300)
 
@@ -98,6 +109,11 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
         }
         return prev
       })
+      // Mark that initial sync has happened (allows onClear to work after this)
+      hasInitialSyncRef.current = true
+    } else {
+      // No externalQuery provided - component is standalone, allow onClear immediately
+      hasInitialSyncRef.current = true
     }
   }, [externalQuery])
 

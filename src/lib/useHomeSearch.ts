@@ -125,6 +125,8 @@ export function useHomeSearch(
   const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadingDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Track if search is being intentionally cleared (to prevent cleanup from re-saving)
+  const isClearingRef = useRef(false)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -165,11 +167,12 @@ export function useHomeSearch(
     }, 100)
 
     // Save immediately on unmount to preserve state before navigation
+    // Skip if we're intentionally clearing the search (isClearingRef prevents re-saving old state)
     return () => {
       if (saveDebounceRef.current) {
         clearTimeout(saveDebounceRef.current)
       }
-      if (searchActive) {
+      if (searchActive && !isClearingRef.current) {
         saveSearchState({
           searchActive,
           searchQuery,
@@ -288,6 +291,15 @@ export function useHomeSearch(
   }, [])
 
   const handleClearSearch = useCallback(() => {
+    // Set flag to prevent effect cleanup from re-saving old state
+    isClearingRef.current = true
+
+    // Cancel any pending debounced save to prevent it from re-saving after we clear
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current)
+      saveDebounceRef.current = null
+    }
+
     setSearchActive(false)
     setSearchQuery('')
     setSearchResults([])
@@ -307,6 +319,13 @@ export function useHomeSearch(
     setSearchLoadingVisible(false)
     // Clear persisted state
     clearSearchState()
+
+    // Clear again after React processes state updates and effect cleanups
+    // setTimeout ensures this runs after React's commit phase completes
+    setTimeout(() => {
+      clearSearchState()
+      isClearingRef.current = false
+    }, 0)
   }, [])
 
   const handleLoadMoreSearch = useCallback(() => {
