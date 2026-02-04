@@ -74,6 +74,25 @@ const ALLOWED_ELEMENTS = new Set([
   'mpath',
 ])
 
+// SVG element names that require specific casing (lowercase -> proper case)
+// Most SVG elements are lowercase, but some use camelCase
+const SVG_ELEMENT_CASE: Record<string, string> = {
+  lineargradient: 'linearGradient',
+  radialgradient: 'radialGradient',
+  clippath: 'clipPath',
+  textpath: 'textPath',
+  fegaussianblur: 'feGaussianBlur',
+  feoffset: 'feOffset',
+  femerge: 'feMerge',
+  femergenode: 'feMergeNode',
+  feblend: 'feBlend',
+  fecolormatrix: 'feColorMatrix',
+  feflood: 'feFlood',
+  fecomposite: 'feComposite',
+  animatetransform: 'animateTransform',
+  animatemotion: 'animateMotion',
+}
+
 // Allowed attributes per element (and global)
 const GLOBAL_ATTRIBUTES = new Set([
   'id',
@@ -380,28 +399,42 @@ function isAllowedAttribute(
  * Sanitize an SVG element and its children recursively
  */
 function sanitizeElement(element: Element): Element | null {
-  const tagName = element.tagName.toLowerCase()
+  const tagNameLower = element.tagName.toLowerCase()
 
   // Remove disallowed elements entirely
-  if (!ALLOWED_ELEMENTS.has(tagName)) {
+  if (!ALLOWED_ELEMENTS.has(tagNameLower)) {
     return null
   }
+
+  // Use proper SVG element casing (e.g., linearGradient, not lineargradient)
+  const properTagName = SVG_ELEMENT_CASE[tagNameLower] || tagNameLower
 
   // Create a new element with only allowed attributes
   const cleanElement = element.ownerDocument!.createElementNS(
     'http://www.w3.org/2000/svg',
-    tagName
+    properTagName
   )
 
   // Copy allowed attributes
   for (const attr of Array.from(element.attributes)) {
-    if (isAllowedAttribute(tagName, attr.name, attr.value)) {
-      cleanElement.setAttribute(attr.name, attr.value)
+    // Skip xmlns declarations - they're handled automatically by createElementNS
+    // and xlink namespace is added inline when xlink:href is used
+    if (attr.name === 'xmlns' || attr.name.startsWith('xmlns:')) {
+      continue
+    }
+
+    if (isAllowedAttribute(tagNameLower, attr.name, attr.value)) {
+      // Handle xlink:href specially - it needs the xlink namespace
+      if (attr.name === 'xlink:href' || (attr.namespaceURI === 'http://www.w3.org/1999/xlink' && attr.localName === 'href')) {
+        cleanElement.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', attr.value)
+      } else {
+        cleanElement.setAttribute(attr.name, attr.value)
+      }
     }
   }
 
   // Special handling for <style> elements - sanitize CSS content
-  if (tagName === 'style') {
+  if (tagNameLower === 'style') {
     const cssContent = element.textContent || ''
     const sanitizedCss = sanitizeCssContent(cssContent)
     if (sanitizedCss === null) {
@@ -461,11 +494,24 @@ function namespaceSvg(svgElement: Element, prefix: string): void {
   // Update all href references (href="#id" -> href="#prefix_id")
   const elementsWithHref = svgElement.querySelectorAll('[href]')
   for (const el of elementsWithHref) {
-    const href = el.getAttribute('href')!
-    if (href.startsWith('#')) {
+    const href = el.getAttribute('href')
+    if (href && href.startsWith('#')) {
       const oldId = href.slice(1)
       if (idMap.has(oldId)) {
         el.setAttribute('href', '#' + idMap.get(oldId))
+      }
+    }
+  }
+
+  // Update all xlink:href references (xlink:href="#id" -> xlink:href="#prefix_id")
+  // Note: querySelectorAll doesn't work well with namespaced attributes, so we check all use/textPath/etc elements
+  const xlinkElements = svgElement.querySelectorAll('use, textPath, pattern, linearGradient, radialGradient, mpath')
+  for (const el of xlinkElements) {
+    const xlinkHref = el.getAttributeNS('http://www.w3.org/1999/xlink', 'href')
+    if (xlinkHref && xlinkHref.startsWith('#')) {
+      const oldId = xlinkHref.slice(1)
+      if (idMap.has(oldId)) {
+        el.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#' + idMap.get(oldId))
       }
     }
   }

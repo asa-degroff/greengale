@@ -192,8 +192,8 @@ describe('SVG Sanitizer', () => {
       </svg>`
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
-      // Note: element names are lowercased during sanitization
-      expect(result).toContain('lineargradient')
+      // SVG element names preserve proper casing (e.g., linearGradient, not lineargradient)
+      expect(result).toContain('linearGradient')
       expect(result).toContain('stop')
     })
 
@@ -209,8 +209,8 @@ describe('SVG Sanitizer', () => {
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
       expect(result).toContain('filter')
-      // Note: element names are lowercased during sanitization
-      expect(result).toContain('fegaussianblur')
+      // SVG element names preserve proper casing (e.g., feGaussianBlur, not fegaussianblur)
+      expect(result).toContain('feGaussianBlur')
     })
 
     it('allows animation elements', () => {
@@ -388,6 +388,44 @@ describe('SVG Sanitizer', () => {
       expect(result).toContain('url(#svg1_f1)')
       expect(result).toContain(`url('#svg1_f2')`)
       expect(result).toContain(`url("#svg1_f3")`)
+    })
+
+    it('namespaces xlink:href references in use elements', () => {
+      const input = `<svg xmlns:xlink="http://www.w3.org/1999/xlink">
+        <defs>
+          <path id="myPath" d="M10,10 L100,100"/>
+        </defs>
+        <use xlink:href="#myPath"/>
+      </svg>`
+      const result = sanitizeSvg(input)
+
+      expect(result).not.toBeNull()
+      expect(result).toContain('id="svg1_myPath"')
+      // The serializer may use different prefixes (xlink:href, ns1:href, etc.)
+      // but the important thing is the reference is updated
+      expect(result).toMatch(/:href="#svg1_myPath"/)
+      expect(result).toContain('http://www.w3.org/1999/xlink')
+    })
+
+    it('handles multiple use elements with xlink:href', () => {
+      const input = `<svg xmlns:xlink="http://www.w3.org/1999/xlink">
+        <defs>
+          <rect id="box" width="10" height="10"/>
+          <circle id="dot" r="5"/>
+        </defs>
+        <use xlink:href="#box" x="0"/>
+        <use xlink:href="#box" x="20"/>
+        <use xlink:href="#dot" x="40"/>
+      </svg>`
+      const result = sanitizeSvg(input)
+
+      expect(result).not.toBeNull()
+      expect(result).toContain('id="svg1_box"')
+      expect(result).toContain('id="svg1_dot"')
+      // All references should be updated (serializer may use different prefixes)
+      const boxRefs = (result!.match(/:href="#svg1_box"/g) || []).length
+      expect(boxRefs).toBe(2)
+      expect(result).toMatch(/:href="#svg1_dot"/)
     })
   })
 })
