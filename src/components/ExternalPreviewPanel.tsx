@@ -146,7 +146,7 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
       {/* Panel - slides from right on desktop, slides from bottom on mobile */}
       <div
         ref={panelRef}
-        className="fixed z-50 bg-[var(--site-bg)] shadow-xl overflow-y-auto
+        className="fixed z-50 bg-[var(--site-bg)] shadow-xl flex flex-col
           /* Mobile: bottom sheet */
           inset-x-0 bottom-0 top-auto max-h-[85vh] rounded-t-2xl
           /* Desktop: right side panel */
@@ -158,12 +158,12 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
         aria-labelledby="external-preview-title"
       >
         {/* Mobile drag handle */}
-        <div className="md:hidden flex justify-center pt-3 pb-1">
+        <div className="md:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
           <div className="w-10 h-1 rounded-full bg-[var(--site-border)]" />
         </div>
 
         {/* Header */}
-        <div className="sticky top-0 bg-[var(--site-bg)] border-b border-[var(--site-border)] px-4 py-3 flex items-center justify-between z-10">
+        <div className="flex-shrink-0 bg-[var(--site-bg)] border-b border-[var(--site-border)] px-4 py-3 flex items-center justify-between">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -181,8 +181,8 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 md:p-6">
+        {/* Scrollable content area */}
+        <div className="external-preview-content flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
           {/* Title */}
           <h2 id="external-preview-title" className="text-2xl font-bold text-[var(--site-text)] mb-2">
             {post.title}
@@ -223,15 +223,13 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
 
           {/* Content preview */}
           {displayContent && (
-            <div className="mb-6">
-              <div className="external-preview-content max-h-[60vh] overflow-y-auto">
-                <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
-                  {displayContent}
-                  {contentIsTruncated && (
-                    <span className="text-[var(--site-text-secondary)]">...</span>
-                  )}
-                </p>
-              </div>
+            <div>
+              <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
+                {displayContent}
+                {contentIsTruncated && (
+                  <span className="text-[var(--site-text-secondary)]">...</span>
+                )}
+              </p>
               {contentIsTruncated && (
                 <p className="mt-2 text-sm text-[var(--site-text-secondary)] italic">
                   Continue reading on the original site for the full post.
@@ -239,8 +237,10 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
               )}
             </div>
           )}
+        </div>
 
-          {/* External link CTA */}
+        {/* Fixed footer with CTA */}
+        <div className="flex-shrink-0 p-4 md:px-6 md:pb-6 md:pt-4 border-t border-[var(--site-border)] bg-[var(--site-bg)]">
           {externalUrl && (
             <a
               href={externalUrl}
