@@ -316,7 +316,7 @@ export function MasonryGrid({
                     left: position.left,
                     top: position.top,
                     width: position.width,
-                    ...(isNew && { animationDelay: `${staggerIndex * 50}ms` }),
+                    ...(isNew && { animationDelay: `${staggerIndex * 25}ms` }),
                   }
                 : {
                     // Initial render: position off-screen until layout is calculated
