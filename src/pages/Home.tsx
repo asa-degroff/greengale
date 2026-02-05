@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
@@ -6,10 +6,14 @@ import { CubeLogo } from '@/components/CubeLogo'
 import { PublicationSearch } from '@/components/PublicationSearch'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
-import { ExternalPreviewPanel } from '@/components/ExternalPreviewPanel'
 import { LoadingCube } from '@/components/LoadingCube'
 import { CloudField } from '@/components/AnimatedCloud'
 import { Spinner } from '@/components/Spinner'
+
+// Lazy load ExternalPreviewPanel - only needed when user clicks external post
+const ExternalPreviewPanel = lazy(() =>
+  import('@/components/ExternalPreviewPanel').then(m => ({ default: m.ExternalPreviewPanel }))
+)
 import {
   type AppViewPost,
   type UnifiedAuthorResult,
@@ -225,45 +229,66 @@ export function HomePage() {
     [followingFeed.posts]
   )
 
+  // Destructure stable functions and primitive values for effect dependencies
+  const {
+    searchActive,
+    selectedExternalPost,
+    searchResults,
+    searchSelectedIndex,
+    handleClearSearch,
+    setSearchSelectedIndex,
+    handleSelectSearchResult,
+  } = search
+
   // Page-level keyboard handler for search
+  // Uses primitive dependencies to avoid recreating on every search object change
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (!search.searchActive || search.selectedExternalPost) return
+      if (!searchActive || selectedExternalPost) return
 
       switch (e.key) {
         case 'Escape':
-          search.handleClearSearch()
+          handleClearSearch()
           break
         case 'ArrowDown':
-          if (search.searchResults.length > 0) {
+          if (searchResults.length > 0) {
             e.preventDefault()
-            search.setSearchSelectedIndex(
-              Math.min(search.searchSelectedIndex + 1, search.searchResults.length - 1)
+            setSearchSelectedIndex(
+              Math.min(searchSelectedIndex + 1, searchResults.length - 1)
             )
           }
           break
         case 'ArrowUp':
-          if (search.searchResults.length > 0) {
+          if (searchResults.length > 0) {
             e.preventDefault()
-            search.setSearchSelectedIndex(Math.max(search.searchSelectedIndex - 1, -1))
+            setSearchSelectedIndex(Math.max(searchSelectedIndex - 1, -1))
           }
           break
         case 'Enter':
-          if (search.searchSelectedIndex >= 0 && search.searchResults[search.searchSelectedIndex]) {
+          if (searchSelectedIndex >= 0 && searchResults[searchSelectedIndex]) {
             e.preventDefault()
-            search.handleSelectSearchResult(search.searchSelectedIndex)
+            handleSelectSearchResult(searchSelectedIndex)
           }
           break
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [search])
+  }, [
+    searchActive,
+    selectedExternalPost,
+    searchResults,
+    searchSelectedIndex,
+    handleClearSearch,
+    setSearchSelectedIndex,
+    handleSelectSearchResult,
+  ])
 
   // Memoized handler for mouse enter on search results
+  // setSearchSelectedIndex is stable (from useState)
   const handleSearchResultMouseEnter = useCallback((index: number) => {
-    search.setSearchSelectedIndex(index)
-  }, [search])
+    setSearchSelectedIndex(index)
+  }, [setSearchSelectedIndex])
 
   return (
     <div>
@@ -378,10 +403,12 @@ export function HomePage() {
         </div>
       </div>
 
-      <ExternalPreviewPanel
-        post={search.selectedExternalPost}
-        onClose={() => search.setSelectedExternalPost(null)}
-      />
+      <Suspense fallback={null}>
+        <ExternalPreviewPanel
+          post={search.selectedExternalPost}
+          onClose={() => search.setSelectedExternalPost(null)}
+        />
+      </Suspense>
     </div>
   )
 }
@@ -542,14 +569,105 @@ function FeedSection({
   const isScrollingProgrammatically = useRef(false)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Refs for tab buttons to measure their positions
+  // Refs for tab buttons and indicator (direct DOM manipulation for performance)
   const tabBarRef = useRef<HTMLDivElement>(null)
   const recentsTabRef = useRef<HTMLButtonElement>(null)
   const followingTabRef = useRef<HTMLButtonElement>(null)
   const networkTabRef = useRef<HTMLButtonElement>(null)
+  const indicatorRef = useRef<HTMLDivElement>(null)
 
-  // Scroll progress for smooth indicator animation (0 = first tab, 1 = second, etc.)
-  const [scrollProgress, setScrollProgress] = useState(0)
+  // Cached tab positions to avoid layout thrashing during scroll
+  // Updated on mount, resize, and auth state change
+  const tabPositionsRef = useRef<{ left: number; width: number }[]>([])
+
+  // Track if this is the initial mount (for setting initial indicator position)
+  const isInitialMountRef = useRef(true)
+
+  // Measure and cache tab positions (avoids getBoundingClientRect during scroll)
+  // Note: Does NOT update indicator position - that's handled by scroll or initial mount
+  const measureTabPositions = useCallback(() => {
+    const tabBar = tabBarRef.current
+    if (!tabBar) return
+
+    const positions: { left: number; width: number }[] = []
+    const barRect = tabBar.getBoundingClientRect()
+
+    // Recents tab (always present)
+    if (recentsTabRef.current) {
+      const rect = recentsTabRef.current.getBoundingClientRect()
+      positions.push({ left: rect.left - barRect.left, width: rect.width })
+    }
+
+    // Following tab (only if authenticated)
+    if (isAuthenticated && followingTabRef.current) {
+      const rect = followingTabRef.current.getBoundingClientRect()
+      positions.push({ left: rect.left - barRect.left, width: rect.width })
+    }
+
+    // Network tab
+    if (networkTabRef.current) {
+      const rect = networkTabRef.current.getBoundingClientRect()
+      positions.push({ left: rect.left - barRect.left, width: rect.width })
+    }
+
+    tabPositionsRef.current = positions
+  }, [isAuthenticated])
+
+  // Update indicator position directly via DOM (no React re-render)
+  const updateIndicatorPosition = useCallback((progress: number) => {
+    const indicator = indicatorRef.current
+    const tabs = tabPositionsRef.current
+    if (!indicator || tabs.length === 0) return
+
+    // Clamp progress to valid range
+    const clampedProgress = Math.max(0, Math.min(progress, tabs.length - 1))
+
+    // Find the two tabs we're interpolating between
+    const fromIndex = Math.floor(clampedProgress)
+    const toIndex = Math.min(fromIndex + 1, tabs.length - 1)
+    const t = clampedProgress - fromIndex // Interpolation factor (0 to 1)
+
+    const fromTab = tabs[fromIndex]
+    const toTab = tabs[toIndex]
+
+    // Interpolate position and width
+    const left = fromTab.left + (toTab.left - fromTab.left) * t
+    const width = fromTab.width + (toTab.width - fromTab.width) * t
+
+    // Direct DOM update - no React state, no re-render
+    indicator.style.left = `${left}px`
+    indicator.style.width = `${width}px`
+  }, [])
+
+  // Measure tab positions on mount, resize, and auth change
+  useEffect(() => {
+    measureTabPositions()
+
+    // Set initial indicator position only on first mount
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
+        updateIndicatorPosition(getTabScrollPosition(activeTab, isAuthenticated))
+      })
+    }
+
+    // On resize, update indicator based on current scroll position
+    const handleResize = () => {
+      measureTabPositions()
+      // Update indicator to match current scroll position
+      const container = feedScrollRef.current
+      if (container) {
+        const panelWidth = container.firstElementChild?.clientWidth || container.clientWidth
+        const gap = 24
+        const progress = container.scrollLeft / (panelWidth + gap)
+        updateIndicatorPosition(progress)
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [measureTabPositions, activeTab, isAuthenticated, updateIndicatorPosition])
 
   // Scroll to the correct panel when tab changes (from button click)
   useEffect(() => {
@@ -587,7 +705,9 @@ function FeedSection({
 
       // Calculate continuous scroll progress (0 to numTabs-1)
       const progress = scrollPosition / (panelWidth + gap)
-      setScrollProgress(progress)
+
+      // Update indicator position directly (no state, no re-render)
+      updateIndicatorPosition(progress)
 
       // Skip tab sync if this scroll was triggered programmatically
       if (isScrollingProgrammatically.current) return
@@ -624,70 +744,16 @@ function FeedSection({
         clearTimeout(scrollTimeoutRef.current)
       }
     }
-  }, [activeTab, isAuthenticated, onTabChange])
-
-  // Calculate indicator position and width based on scroll progress
-  const indicatorStyle = useMemo(() => {
-    const tabBar = tabBarRef.current
-    const recentsTab = recentsTabRef.current
-    const followingTab = followingTabRef.current
-    const networkTab = networkTabRef.current
-
-    if (!tabBar || !recentsTab) {
-      return { left: 0, width: 0 }
-    }
-
-    // Build array of tab positions relative to tab bar
-    const tabs: { left: number; width: number }[] = []
-    const barRect = tabBar.getBoundingClientRect()
-
-    // Recents tab (always present)
-    const recentsRect = recentsTab.getBoundingClientRect()
-    tabs.push({ left: recentsRect.left - barRect.left, width: recentsRect.width })
-
-    // Following tab (only if authenticated)
-    if (isAuthenticated && followingTab) {
-      const followingRect = followingTab.getBoundingClientRect()
-      tabs.push({ left: followingRect.left - barRect.left, width: followingRect.width })
-    }
-
-    // Network tab
-    if (networkTab) {
-      const networkRect = networkTab.getBoundingClientRect()
-      tabs.push({ left: networkRect.left - barRect.left, width: networkRect.width })
-    }
-
-    if (tabs.length === 0) return { left: 0, width: 0 }
-
-    // Clamp progress to valid range
-    const clampedProgress = Math.max(0, Math.min(scrollProgress, tabs.length - 1))
-
-    // Find the two tabs we're interpolating between
-    const fromIndex = Math.floor(clampedProgress)
-    const toIndex = Math.min(fromIndex + 1, tabs.length - 1)
-    const t = clampedProgress - fromIndex // Interpolation factor (0 to 1)
-
-    const fromTab = tabs[fromIndex]
-    const toTab = tabs[toIndex]
-
-    // Interpolate position and width
-    const left = fromTab.left + (toTab.left - fromTab.left) * t
-    const width = fromTab.width + (toTab.width - fromTab.width) * t
-
-    return { left, width }
-  }, [scrollProgress, isAuthenticated])
+  }, [activeTab, isAuthenticated, onTabChange, updateIndicatorPosition])
 
   return (
     <div className="mb-12 min-h-[400px] animate-section-fade-in">
       {/* Tab navigation */}
       <div ref={tabBarRef} className="flex gap-1 mb-6 border-b border-[var(--site-border)] relative">
-        {/* Sliding indicator */}
+        {/* Sliding indicator - position updated via direct DOM manipulation for performance */}
         <div
-          className="absolute bottom-0 h-0.5 bg-[var(--site-accent)] transition-none"
-          style={{
-            left: indicatorStyle.left,
-            width: indicatorStyle.width,
-          }}
+          ref={indicatorRef}
+          className="absolute bottom-0 h-0.5 bg-[var(--site-accent)]"
         />
         <button
           ref={recentsTabRef}
