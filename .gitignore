@@ -42,3 +42,6 @@ dist-ssr
 
 # Agent skills
 .agents/skills/*
+# Wrangler temporary build directories
+.wrangler-check/
+.wrangler-test/
