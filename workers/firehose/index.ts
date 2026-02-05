@@ -635,10 +635,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
       }
 
       // Check if author is from a blocked domain (spam filter)
+      // Check both suffix match AND contains match for brid.gy
       const handle = authorData.handle.toLowerCase()
       for (const pattern of BLOCKED_HANDLE_PATTERNS) {
-        if (handle.endsWith(pattern)) {
-          console.log(`Skipping post from blocked domain: ${authorData.handle} (${uri})`)
+        if (handle.endsWith(pattern) || handle.includes(pattern.replace(/^\./, ''))) {
+          console.log(`Skipping post from blocked handle pattern: ${authorData.handle} (${uri})`)
           return
         }
       }
@@ -651,6 +652,13 @@ export class FirehoseConsumer extends DurableObject<Env> {
             console.log(`Skipping post from blocked PDS: ${authorData.pdsEndpoint} (${uri})`)
             return
           }
+        }
+      } else if (isSiteStandardDocument) {
+        // For site.standard.document posts, if we can't verify the PDS, be cautious
+        // Check if handle looks suspicious (contains bridge-like patterns)
+        if (handle.includes('brid.gy') || handle.includes('.ap.') || handle.includes('.web.')) {
+          console.log(`Skipping site.standard post with suspicious handle and unknown PDS: ${authorData.handle} (${uri})`)
+          return
         }
       }
 
@@ -1188,10 +1196,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
       }
 
       // Check if author is from a blocked domain (spam filter)
+      // Check both suffix match AND contains match for brid.gy
       const handle = authorData.handle.toLowerCase()
       for (const pattern of BLOCKED_HANDLE_PATTERNS) {
-        if (handle.endsWith(pattern)) {
-          console.log(`Skipping publication from blocked domain: ${authorData.handle}`)
+        if (handle.endsWith(pattern) || handle.includes(pattern.replace(/^\./, ''))) {
+          console.log(`Skipping publication from blocked handle pattern: ${authorData.handle}`)
           return
         }
       }
@@ -1204,6 +1213,12 @@ export class FirehoseConsumer extends DurableObject<Env> {
             console.log(`Skipping publication from blocked PDS: ${authorData.pdsEndpoint}`)
             return
           }
+        }
+      } else if (isSiteStandard) {
+        // For site.standard publications, if we can't verify the PDS, be cautious
+        if (handle.includes('brid.gy') || handle.includes('.ap.') || handle.includes('.web.')) {
+          console.log(`Skipping site.standard publication with suspicious handle and unknown PDS: ${authorData.handle}`)
+          return
         }
       }
 
