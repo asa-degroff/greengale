@@ -538,62 +538,191 @@ function FeedSection({
 }: FeedSectionProps) {
   // Ref for native scroll-snap based tab switching
   const feedScrollRef = useRef<HTMLDivElement>(null)
+  // Track if we're programmatically scrolling to avoid feedback loops
+  const isScrollingProgrammatically = useRef(false)
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Scroll to the correct panel when tab changes
+  // Refs for tab buttons to measure their positions
+  const tabBarRef = useRef<HTMLDivElement>(null)
+  const recentsTabRef = useRef<HTMLButtonElement>(null)
+  const followingTabRef = useRef<HTMLButtonElement>(null)
+  const networkTabRef = useRef<HTMLButtonElement>(null)
+
+  // Scroll progress for smooth indicator animation (0 = first tab, 1 = second, etc.)
+  const [scrollProgress, setScrollProgress] = useState(0)
+
+  // Scroll to the correct panel when tab changes (from button click)
   useEffect(() => {
     if (feedScrollRef.current) {
+      const container = feedScrollRef.current
+      const panelWidth = container.firstElementChild?.clientWidth || container.clientWidth
+      const gap = 24 // Same as gap-6
       const position = getTabScrollPosition(activeTab, isAuthenticated)
-      feedScrollRef.current.scrollTo({
-        left: position * feedScrollRef.current.clientWidth,
-        behavior: 'smooth',
-      })
+      const targetScroll = position * (panelWidth + gap)
+
+      // Only scroll if we're not already at the target (avoids loop with scroll listener)
+      if (Math.abs(container.scrollLeft - targetScroll) > 10) {
+        isScrollingProgrammatically.current = true
+        container.scrollTo({
+          left: targetScroll,
+          behavior: 'smooth',
+        })
+        // Reset flag after animation completes
+        setTimeout(() => {
+          isScrollingProgrammatically.current = false
+        }, 350)
+      }
     }
   }, [activeTab, isAuthenticated])
+
+  // Track scroll position for smooth indicator animation and tab sync
+  useEffect(() => {
+    const container = feedScrollRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      const panelWidth = container.firstElementChild?.clientWidth || container.clientWidth
+      const gap = 24
+      const scrollPosition = container.scrollLeft
+
+      // Calculate continuous scroll progress (0 to numTabs-1)
+      const progress = scrollPosition / (panelWidth + gap)
+      setScrollProgress(progress)
+
+      // Skip tab sync if this scroll was triggered programmatically
+      if (isScrollingProgrammatically.current) return
+
+      // Debounce: wait for scroll to settle before updating activeTab
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+      scrollTimeoutRef.current = setTimeout(() => {
+        // Determine which panel is most visible
+        const panelIndex = Math.round(progress)
+
+        // Convert panel index back to tab
+        let newTab: FeedTab
+        if (panelIndex === 0) {
+          newTab = 'greengale'
+        } else if (isAuthenticated && panelIndex === 1) {
+          newTab = 'following'
+        } else {
+          newTab = 'network'
+        }
+
+        // Only update if tab actually changed
+        if (newTab !== activeTab) {
+          onTabChange(newTab)
+        }
+      }, 100) // Wait 100ms after scroll stops
+    }
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    }
+  }, [activeTab, isAuthenticated, onTabChange])
+
+  // Calculate indicator position and width based on scroll progress
+  const indicatorStyle = useMemo(() => {
+    const tabBar = tabBarRef.current
+    const recentsTab = recentsTabRef.current
+    const followingTab = followingTabRef.current
+    const networkTab = networkTabRef.current
+
+    if (!tabBar || !recentsTab) {
+      return { left: 0, width: 0 }
+    }
+
+    // Build array of tab positions relative to tab bar
+    const tabs: { left: number; width: number }[] = []
+    const barRect = tabBar.getBoundingClientRect()
+
+    // Recents tab (always present)
+    const recentsRect = recentsTab.getBoundingClientRect()
+    tabs.push({ left: recentsRect.left - barRect.left, width: recentsRect.width })
+
+    // Following tab (only if authenticated)
+    if (isAuthenticated && followingTab) {
+      const followingRect = followingTab.getBoundingClientRect()
+      tabs.push({ left: followingRect.left - barRect.left, width: followingRect.width })
+    }
+
+    // Network tab
+    if (networkTab) {
+      const networkRect = networkTab.getBoundingClientRect()
+      tabs.push({ left: networkRect.left - barRect.left, width: networkRect.width })
+    }
+
+    if (tabs.length === 0) return { left: 0, width: 0 }
+
+    // Clamp progress to valid range
+    const clampedProgress = Math.max(0, Math.min(scrollProgress, tabs.length - 1))
+
+    // Find the two tabs we're interpolating between
+    const fromIndex = Math.floor(clampedProgress)
+    const toIndex = Math.min(fromIndex + 1, tabs.length - 1)
+    const t = clampedProgress - fromIndex // Interpolation factor (0 to 1)
+
+    const fromTab = tabs[fromIndex]
+    const toTab = tabs[toIndex]
+
+    // Interpolate position and width
+    const left = fromTab.left + (toTab.left - fromTab.left) * t
+    const width = fromTab.width + (toTab.width - fromTab.width) * t
+
+    return { left, width }
+  }, [scrollProgress, isAuthenticated])
 
   return (
     <div className="mb-12 min-h-[400px] animate-section-fade-in">
       {/* Tab navigation */}
-      <div className="flex gap-1 mb-6 border-b border-[var(--site-border)]">
+      <div ref={tabBarRef} className="flex gap-1 mb-6 border-b border-[var(--site-border)] relative">
+        {/* Sliding indicator */}
+        <div
+          className="absolute bottom-0 h-0.5 bg-[var(--site-accent)] transition-none"
+          style={{
+            left: indicatorStyle.left,
+            width: indicatorStyle.width,
+          }}
+        />
         <button
+          ref={recentsTabRef}
           onClick={() => onTabChange('greengale')}
-          className={`px-4 py-2 font-medium transition-colors relative ${
+          className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'greengale'
               ? 'text-[var(--site-accent)]'
               : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
           }`}
         >
           Recents
-          {activeTab === 'greengale' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
-          )}
         </button>
         {isAuthenticated && (
           <button
+            ref={followingTabRef}
             onClick={() => onTabChange('following')}
-            className={`px-4 py-2 font-medium transition-colors relative ${
+            className={`px-4 py-2 font-medium transition-colors ${
               activeTab === 'following'
                 ? 'text-[var(--site-accent)]'
                 : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
             }`}
           >
             Following
-            {activeTab === 'following' && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
-            )}
           </button>
         )}
         <button
+          ref={networkTabRef}
           onClick={() => onTabChange('network')}
-          className={`px-4 py-2 font-medium transition-colors relative ${
+          className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'network'
               ? 'text-[var(--site-accent)]'
               : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
           }`}
         >
           Network
-          {activeTab === 'network' && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
-          )}
         </button>
         <button
           onClick={onRefresh}
@@ -619,7 +748,7 @@ function FeedSection({
       {/* Sliding feed panels - using scroll-snap for native performance */}
       <div
         ref={feedScrollRef}
-        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none"
+        className="flex gap-6 overflow-x-auto snap-x snap-mandatory scrollbar-none"
         style={{
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',
