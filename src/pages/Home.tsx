@@ -599,15 +599,18 @@ function FeedSection({
         <div
           className="flex transition-transform duration-300 ease-in-out"
           style={{
-            transform: `translateX(-${
+            // Use translate3d for consistent GPU compositing and prevent blurry rendering
+            transform: `translate3d(-${
               activeTab === 'greengale' ? 0 :
               activeTab === 'following' ? 100 :
               isAuthenticated ? 200 : 100
-            }%)`
+            }%, 0, 0)`,
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden',
           }}
         >
           {/* GreenGale feed panel */}
-          <div className="w-full flex-shrink-0">
+          <div className="w-full flex-shrink-0" style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
             {greengaleFeed.fromCache && (
               <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
                 Offline — showing cached feed
@@ -641,7 +644,7 @@ function FeedSection({
 
           {/* Following feed panel */}
           {isAuthenticated && (
-            <div className="w-full flex-shrink-0">
+            <div className="w-full flex-shrink-0" style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
               {followingFeed.loading ? (
                 <div className="flex flex-col items-center py-12">
                   <LoadingCube size="md" />
@@ -677,7 +680,7 @@ function FeedSection({
           )}
 
           {/* Network feed panel */}
-          <div className="w-full flex-shrink-0">
+          <div className="w-full flex-shrink-0" style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
             {networkFeed.loading ? (
               <div className="flex flex-col items-center py-12">
                 <LoadingCube size="md" />
