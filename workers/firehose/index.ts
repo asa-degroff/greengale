@@ -128,6 +128,34 @@ async function fetchWithTimeout(
 // Content labels that indicate sensitive images (should not be used for OG thumbnails)
 const SENSITIVE_LABELS = ['nudity', 'sexual', 'porn', 'graphic-media']
 
+// Handle patterns to block from indexing (spam sources)
+// These are checked as suffix matches (e.g., '.brid.gy' matches 'user.brid.gy')
+const BLOCKED_HANDLE_PATTERNS = [
+  '.brid.gy',
+]
+
+// DID patterns to block from indexing (checked before any network calls)
+// brid.gy uses did:web:brid.gy:... style DIDs
+const BLOCKED_DID_PATTERNS = [
+  'did:web:brid.gy',
+]
+
+// PDS endpoints to block (spam bridge services)
+// Accounts may have various handles but all use the same PDS
+const BLOCKED_PDS_PATTERNS = [
+  'brid.gy',
+  'atproto.brid.gy',
+]
+
+// External URL domains to block (spam aggregator sites)
+const BLOCKED_EXTERNAL_DOMAINS = [
+  'forums.socialmediagirls.com',
+  'hijiribe.donmai.us',
+  'donmai.us',
+  'chaturbate.com',
+  'brid.gy',
+]
+
 export class FirehoseConsumer extends DurableObject<Env> {
   private ws: WebSocket | null = null
   private processedCount = 0
@@ -407,6 +435,15 @@ export class FirehoseConsumer extends DurableObject<Env> {
     collection?: string
   ) {
     try {
+      // Check if DID matches blocked patterns (early exit before any network calls)
+      const didLower = did.toLowerCase()
+      for (const pattern of BLOCKED_DID_PATTERNS) {
+        if (didLower.startsWith(pattern)) {
+          console.log(`Skipping post from blocked DID pattern: ${did} (${uri})`)
+          return
+        }
+      }
+
       // Determine document type
       const isV2Document = collection === 'app.greengale.document'
       const isSiteStandardDocument = collection === 'site.standard.document'
@@ -530,6 +567,21 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
+      // Check if external URL is from a blocked domain (spam filter)
+      if (externalUrl) {
+        try {
+          const urlHost = new URL(externalUrl).hostname.toLowerCase()
+          for (const blockedDomain of BLOCKED_EXTERNAL_DOMAINS) {
+            if (urlHost === blockedDomain || urlHost.endsWith('.' + blockedDomain)) {
+              console.log(`Skipping post with blocked external URL: ${externalUrl} (${uri})`)
+              return
+            }
+          }
+        } catch {
+          // Invalid URL, continue with indexing
+        }
+      }
+
       // Store theme data - either preset name or JSON for custom themes
       let themePreset: string | null = null
       if (record?.theme) {
@@ -574,6 +626,32 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Phase 1: Network operations BEFORE database batch
       // Fetch author data separately so we can include it in the atomic batch
       const authorData = await this.fetchAuthorData(did)
+
+      // Skip posts from authors with no handle (spam filter - legitimate accounts have handles)
+      if (!authorData?.handle) {
+        console.log(`Skipping post from author with no handle: ${did} (${uri})`)
+        return
+      }
+
+      // Check if author is from a blocked domain (spam filter)
+      const handle = authorData.handle.toLowerCase()
+      for (const pattern of BLOCKED_HANDLE_PATTERNS) {
+        if (handle.endsWith(pattern)) {
+          console.log(`Skipping post from blocked domain: ${authorData.handle} (${uri})`)
+          return
+        }
+      }
+
+      // Check if author's PDS is blocked (spam bridge services like brid.gy)
+      if (authorData.pdsEndpoint) {
+        const pdsLower = authorData.pdsEndpoint.toLowerCase()
+        for (const pattern of BLOCKED_PDS_PATTERNS) {
+          if (pdsLower.includes(pattern)) {
+            console.log(`Skipping post from blocked PDS: ${authorData.pdsEndpoint} (${uri})`)
+            return
+          }
+        }
+      }
 
       // Phase 2: Invalidate cache BEFORE DB write to prevent stale data
       // Note: Homepage uses limit=24, so we must include that key
@@ -687,10 +765,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       await this.env.DB.batch(statements)
 
       // Phase 4: Invalidate OG image cache (after batch, needs author handle)
-      const handle = authorData?.handle
-      if (handle) {
-        await this.env.CACHE.delete(`og:${handle}:${rkey}`)
-      }
+      // Note: authorData.handle is guaranteed to exist here (we return early if missing)
+      await this.env.CACHE.delete(`og:${authorData.handle}:${rkey}`)
 
       console.log(`Indexed ${source} post: ${uri}`)
 
@@ -1044,6 +1120,15 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
   private async indexPublication(did: string, record?: Record<string, unknown>, collection?: string) {
     try {
+      // Check if DID matches blocked patterns (early exit before any network calls)
+      const didLower = did.toLowerCase()
+      for (const pattern of BLOCKED_DID_PATTERNS) {
+        if (didLower.startsWith(pattern)) {
+          console.log(`Skipping publication from blocked DID pattern: ${did}`)
+          return
+        }
+      }
+
       const isSiteStandard = collection === 'site.standard.publication'
 
       const name = (record?.name as string) || null
@@ -1094,6 +1179,32 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       // Phase 1: Fetch author data (network calls before DB batch)
       const authorData = await this.fetchAuthorData(did)
+
+      // Skip publications from authors with no handle (spam filter)
+      if (!authorData?.handle) {
+        console.log(`Skipping publication from author with no handle: ${did}`)
+        return
+      }
+
+      // Check if author is from a blocked domain (spam filter)
+      const handle = authorData.handle.toLowerCase()
+      for (const pattern of BLOCKED_HANDLE_PATTERNS) {
+        if (handle.endsWith(pattern)) {
+          console.log(`Skipping publication from blocked domain: ${authorData.handle}`)
+          return
+        }
+      }
+
+      // Check if author's PDS is blocked (spam bridge services like brid.gy)
+      if (authorData.pdsEndpoint) {
+        const pdsLower = authorData.pdsEndpoint.toLowerCase()
+        for (const pattern of BLOCKED_PDS_PATTERNS) {
+          if (pdsLower.includes(pattern)) {
+            console.log(`Skipping publication from blocked PDS: ${authorData.pdsEndpoint}`)
+            return
+          }
+        }
+      }
 
       // Phase 2: Invalidate OG cache BEFORE DB write
       // Invalidate profile OG image and all post OG images (since posts may inherit publication theme)

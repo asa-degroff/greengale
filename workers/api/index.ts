@@ -7480,6 +7480,437 @@ app.post('/xrpc/app.greengale.admin.validateExternalUrls', async (c) => {
   }
 })
 
+// Delete posts and authors from blocked handle patterns (spam cleanup)
+// Matches on both author handle AND DID patterns (for did:web: DIDs)
+// Usage: POST /xrpc/app.greengale.admin.cleanupBlockedDomains?dryRun=true&deleteAuthors=false&limit=500
+app.post('/xrpc/app.greengale.admin.cleanupBlockedDomains', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const dryRun = c.req.query('dryRun') !== 'false' // Default to dry run for safety
+  const deleteAuthors = c.req.query('deleteAuthors') === 'true' // Default to keeping authors
+  const limit = Math.min(parseInt(c.req.query('limit') || '500'), 1000)
+
+  // Handle patterns to block (suffix match on handles)
+  const blockedHandlePatterns = ['.brid.gy']
+  // DID patterns to block (for did:web: style DIDs) - brid.gy uses did:web:brid.gy:...
+  const blockedDidPatterns = ['did:web:brid.gy%', 'did:web:%brid.gy%']
+  // PDS endpoints to block (spam bridge services - accounts may have various handles)
+  const blockedPdsPatterns = ['brid.gy']
+
+  try {
+    // Count posts by handle match (via author join)
+    const handleCountResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p
+       JOIN authors a ON p.author_did = a.did
+       WHERE ${blockedHandlePatterns.map(() => 'LOWER(a.handle) LIKE ?').join(' OR ')}`
+    ).bind(...blockedHandlePatterns.map(p => `%${p}`)).first()
+
+    // Count posts by DID match (direct on posts table - catches posts without author records)
+    const didCountResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts
+       WHERE ${blockedDidPatterns.map(() => 'author_did LIKE ?').join(' OR ')}`
+    ).bind(...blockedDidPatterns).first()
+
+    // Count posts by PDS match (via author join - catches accounts with various handles but same PDS)
+    const pdsCountResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p
+       JOIN authors a ON p.author_did = a.did
+       WHERE ${blockedPdsPatterns.map(() => 'LOWER(a.pds_endpoint) LIKE ?').join(' OR ')}`
+    ).bind(...blockedPdsPatterns.map(p => `%${p}%`)).first()
+
+    // Count authors by handle
+    const authorCountResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM authors
+       WHERE ${blockedHandlePatterns.map(() => 'LOWER(handle) LIKE ?').join(' OR ')}`
+    ).bind(...blockedHandlePatterns.map(p => `%${p}`)).first()
+
+    // Count authors by DID
+    const authorDidCountResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM authors
+       WHERE ${blockedDidPatterns.map(() => 'did LIKE ?').join(' OR ')}`
+    ).bind(...blockedDidPatterns).first()
+
+    // Count authors by PDS
+    const authorPdsCountResult = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM authors
+       WHERE ${blockedPdsPatterns.map(() => 'LOWER(pds_endpoint) LIKE ?').join(' OR ')}`
+    ).bind(...blockedPdsPatterns.map(p => `%${p}%`)).first()
+
+    const postsByHandle = (handleCountResult?.count as number) || 0
+    const postsByDid = (didCountResult?.count as number) || 0
+    const postsByPds = (pdsCountResult?.count as number) || 0
+    const authorsByHandle = (authorCountResult?.count as number) || 0
+    const authorsByDid = (authorDidCountResult?.count as number) || 0
+    const authorsByPds = (authorPdsCountResult?.count as number) || 0
+
+    const totalPosts = postsByHandle + postsByDid + postsByPds
+    const totalAuthors = authorsByHandle + authorsByDid + authorsByPds
+
+    if (totalPosts === 0 && totalAuthors === 0) {
+      return c.json({
+        success: true,
+        dryRun,
+        message: 'No posts or authors from blocked domains found',
+        postsFound: 0,
+        authorsFound: 0,
+      })
+    }
+
+    if (dryRun) {
+      // Sample posts by DID pattern
+      const samplePostsByDid = await c.env.DB.prepare(
+        `SELECT uri, author_did, title FROM posts
+         WHERE ${blockedDidPatterns.map(() => 'author_did LIKE ?').join(' OR ')}
+         LIMIT 20`
+      ).bind(...blockedDidPatterns).all()
+
+      // Sample posts by PDS
+      const samplePostsByPds = await c.env.DB.prepare(
+        `SELECT p.uri, p.author_did, p.title, a.handle, a.pds_endpoint FROM posts p
+         JOIN authors a ON p.author_did = a.did
+         WHERE ${blockedPdsPatterns.map(() => 'LOWER(a.pds_endpoint) LIKE ?').join(' OR ')}
+         LIMIT 20`
+      ).bind(...blockedPdsPatterns.map(p => `%${p}%`)).all()
+
+      // Sample authors
+      const sampleAuthors = await c.env.DB.prepare(
+        `SELECT did, handle, pds_endpoint, posts_count FROM authors
+         WHERE ${blockedHandlePatterns.map(() => 'LOWER(handle) LIKE ?').join(' OR ')}
+         OR ${blockedDidPatterns.map(() => 'did LIKE ?').join(' OR ')}
+         OR ${blockedPdsPatterns.map(() => 'LOWER(pds_endpoint) LIKE ?').join(' OR ')}
+         LIMIT 30`
+      ).bind(...blockedHandlePatterns.map(p => `%${p}`), ...blockedDidPatterns, ...blockedPdsPatterns.map(p => `%${p}%`)).all()
+
+      return c.json({
+        success: true,
+        dryRun: true,
+        message: `Set dryRun=false to execute deletion.`,
+        postsByHandle,
+        postsByDid,
+        postsByPds,
+        totalPosts,
+        authorsByHandle,
+        authorsByDid,
+        authorsByPds,
+        totalAuthors,
+        samplePostsByDid: samplePostsByDid.results,
+        samplePostsByPds: samplePostsByPds.results,
+        sampleAuthors: sampleAuthors.results,
+        blockedPdsPatterns,
+        deleteAuthors,
+        limit,
+      })
+    }
+
+    // Execute deletions
+    let tagsDeleted = 0
+    let postsDeleted = 0
+    let publicationsDeleted = 0
+    let authorsDeleted = 0
+
+    // Step 1a: Delete tags for posts matching DID patterns
+    const tagsDid = await c.env.DB.prepare(
+      `DELETE FROM post_tags WHERE post_uri IN (
+        SELECT uri FROM posts
+        WHERE ${blockedDidPatterns.map(() => 'author_did LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedDidPatterns, limit).run()
+    tagsDeleted += tagsDid.meta.changes || 0
+
+    // Step 1b: Delete tags for posts matching handle patterns (via join)
+    const tagsHandle = await c.env.DB.prepare(
+      `DELETE FROM post_tags WHERE post_uri IN (
+        SELECT p.uri FROM posts p
+        JOIN authors a ON p.author_did = a.did
+        WHERE ${blockedHandlePatterns.map(() => 'LOWER(a.handle) LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedHandlePatterns.map(p => `%${p}`), limit).run()
+    tagsDeleted += tagsHandle.meta.changes || 0
+
+    // Step 2a: Delete posts matching DID patterns
+    const postsDid = await c.env.DB.prepare(
+      `DELETE FROM posts WHERE uri IN (
+        SELECT uri FROM posts
+        WHERE ${blockedDidPatterns.map(() => 'author_did LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedDidPatterns, limit).run()
+    postsDeleted += postsDid.meta.changes || 0
+
+    // Step 2b: Delete posts matching handle patterns (via join)
+    const postsHandle = await c.env.DB.prepare(
+      `DELETE FROM posts WHERE uri IN (
+        SELECT p.uri FROM posts p
+        JOIN authors a ON p.author_did = a.did
+        WHERE ${blockedHandlePatterns.map(() => 'LOWER(a.handle) LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedHandlePatterns.map(p => `%${p}`), limit).run()
+    postsDeleted += postsHandle.meta.changes || 0
+
+    // Step 2c: Delete tags for posts matching PDS patterns (via join)
+    const tagsPds = await c.env.DB.prepare(
+      `DELETE FROM post_tags WHERE post_uri IN (
+        SELECT p.uri FROM posts p
+        JOIN authors a ON p.author_did = a.did
+        WHERE ${blockedPdsPatterns.map(() => 'LOWER(a.pds_endpoint) LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedPdsPatterns.map(p => `%${p}%`), limit).run()
+    tagsDeleted += tagsPds.meta.changes || 0
+
+    // Step 2d: Delete posts matching PDS patterns (via join)
+    const postsPds = await c.env.DB.prepare(
+      `DELETE FROM posts WHERE uri IN (
+        SELECT p.uri FROM posts p
+        JOIN authors a ON p.author_did = a.did
+        WHERE ${blockedPdsPatterns.map(() => 'LOWER(a.pds_endpoint) LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedPdsPatterns.map(p => `%${p}%`), limit).run()
+    postsDeleted += postsPds.meta.changes || 0
+
+    // Step 3: Delete publications from blocked authors
+    const pubs = await c.env.DB.prepare(
+      `DELETE FROM publications WHERE author_did IN (
+        SELECT did FROM authors
+        WHERE ${blockedHandlePatterns.map(() => 'LOWER(handle) LIKE ?').join(' OR ')}
+        OR ${blockedDidPatterns.map(() => 'did LIKE ?').join(' OR ')}
+        OR ${blockedPdsPatterns.map(() => 'LOWER(pds_endpoint) LIKE ?').join(' OR ')}
+        LIMIT ?
+      )`
+    ).bind(...blockedHandlePatterns.map(p => `%${p}`), ...blockedDidPatterns, ...blockedPdsPatterns.map(p => `%${p}%`), limit).run()
+    publicationsDeleted = pubs.meta.changes || 0
+
+    // Step 4: Delete authors (only those with no remaining posts)
+    if (deleteAuthors) {
+      const authors = await c.env.DB.prepare(
+        `DELETE FROM authors WHERE did IN (
+          SELECT a.did FROM authors a
+          LEFT JOIN posts p ON a.did = p.author_did
+          WHERE (${blockedHandlePatterns.map(() => 'LOWER(a.handle) LIKE ?').join(' OR ')}
+                 OR ${blockedDidPatterns.map(() => 'a.did LIKE ?').join(' OR ')}
+                 OR ${blockedPdsPatterns.map(() => 'LOWER(a.pds_endpoint) LIKE ?').join(' OR ')})
+          AND p.uri IS NULL
+          LIMIT ?
+        )`
+      ).bind(...blockedHandlePatterns.map(p => `%${p}`), ...blockedDidPatterns, ...blockedPdsPatterns.map(p => `%${p}%`), limit).run()
+      authorsDeleted = authors.meta.changes || 0
+    }
+
+    // Clear caches
+    await Promise.all([
+      c.env.CACHE.delete('recent_posts:12:'),
+      c.env.CACHE.delete('recent_posts:24:'),
+      c.env.CACHE.delete('recent_posts:50:'),
+      c.env.CACHE.delete('recent_posts:100:'),
+      c.env.CACHE.delete('network_posts:v3:24:'),
+      c.env.CACHE.delete('network_posts:v3:50:'),
+      c.env.CACHE.delete('network_posts:v3:100:'),
+      c.env.CACHE.delete('rss:recent'),
+      c.env.CACHE.delete('popular_tags:20'),
+      c.env.CACHE.delete('popular_tags:50'),
+      c.env.CACHE.delete('popular_tags:100'),
+    ])
+
+    // Check remaining
+    const remainingHandle = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p
+       JOIN authors a ON p.author_did = a.did
+       WHERE ${blockedHandlePatterns.map(() => 'LOWER(a.handle) LIKE ?').join(' OR ')}`
+    ).bind(...blockedHandlePatterns.map(p => `%${p}`)).first()
+    const remainingDid = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts
+       WHERE ${blockedDidPatterns.map(() => 'author_did LIKE ?').join(' OR ')}`
+    ).bind(...blockedDidPatterns).first()
+    const remainingPds = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p
+       JOIN authors a ON p.author_did = a.did
+       WHERE ${blockedPdsPatterns.map(() => 'LOWER(a.pds_endpoint) LIKE ?').join(' OR ')}`
+    ).bind(...blockedPdsPatterns.map(p => `%${p}%`)).first()
+
+    const remaining = ((remainingHandle?.count as number) || 0) + ((remainingDid?.count as number) || 0) + ((remainingPds?.count as number) || 0)
+
+    return c.json({
+      success: true,
+      dryRun: false,
+      postsDeleted,
+      tagsDeleted,
+      publicationsDeleted,
+      authorsDeleted,
+      remaining,
+      message: remaining > 0 ? `${remaining} posts remaining. Run again to continue.` : 'Cleanup complete.',
+    })
+  } catch (error) {
+    console.error('Cleanup blocked domains error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
+// Delete spam posts: authors with no handle, or posts with blocked external URLs
+// Usage: POST /xrpc/app.greengale.admin.cleanupSpamPosts?dryRun=true&limit=500
+app.post('/xrpc/app.greengale.admin.cleanupSpamPosts', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const dryRun = c.req.query('dryRun') !== 'false'
+  const limit = Math.min(parseInt(c.req.query('limit') || '500'), 1000)
+
+  // Blocked external URL domains
+  const blockedDomains = [
+    'forums.socialmediagirls.com',
+    'hijiribe.donmai.us',
+    'donmai.us',
+    'chaturbate.com',
+    'brid.gy',
+  ]
+
+  try {
+    // Count posts from authors with no handle
+    const noHandleCount = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p
+       JOIN authors a ON p.author_did = a.did
+       WHERE a.handle IS NULL OR a.handle = ''`
+    ).first()
+
+    // Count posts with blocked external URLs
+    const blockedUrlConditions = blockedDomains.map(() => 'external_url LIKE ?').join(' OR ')
+    const blockedUrlCount = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts WHERE ${blockedUrlConditions}`
+    ).bind(...blockedDomains.map(d => `%${d}%`)).first()
+
+    const totalNoHandle = (noHandleCount?.count as number) || 0
+    const totalBlockedUrl = (blockedUrlCount?.count as number) || 0
+
+    if (dryRun) {
+      // Get sample posts
+      const sampleNoHandle = await c.env.DB.prepare(
+        `SELECT p.uri, p.title, p.external_url, a.did, a.handle
+         FROM posts p
+         JOIN authors a ON p.author_did = a.did
+         WHERE a.handle IS NULL OR a.handle = ''
+         LIMIT 20`
+      ).all()
+
+      const sampleBlockedUrl = await c.env.DB.prepare(
+        `SELECT uri, title, external_url FROM posts WHERE ${blockedUrlConditions} LIMIT 20`
+      ).bind(...blockedDomains.map(d => `%${d}%`)).all()
+
+      return c.json({
+        success: true,
+        dryRun: true,
+        message: 'Set dryRun=false to execute deletion',
+        postsWithNoHandle: totalNoHandle,
+        postsWithBlockedUrls: totalBlockedUrl,
+        sampleNoHandle: sampleNoHandle.results,
+        sampleBlockedUrls: sampleBlockedUrl.results,
+        blockedDomains,
+        limit,
+      })
+    }
+
+    // Execute deletions
+    // Step 1: Delete tags for posts from authors with no handle
+    const tagsNoHandle = await c.env.DB.prepare(
+      `DELETE FROM post_tags WHERE post_uri IN (
+        SELECT p.uri FROM posts p
+        JOIN authors a ON p.author_did = a.did
+        WHERE a.handle IS NULL OR a.handle = ''
+        LIMIT ?
+      )`
+    ).bind(limit).run()
+
+    // Step 2: Delete posts from authors with no handle
+    const postsNoHandle = await c.env.DB.prepare(
+      `DELETE FROM posts WHERE uri IN (
+        SELECT p.uri FROM posts p
+        JOIN authors a ON p.author_did = a.did
+        WHERE a.handle IS NULL OR a.handle = ''
+        LIMIT ?
+      )`
+    ).bind(limit).run()
+
+    // Step 3: Delete tags for posts with blocked external URLs
+    const tagsBlockedUrl = await c.env.DB.prepare(
+      `DELETE FROM post_tags WHERE post_uri IN (
+        SELECT uri FROM posts WHERE ${blockedUrlConditions} LIMIT ?
+      )`
+    ).bind(...blockedDomains.map(d => `%${d}%`), limit).run()
+
+    // Step 4: Delete posts with blocked external URLs
+    const postsBlockedUrl = await c.env.DB.prepare(
+      `DELETE FROM posts WHERE uri IN (
+        SELECT uri FROM posts WHERE ${blockedUrlConditions} LIMIT ?
+      )`
+    ).bind(...blockedDomains.map(d => `%${d}%`), limit).run()
+
+    // Step 5: Delete authors with no handle and no remaining posts
+    const authorsDeleted = await c.env.DB.prepare(
+      `DELETE FROM authors WHERE did IN (
+        SELECT a.did FROM authors a
+        LEFT JOIN posts p ON a.did = p.author_did
+        WHERE (a.handle IS NULL OR a.handle = '')
+        AND p.uri IS NULL
+        LIMIT ?
+      )`
+    ).bind(limit).run()
+
+    // Clear caches
+    await Promise.all([
+      c.env.CACHE.delete('recent_posts:12:'),
+      c.env.CACHE.delete('recent_posts:24:'),
+      c.env.CACHE.delete('recent_posts:50:'),
+      c.env.CACHE.delete('recent_posts:100:'),
+      c.env.CACHE.delete('network_posts:v3:24:'),
+      c.env.CACHE.delete('network_posts:v3:50:'),
+      c.env.CACHE.delete('network_posts:v3:100:'),
+      c.env.CACHE.delete('rss:recent'),
+      c.env.CACHE.delete('popular_tags:20'),
+      c.env.CACHE.delete('popular_tags:50'),
+      c.env.CACHE.delete('popular_tags:100'),
+    ])
+
+    // Check remaining
+    const remainingNoHandle = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts p
+       JOIN authors a ON p.author_did = a.did
+       WHERE a.handle IS NULL OR a.handle = ''`
+    ).first()
+    const remainingBlockedUrl = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count FROM posts WHERE ${blockedUrlConditions}`
+    ).bind(...blockedDomains.map(d => `%${d}%`)).first()
+
+    const remaining = ((remainingNoHandle?.count as number) || 0) + ((remainingBlockedUrl?.count as number) || 0)
+
+    return c.json({
+      success: true,
+      dryRun: false,
+      postsDeletedNoHandle: postsNoHandle.meta.changes || 0,
+      postsDeletedBlockedUrl: postsBlockedUrl.meta.changes || 0,
+      tagsDeleted: (tagsNoHandle.meta.changes || 0) + (tagsBlockedUrl.meta.changes || 0),
+      authorsDeleted: authorsDeleted.meta.changes || 0,
+      remaining,
+      message: remaining > 0 ? `${remaining} posts remaining. Run again to continue.` : 'Cleanup complete.',
+    })
+  } catch (error) {
+    console.error('Cleanup spam posts error:', error)
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Unknown error' },
+      500
+    )
+  }
+})
+
 export default {
   fetch: app.fetch,
   scheduled,
