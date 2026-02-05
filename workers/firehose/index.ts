@@ -186,7 +186,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const processedCount = await this.ctx.storage.get<number>('processedCount') || 0
 
       return new Response(JSON.stringify({
-        version: 'v2-spam-filter',  // Code version identifier
+        version: '2026-02-05',  // Code version (date of last update)
         enabled: enabled || false,
         connected: this.ws !== null && this.ws.readyState === WebSocket.OPEN,
         cursor: cursor || 0,
@@ -639,7 +639,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Check both suffix match AND contains match for brid.gy
       const handle = authorData.handle.toLowerCase()
       for (const pattern of BLOCKED_HANDLE_PATTERNS) {
-        if (handle.endsWith(pattern) || handle.includes(pattern.replace(/^\./, ''))) {
+        const stripped = pattern.replace(/^\./, '')
+        if (handle.endsWith(pattern) || handle.includes(stripped)) {
           console.log(`Skipping post from blocked handle pattern: ${authorData.handle} (${uri})`)
           return
         }
