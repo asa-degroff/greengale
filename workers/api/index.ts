@@ -3353,6 +3353,20 @@ app.post('/xrpc/app.greengale.admin.startFirehose', async (c) => {
   return c.json({ status: 'started' })
 })
 
+// Stop firehose connection (admin endpoint)
+app.post('/xrpc/app.greengale.admin.stopFirehose', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+  const id = c.env.FIREHOSE.idFromName('main')
+  const stub = c.env.FIREHOSE.get(id)
+
+  await stub.fetch(new Request('http://internal/stop', { method: 'POST' }))
+
+  return c.json({ status: 'stopped' })
+})
+
 // Get firehose status
 app.get('/xrpc/app.greengale.admin.firehoseStatus', async (c) => {
   const authError = requireAdmin(c)

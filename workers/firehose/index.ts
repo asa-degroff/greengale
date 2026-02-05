@@ -154,6 +154,7 @@ const BLOCKED_EXTERNAL_DOMAINS = [
   'donmai.us',
   'chaturbate.com',
   'brid.gy',
+  'cults3d.com',
 ]
 
 export class FirehoseConsumer extends DurableObject<Env> {
