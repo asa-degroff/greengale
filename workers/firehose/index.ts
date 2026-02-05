@@ -155,6 +155,7 @@ const BLOCKED_EXTERNAL_DOMAINS = [
   'chaturbate.com',
   'brid.gy',
   'cults3d.com',
+  'tokyomotion.net',
 ]
 
 export class FirehoseConsumer extends DurableObject<Env> {
