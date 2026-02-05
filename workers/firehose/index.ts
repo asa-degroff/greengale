@@ -186,6 +186,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const processedCount = await this.ctx.storage.get<number>('processedCount') || 0
 
       return new Response(JSON.stringify({
+        version: 'v2-spam-filter',  // Code version identifier
         enabled: enabled || false,
         connected: this.ws !== null && this.ws.readyState === WebSocket.OPEN,
         cursor: cursor || 0,
@@ -675,6 +676,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
         this.env.CACHE.delete('popular_tags:100'),
         // Invalidate RSS feeds
         this.env.CACHE.delete('rss:recent'),
+        // Invalidate network posts cache (site.standard.document posts)
+        this.env.CACHE.delete('network_posts:v3:24:'),
+        this.env.CACHE.delete('network_posts:v3:50:'),
+        this.env.CACHE.delete('network_posts:v3:100:'),
       ]
       // Invalidate tag-specific caches for each tag
       for (const tag of tags) {
@@ -855,6 +860,10 @@ export class FirehoseConsumer extends DurableObject<Env> {
         // Invalidate RSS feeds
         this.env.CACHE.delete('rss:recent'),
         handle ? this.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
+        // Invalidate network posts cache (site.standard.document posts)
+        this.env.CACHE.delete('network_posts:v3:24:'),
+        this.env.CACHE.delete('network_posts:v3:50:'),
+        this.env.CACHE.delete('network_posts:v3:100:'),
       ]
       // Invalidate tag-specific caches for each tag
       for (const tag of postTags) {
