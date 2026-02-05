@@ -30,6 +30,14 @@ type FeedTab = 'greengale' | 'following' | 'network'
 
 const HOME_TAB_STORAGE_KEY = 'greengale:home-tab'
 
+// Calculate scroll position index for a given tab
+function getTabScrollPosition(tab: FeedTab, isAuthenticated: boolean): number {
+  if (tab === 'greengale') return 0
+  if (tab === 'following') return 1
+  // Network tab is at index 2 if authenticated, 1 if not (following panel hidden)
+  return isAuthenticated ? 2 : 1
+}
+
 function getStoredTab(): FeedTab {
   try {
     const stored = localStorage.getItem(HOME_TAB_STORAGE_KEY)
@@ -528,6 +536,20 @@ function FeedSection({
   onTabChange,
   onRefresh,
 }: FeedSectionProps) {
+  // Ref for native scroll-snap based tab switching
+  const feedScrollRef = useRef<HTMLDivElement>(null)
+
+  // Scroll to the correct panel when tab changes
+  useEffect(() => {
+    if (feedScrollRef.current) {
+      const position = getTabScrollPosition(activeTab, isAuthenticated)
+      feedScrollRef.current.scrollTo({
+        left: position * feedScrollRef.current.clientWidth,
+        behavior: 'smooth',
+      })
+    }
+  }, [activeTab, isAuthenticated])
+
   return (
     <div className="mb-12 min-h-[400px] animate-section-fade-in">
       {/* Tab navigation */}
@@ -594,23 +616,18 @@ function FeedSection({
         </button>
       </div>
 
-      {/* Sliding feed panels */}
-      <div className="overflow-hidden">
-        <div
-          className="flex transition-transform duration-300 ease-in-out"
-          style={{
-            // Use translate3d for consistent GPU compositing and prevent blurry rendering
-            transform: `translate3d(-${
-              activeTab === 'greengale' ? 0 :
-              activeTab === 'following' ? 100 :
-              isAuthenticated ? 200 : 100
-            }%, 0, 0)`,
-            backfaceVisibility: 'hidden',
-            WebkitBackfaceVisibility: 'hidden',
-          }}
-        >
+      {/* Sliding feed panels - using scroll-snap for native performance */}
+      <div
+        ref={feedScrollRef}
+        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none"
+        style={{
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
           {/* GreenGale feed panel */}
-          <div className="w-full flex-shrink-0" style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
+          <div className="w-full flex-shrink-0 snap-start snap-always">
             {greengaleFeed.fromCache && (
               <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
                 Offline — showing cached feed
@@ -644,7 +661,7 @@ function FeedSection({
 
           {/* Following feed panel */}
           {isAuthenticated && (
-            <div className="w-full flex-shrink-0" style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
+            <div className="w-full flex-shrink-0 snap-start snap-always">
               {followingFeed.loading ? (
                 <div className="flex flex-col items-center py-12">
                   <LoadingCube size="md" />
@@ -680,7 +697,7 @@ function FeedSection({
           )}
 
           {/* Network feed panel */}
-          <div className="w-full flex-shrink-0" style={{ transform: 'translateZ(0)', backfaceVisibility: 'hidden' }}>
+          <div className="w-full flex-shrink-0 snap-start snap-always">
             {networkFeed.loading ? (
               <div className="flex flex-col items-center py-12">
                 <LoadingCube size="md" />
@@ -715,6 +732,5 @@ function FeedSection({
           </div>
         </div>
       </div>
-    </div>
   )
 }
