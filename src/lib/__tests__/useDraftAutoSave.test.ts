@@ -423,7 +423,7 @@ describe('useDraftAutoSave', () => {
     it('does not save draft exceeding size limit', () => {
       const { result } = renderHook(() => useDraftAutoSave('did:plc:test', undefined))
       const largeDraft = createTestDraft({
-        content: 'x'.repeat(600 * 1024), // 600KB content
+        content: 'x'.repeat(2200 * 1024), // ~2.2MB content, exceeds 2MB limit
       })
 
       // Spy on console.warn
