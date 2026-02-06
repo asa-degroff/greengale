@@ -63,7 +63,7 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
             style={{
               transform: `translateZ(${s / 2}px)`,
               background: 'linear-gradient(135deg, var(--site-accent) 0%, var(--site-accent-hover, var(--site-accent)) 100%)',
-              opacity: 0.9,
+              opacity: 0.7,
               boxShadow: `0 0 ${s / 4}px var(--site-accent), inset 0 0 ${s / 4}px rgba(255,255,255,0.2)`,
               borderRadius: 2,
             }}
@@ -74,10 +74,9 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
             style={{
               transform: `rotateY(180deg) translateZ(${s / 2}px)`,
               background: 'linear-gradient(135deg, var(--site-accent) 0%, var(--site-accent-hover, var(--site-accent)) 100%)',
-              opacity: 0.9,
+              opacity: 0.7,
               boxShadow: `0 0 ${s / 4}px var(--site-accent), inset 0 0 ${s / 4}px rgba(255,255,255,0.2)`,
               borderRadius: 2,
-              animationDelay: '0.2s',
             }}
           />
           {/* Right face */}
@@ -89,7 +88,6 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
               opacity: 0.7,
               boxShadow: `0 0 ${s / 4}px var(--site-accent), inset 0 0 ${s / 4}px rgba(255,255,255,0.2)`,
               borderRadius: 2,
-              animationDelay: '0.4s',
             }}
           />
           {/* Left face */}
@@ -101,7 +99,6 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
               opacity: 0.7,
               boxShadow: `0 0 ${s / 4}px var(--site-accent), inset 0 0 ${s / 4}px rgba(255,255,255,0.2)`,
               borderRadius: 2,
-              animationDelay: '0.6s',
             }}
           />
           {/* Top face */}
@@ -110,10 +107,9 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
             style={{
               transform: `rotateX(90deg) translateZ(${s / 2}px)`,
               background: 'linear-gradient(135deg, var(--site-accent) 0%, var(--site-accent-hover, var(--site-accent)) 100%)',
-              opacity: 0.5,
+              opacity: 0.7,
               boxShadow: `0 0 ${s / 4}px var(--site-accent), inset 0 0 ${s / 4}px rgba(255,255,255,0.3)`,
               borderRadius: 2,
-              animationDelay: '0.8s',
             }}
           />
           {/* Bottom face */}
@@ -122,10 +118,9 @@ export const LoadingCube = memo(function LoadingCube({ size = 'md', className = 
             style={{
               transform: `rotateX(-90deg) translateZ(${s / 2}px)`,
               background: 'linear-gradient(135deg, var(--site-accent) 0%, var(--site-accent-hover, var(--site-accent)) 100%)',
-              opacity: 0.5,
+              opacity: 0.7,
               boxShadow: `0 0 ${s / 4}px var(--site-accent), inset 0 0 ${s / 4}px rgba(255,255,255,0.3)`,
               borderRadius: 2,
-              animationDelay: '1s',
             }}
           />
 

@@ -1773,14 +1773,12 @@ html {
   animation: cube-rotate 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-/* Face pulsing glow effect */
+/* Face pulsing glow effect (brightness only - no opacity to avoid holes with backface-visibility) */
 @keyframes cube-face-pulse {
   0%, 100% {
-    opacity: 0.6;
     filter: brightness(1);
   }
   50% {
-    opacity: 0.9;
     filter: brightness(1.2);
   }
 }
