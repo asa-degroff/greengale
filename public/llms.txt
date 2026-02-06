@@ -15,7 +15,7 @@ GreenGale allows authenticated users to create, edit, and publish markdown blog 
 - **Record Key**: TID format (13 base32-sortable characters)
 - **API Endpoint**: `com.atproto.repo.putRecord` (or `createRecord`)
 - **Authentication**: AT Protocol app password or OAuth
-- **Max Content Size**: 100,000 characters (markdown)
+- **Max Content Size**: 1,000,000 bytes (UTF-8 encoded markdown)
 - **Custom Themes**: Use `theme.preset` or `theme.custom` with hex colors (background, text, accent)
 - **Image Upload**: Upload via `com.atproto.repo.uploadBlob`, add to `blobs` array with alt text
 

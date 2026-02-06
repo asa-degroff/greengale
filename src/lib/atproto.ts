@@ -165,6 +165,8 @@ export interface BlogEntry {
   externalUrl?: string
   // Tags for categorization
   tags?: string[]
+  // Content blob reference (for large documents stored as blob)
+  contentBlob?: { ref: { $link: string }; mimeType: string; size: number }
 }
 
 function parseTheme(rawTheme: unknown): Theme | undefined {
@@ -519,13 +521,31 @@ export async function getBlogEntry(
         )]
       : undefined
 
+    // Check if content is stored as a blob (large documents)
+    let content = (record.content as string) || ''
+    const contentBlobRaw = record.contentBlob as { ref?: { $link?: string }; mimeType?: string; size?: number } | undefined
+    const contentBlobCid = contentBlobRaw?.ref?.$link
+
+    if (contentBlobCid && isV2) {
+      try {
+        const blobUrl = `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(contentBlobCid)}`
+        const blobFetchFn = fetchFn || fetch
+        const blobResponse = await blobFetchFn(blobUrl)
+        if (blobResponse.ok) {
+          content = await blobResponse.text()
+        }
+      } catch {
+        // Fall back to the truncated content in the record
+      }
+    }
+
     return {
       uri: response.data.uri,
       cid: response.data.cid || '',
       authorDid: did,
       rkey,
       source: collection === WHITEWIND_COLLECTION ? 'whitewind' : 'greengale',
-      content: (record.content as string) || '',
+      content,
       title: record.title as string | undefined,
       subtitle: record.subtitle as string | undefined,
       createdAt,
@@ -537,6 +557,7 @@ export async function getBlogEntry(
       url: isV2 ? (record.url as string | undefined) : undefined,
       path: isV2 ? (record.path as string | undefined) : undefined,
       tags,
+      contentBlob: contentBlobCid ? contentBlobRaw as BlogEntry['contentBlob'] : undefined,
     }
   }
 

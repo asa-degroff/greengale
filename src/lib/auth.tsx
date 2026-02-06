@@ -16,7 +16,7 @@ import { markFromPWA, tryBridgeSession, isIOSStandalone } from './pwa-session-br
 
 // Minimal OAuth scopes: blog entry collections + V2 document collection + publication + site.standard + blob uploads
 const OAUTH_SCOPE =
-  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/*'
+  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/* blob:text/*'
 
 // For development, use loopback client ID
 // Client ID must use "localhost", redirect_uri must use "127.0.0.1" per AT Protocol OAuth spec

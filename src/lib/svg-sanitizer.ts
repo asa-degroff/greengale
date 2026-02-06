@@ -594,8 +594,8 @@ function escapeRegExp(str: string): string {
  * @returns Sanitized SVG string, or null if invalid/empty
  */
 export function sanitizeSvg(svgContent: string): string | null {
-  // Size limit: 100KB max
-  if (svgContent.length > 100 * 1024) {
+  // Size limit: 500KB max
+  if (svgContent.length > 500 * 1024) {
     console.warn('SVG content exceeds size limit')
     return null
   }

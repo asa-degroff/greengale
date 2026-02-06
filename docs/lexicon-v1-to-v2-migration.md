@@ -82,7 +82,7 @@ These fields remain identical between V1 and V2:
   "record": {
     "required": ["content", "url", "path", "title", "publishedAt"],
     "properties": {
-      "content": { "type": "string", "maxLength": 100000 },
+      "content": { "type": "string", "maxLength": 1000000 },
       "url": { "type": "string", "format": "uri" },
       "path": { "type": "string", "maxLength": 500 },
       "title": { "type": "string", "maxLength": 1000 },

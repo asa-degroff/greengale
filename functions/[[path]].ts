@@ -292,7 +292,7 @@ const GREENGALE_PLATFORM_DID = 'did:plc:purpkfw7haimc4zu5a57slza'
 
 // OAuth scope (must match src/lib/auth.tsx OAUTH_SCOPE)
 const OAUTH_SCOPE =
-  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/*'
+  'atproto repo?collection=app.greengale.blog.entry&collection=app.greengale.document&collection=app.greengale.publication&collection=com.whtwnd.blog.entry&collection=site.standard.publication&collection=site.standard.document blob:image/* blob:text/*'
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, next } = context

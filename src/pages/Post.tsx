@@ -21,6 +21,9 @@ import {
   buildPostOgImage,
 } from '@/lib/useDocumentMeta'
 
+// Module-level cache for site.standard.publication URI lookups
+const publicationUriCache = new Map<string, string>()
+
 /**
  * Get the effective theme with publication fallback
  * Priority: Post theme > Publication theme > Default
@@ -218,14 +221,17 @@ export function PostPage() {
   }, [entry?.uri])
 
   // Add site.standard.document link tag for posts that are dual-published
+  const entryAuthorDid = entry?.authorDid
+  const entryRkey = entry?.rkey
+  const entrySource = entry?.source
   useEffect(() => {
     // Only add if:
     // 1. We have the entry and author data
     // 2. The publication has site.standard enabled
     // 3. The post is from GreenGale (not WhiteWind)
-    if (!entry || !publication?.enableSiteStandard || entry.source !== 'greengale') return
+    if (!entryAuthorDid || !entryRkey || !publication?.enableSiteStandard || entrySource !== 'greengale') return
 
-    const siteStandardDocUri = `at://${entry.authorDid}/site.standard.document/${entry.rkey}`
+    const siteStandardDocUri = `at://${entryAuthorDid}/site.standard.document/${entryRkey}`
 
     const link = document.createElement('link')
     link.rel = 'site.standard.document'
@@ -235,7 +241,7 @@ export function PostPage() {
     return () => {
       link.remove()
     }
-  }, [entry, publication?.enableSiteStandard])
+  }, [entryAuthorDid, entryRkey, entrySource, publication?.enableSiteStandard])
 
   // Add site.standard.publication link tag
   // This helps validators find the author's publication from the document page
@@ -247,15 +253,25 @@ export function PostPage() {
 
     async function fetchPublicationUri() {
       try {
-        // Fetch the publication AT-URI from the well-known endpoint
+        const handle = author!.handle
+        const cached = publicationUriCache.get(handle)
+        if (cached) {
+          if (cancelled) return
+          link.rel = 'site.standard.publication'
+          link.href = cached
+          document.head.appendChild(link)
+          return
+        }
+
         const response = await fetch(
-          `/.well-known/site.standard.publication?handle=${encodeURIComponent(author!.handle)}`
+          `/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
         )
         if (!response.ok || cancelled) return
 
         const uri = await response.text()
         if (cancelled || !uri.startsWith('at://')) return
 
+        publicationUriCache.set(handle, uri)
         link.rel = 'site.standard.publication'
         link.href = uri
         document.head.appendChild(link)

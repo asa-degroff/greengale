@@ -268,14 +268,14 @@ describe('SVG Sanitizer', () => {
   })
 
   describe('Size Limits', () => {
-    it('rejects SVG over 100KB', () => {
-      const largeContent = 'x'.repeat(101 * 1024)
+    it('rejects SVG over 500KB', () => {
+      const largeContent = 'x'.repeat(501 * 1024)
       const input = `<svg><text>${largeContent}</text></svg>`
       const result = sanitizeSvg(input)
       expect(result).toBeNull()
     })
 
-    it('accepts SVG under 100KB', () => {
+    it('accepts SVG under 500KB', () => {
       const input = '<svg><circle r="10"/></svg>'
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()

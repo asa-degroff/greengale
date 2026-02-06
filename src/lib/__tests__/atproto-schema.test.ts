@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
+import { getUtf8ByteLength, GREENGALE_CONTENT_MAX_BYTES } from '../content-limits'
 
 // Load lexicon definitions from files
 let documentLexicon: Record<string, unknown>
@@ -120,8 +121,8 @@ function validateDocument(record: DocumentRecord): { valid: boolean; errors: str
   if (record.content !== undefined) {
     if (typeof record.content !== 'string') {
       errors.push('content must be a string')
-    } else if (record.content.length > 100000) {
-      errors.push('content exceeds maxLength of 100000')
+    } else if (getUtf8ByteLength(record.content) > GREENGALE_CONTENT_MAX_BYTES) {
+      errors.push('content exceeds maxLength of 1000000')
     }
   }
 
@@ -330,7 +331,7 @@ describe('AT Protocol Schema Validation', () => {
 
     it('rejects content exceeding maxLength', () => {
       const doc: DocumentRecord = {
-        content: 'x'.repeat(100001),
+        content: 'x'.repeat(1000001),
         url: 'https://greengale.app',
         path: '/test',
         title: 'Test',
@@ -340,6 +341,35 @@ describe('AT Protocol Schema Validation', () => {
       const result = validateDocument(doc)
       expect(result.valid).toBe(false)
       expect(result.errors.some(e => e.includes('content exceeds maxLength'))).toBe(true)
+    })
+
+    it('rejects multi-byte content exceeding maxLength in bytes', () => {
+      // 333,334 CJK characters × 3 bytes each = 1,000,002 bytes > 1,000,000
+      const doc: DocumentRecord = {
+        content: '世'.repeat(333334),
+        url: 'https://greengale.app',
+        path: '/test',
+        title: 'Test',
+        publishedAt: new Date().toISOString(),
+      }
+
+      const result = validateDocument(doc)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('content exceeds maxLength'))).toBe(true)
+    })
+
+    it('accepts content exactly at 1,000,000 bytes', () => {
+      // 333,333 CJK characters × 3 bytes each = 999,999 bytes (just under limit)
+      const doc: DocumentRecord = {
+        content: '世'.repeat(333333) + 'x',
+        url: 'https://greengale.app',
+        path: '/test',
+        title: 'Test',
+        publishedAt: new Date().toISOString(),
+      }
+
+      const result = validateDocument(doc)
+      expect(result.valid).toBe(true)
     })
 
     it('rejects invalid URL format', () => {

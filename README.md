@@ -154,7 +154,7 @@ The primary blog document format with theme, LaTeX, and standard.site compatibil
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
-| `content` | string | ✓ | Markdown content (max 100,000 chars) |
+| `content` | string | ✓ | Markdown content (max 1,000,000 UTF-8 bytes) |
 | `url` | string (URI) | ✓ | Base publication URL (e.g., `https://greengale.app`) |
 | `path` | string | ✓ | Document path relative to URL (e.g., `/handle/rkey`) |
 | `title` | string | ✓ | Document title (max 1,000 chars) |

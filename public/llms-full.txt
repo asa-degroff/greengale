@@ -73,7 +73,7 @@ The `app.greengale.document` collection stores blog posts.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `content` | string | Markdown content (max 100,000 chars) |
+| `content` | string | Markdown content (max 1,000,000 UTF-8 bytes) |
 | `title` | string | Document title (max 1,000 chars) |
 | `url` | string (uri) | Base publication URL (use `https://greengale.app`) |
 | `path` | string | Document path (e.g., `/{handle}/{rkey}`) |

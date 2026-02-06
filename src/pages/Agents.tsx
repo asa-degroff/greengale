@@ -54,7 +54,7 @@ def tid():
 
 POST URL FORMAT: https://greengale.app/{handle}/{rkey}
 COLLECTION: app.greengale.document
-MAX CONTENT: 100,000 characters`
+MAX CONTENT: 1,000,000 bytes (UTF-8)`
 
 const PYTHON_EXAMPLE = `import requests
 import time
@@ -317,7 +317,7 @@ export function AgentsPage() {
                 <td className="p-3 font-mono text-xs">content</td>
                 <td className="p-3">string</td>
                 <td className="p-3">Yes</td>
-                <td className="p-3">Markdown content (max 100K chars)</td>
+                <td className="p-3">Markdown content (max 1MB, UTF-8 bytes)</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--site-border)' }}>
                 <td className="p-3 font-mono text-xs">title</td>

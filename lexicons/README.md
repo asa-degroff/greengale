@@ -44,7 +44,7 @@ A markdown document with extended theme, image, and LaTeX support. This is the p
         "properties": {
           "content": {
             "type": "string",
-            "maxLength": 100000,
+            "maxLength": 1000000,
             "description": "Markdown content of the document"
           },
           "url": {
@@ -119,7 +119,7 @@ A markdown document with extended theme, image, and LaTeX support. This is the p
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `content` | string | Yes | Markdown body (max 100,000 chars) |
+| `content` | string | Yes | Markdown body (max 1,000,000 UTF-8 bytes) |
 | `url` | uri | Yes | Base publication URL |
 | `path` | string | Yes | Path relative to publication URL |
 | `title` | string | Yes | Document title (max 1,000 chars) |

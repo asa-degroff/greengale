@@ -159,7 +159,7 @@ Blog posts support inline SVG diagrams via fenced code blocks with the `svg`, `x
 
 **Supported SVG elements:** Basic shapes (circle, rect, path, line, polygon, polyline, ellipse), text (text, tspan, textPath), gradients (linearGradient, radialGradient, stop), patterns, filters, clipPath, mask, markers, defs, g, use, symbol, style (with CSS sanitization).
 
-**Security:** SVGs are sanitized before rendering. Blocked: script tags, event handlers (onclick, etc.), external references (only `#id` hrefs allowed), dangerous CSS patterns (url(), expression(), etc.). Size limit: 100KB.
+**Security:** SVGs are sanitized before rendering. Blocked: script tags, event handlers (onclick, etc.), external references (only `#id` hrefs allowed), dangerous CSS patterns (url(), expression(), etc.). Size limit: 500KB.
 
 **Implementation:** `src/lib/remark-svg.ts` (remark plugin), `src/lib/svg-sanitizer.ts` (sanitization).
 
@@ -686,7 +686,7 @@ GreenGale provides documentation for AI agents to publish blog posts programmati
 **Required Fields:**
 | Field | Description |
 |-------|-------------|
-| `content` | Markdown content (max 100K chars) |
+| `content` | Markdown content (max 1,000,000 UTF-8 bytes) |
 | `title` | Post title (max 1K chars) |
 | `url` | Always `https://greengale.app` |
 | `path` | Format: `/{handle}/{rkey}` |

@@ -28,6 +28,14 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
 import { getCachedPost, deleteCachedPost } from '@/lib/offline-store'
 import { invalidateFeedCache } from '@/lib/feedCache'
+import {
+  GREENGALE_CONTENT_MAX_BYTES,
+  WHITEWIND_CONTENT_MAX_BYTES,
+  PDS_JSON_SAFE_LIMIT,
+  CONTENT_PREVIEW_CHARS,
+  getUtf8ByteLength,
+  formatByteCount,
+} from '@/lib/content-limits'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
 import { useDraftAutoSave, type DraftBlobMetadata } from '@/lib/useDraftAutoSave'
 import { DraftRestorationBanner } from '@/components/DraftRestorationBanner'
@@ -154,6 +162,10 @@ export function EditorPage() {
   // Whether to auto-focus alt text field when opening metadata editor
   const [autoFocusAlt, setAutoFocusAlt] = useState(false)
 
+  // Content byte count for limit enforcement
+  const [contentByteCount, setContentByteCount] = useState(0)
+  const byteCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Load recent palettes on mount
   useEffect(() => {
     setRecentPalettes(getRecentPalettes())
@@ -259,6 +271,31 @@ export function EditorPage() {
   // Check if custom colors have valid contrast
   const customColorsValidation = theme === 'custom' ? validateCustomColors(customColors) : null
   const hasContrastError = theme === 'custom' && customColorsValidation !== null && !customColorsValidation.isValid
+
+  // Content byte limit enforcement
+  const contentMaxBytes = isWhiteWind ? WHITEWIND_CONTENT_MAX_BYTES : GREENGALE_CONTENT_MAX_BYTES
+  const isOverLimit = contentByteCount > contentMaxBytes
+  const willUseBlob = !isWhiteWind && contentByteCount > PDS_JSON_SAFE_LIMIT
+
+  // Debounced byte count computation
+  useEffect(() => {
+    if (byteCountTimerRef.current) {
+      clearTimeout(byteCountTimerRef.current)
+    }
+    const delay = content.length < 10000 ? 0 : 300
+    if (delay === 0) {
+      setContentByteCount(getUtf8ByteLength(content))
+    } else {
+      byteCountTimerRef.current = setTimeout(() => {
+        setContentByteCount(getUtf8ByteLength(content))
+      }, delay)
+    }
+    return () => {
+      if (byteCountTimerRef.current) {
+        clearTimeout(byteCountTimerRef.current)
+      }
+    }
+  }, [content])
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -859,6 +896,14 @@ export function EditorPage() {
       return null
     }
 
+    // Check content byte size (fresh computation, not debounced)
+    const byteLength = getUtf8ByteLength(content)
+    const maxBytes = isWhiteWind ? WHITEWIND_CONTENT_MAX_BYTES : GREENGALE_CONTENT_MAX_BYTES
+    if (byteLength > maxBytes) {
+      setError(`Content is ${formatByteCount(byteLength)} bytes, exceeding the ${formatByteCount(maxBytes)} byte limit. Multi-byte characters (CJK, emoji, accented letters) use more than 1 byte each.`)
+      return null
+    }
+
     const visibilityToUse = overrideVisibility || visibility
 
     try {
@@ -929,7 +974,39 @@ export function EditorPage() {
                 : undefined,
             // Tags for categorization (only include if there are tags)
             tags: tags.length > 0 ? tags : undefined,
+          } as Record<string, unknown>
+
+      // For GreenGale posts, check if the JSON body exceeds the PDS limit.
+      // If so, upload content as a blob and store a truncated preview inline.
+      if (!isWhiteWind) {
+        const testBody = JSON.stringify({
+          repo: session.did,
+          collection: targetCollection,
+          rkey: rkey || '3placeholder00',
+          record,
+        })
+        if (getUtf8ByteLength(testBody) > PDS_JSON_SAFE_LIMIT) {
+          setPublishing(true)
+          // Upload content as a text blob
+          const contentBytes = new TextEncoder().encode(content)
+          const blobResponse = await session.fetchHandler('/xrpc/com.atproto.repo.uploadBlob', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/markdown' },
+            body: contentBytes,
+          })
+          if (!blobResponse.ok) {
+            const errorData = await blobResponse.json().catch(() => ({})) as { message?: string }
+            throw new Error(errorData.message || 'Failed to upload content blob')
           }
+          const blobResult = await blobResponse.json() as {
+            blob: { ref: { $link: string }; mimeType: string; size: number }
+          }
+
+          // Replace content with preview and add blob reference
+          record.content = content.substring(0, CONTENT_PREVIEW_CHARS)
+          record.contentBlob = blobResult.blob
+        }
+      }
 
       let response: Response
       let resultRkey: string
@@ -1687,9 +1764,9 @@ export function EditorPage() {
             </button>
             <button
               onClick={handlePublish}
-              disabled={publishing || !isOnline || !content.trim() || hasContrastError || (!isWhiteWind && !title.trim())}
+              disabled={publishing || !isOnline || !content.trim() || hasContrastError || isOverLimit || (!isWhiteWind && !title.trim())}
               className="px-4 py-2 text-sm bg-[var(--site-accent)] text-white rounded-lg hover:bg-[var(--site-accent-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title={!isOnline ? 'Publishing requires an internet connection' : hasContrastError ? 'Fix contrast issues before publishing' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
+              title={!isOnline ? 'Publishing requires an internet connection' : hasContrastError ? 'Fix contrast issues before publishing' : isOverLimit ? 'Content exceeds byte limit' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
             >
               {publishing ? 'Saving...' : isEditing ? 'Update' : 'Publish'}
             </button>
@@ -1957,6 +2034,16 @@ export function EditorPage() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Byte counter */}
+              <div className={`mt-1 text-xs text-right font-mono flex items-center justify-end gap-2 ${
+                isOverLimit ? 'text-red-500 font-semibold' : 'text-[var(--site-text-secondary)]'
+              }`}>
+                {willUseBlob && !isOverLimit && (
+                  <span className="text-amber-500" title="Content exceeds PDS inline limit and will be uploaded as a blob">blob</span>
+                )}
+                {formatByteCount(contentByteCount)} bytes
               </div>
 
               {/* Upload error display */}
@@ -2541,9 +2628,9 @@ export function EditorPage() {
               </button>
               <button
                 onClick={handleSaveAsPrivateAndProceed}
-                disabled={publishing || !content.trim() || hasContrastError || (!isWhiteWind && !title.trim())}
+                disabled={publishing || !content.trim() || hasContrastError || isOverLimit || (!isWhiteWind && !title.trim())}
                 className="w-full px-4 py-2.5 text-sm rounded-lg border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={hasContrastError ? 'Fix contrast issues before saving' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
+                title={hasContrastError ? 'Fix contrast issues before saving' : isOverLimit ? 'Content exceeds byte limit' : (!isWhiteWind && !title.trim()) ? 'Title is required' : undefined}
               >
                 {publishing ? 'Publishing...' : 'Publish as Private & Exit'}
               </button>
