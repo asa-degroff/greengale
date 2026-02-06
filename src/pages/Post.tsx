@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import { BlogViewer } from '@/components/BlogViewer'
 import { LoadingCube } from '@/components/LoadingCube'
@@ -57,6 +57,19 @@ export function PostPage() {
   const [fromCache, setFromCache] = useState(false)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
   const { addRecentAuthor } = useRecentAuthors()
+
+  // Apply post/publication theme to the global theme context
+  const applyTheme = useCallback((postTheme?: Theme, publicationTheme?: Theme) => {
+    const effectiveTheme = getThemeWithInheritance(postTheme, publicationTheme)
+    if (effectiveTheme?.custom) {
+      setActivePostTheme('custom')
+      setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
+    } else {
+      const themePreset = getEffectiveTheme(effectiveTheme)
+      setActivePostTheme(themePreset)
+      setActiveCustomColors(null)
+    }
+  }, [setActivePostTheme, setActiveCustomColors])
 
   // Use the canonical handle from author data, or fall back to URL param
   const canonicalHandle = author?.handle || handle || ''
@@ -130,16 +143,7 @@ export function PostPage() {
         setPublication(publicationResult)
         hasLoadedRef.current = true
 
-        // Apply theme immediately with the data (React 18 batches these updates)
-        const effectiveTheme = getThemeWithInheritance(entryResult.theme, publicationResult?.theme)
-        if (effectiveTheme?.custom) {
-          setActivePostTheme('custom')
-          setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
-        } else {
-          const themePreset = getEffectiveTheme(effectiveTheme)
-          setActivePostTheme(themePreset)
-          setActiveCustomColors(null)
-        }
+        applyTheme(entryResult.theme, publicationResult?.theme)
 
         // Cache for offline reading
         cachePost(
@@ -171,18 +175,7 @@ export function PostPage() {
             setFromCache(true)
             hasLoadedRef.current = true
 
-            const effectiveTheme = getThemeWithInheritance(
-              cached.entry.theme,
-              cached.publication?.theme
-            )
-            if (effectiveTheme?.custom) {
-              setActivePostTheme('custom')
-              setActiveCustomColors(correctCustomColorsContrast(effectiveTheme.custom))
-            } else {
-              const themePreset = getEffectiveTheme(effectiveTheme)
-              setActivePostTheme(themePreset)
-              setActiveCustomColors(null)
-            }
+            applyTheme(cached.entry.theme, cached.publication?.theme)
             return
           }
         }
@@ -199,10 +192,16 @@ export function PostPage() {
 
     return () => {
       cancelled = true
-      setActivePostTheme(null) // Reset theme when leaving post
+    }
+  }, [handle, rkey, session?.did, applyTheme, addRecentAuthor, navigate, refetchSignal])
+
+  // Reset theme when leaving the post page (unmount only)
+  useEffect(() => {
+    return () => {
+      setActivePostTheme(null)
       setActiveCustomColors(null)
     }
-  }, [handle, rkey, session?.did, setActivePostTheme, setActiveCustomColors, addRecentAuthor, navigate, refetchSignal])
+  }, [setActivePostTheme, setActiveCustomColors])
 
   // Add app.greengale document verification link tag
   useEffect(() => {
