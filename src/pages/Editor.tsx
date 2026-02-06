@@ -529,6 +529,16 @@ export function EditorPage() {
     // Only if there's a saved draft
     if (!savedDraft) return
 
+    // Detect stale truncated drafts: if the PDS content is longer and starts
+    // with the draft content, the draft was saved from truncated blob preview
+    // data (before the contentBlob fetch fix). Discard it.
+    if (isEditing && initialValues.current &&
+        savedDraft.content.length < initialValues.current.content.length &&
+        initialValues.current.content.startsWith(savedDraft.content)) {
+      clearDraft()
+      return
+    }
+
     // Restore draft content
     setTitle(savedDraft.title)
     setSubtitle(savedDraft.subtitle)

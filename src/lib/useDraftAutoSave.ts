@@ -11,7 +11,7 @@ import type { SelfLabels } from './image-upload'
 
 const DRAFT_VERSION = 1
 const DEBOUNCE_MS = 2000
-const MAX_DRAFT_SIZE = 500 * 1024 // 500KB limit
+const MAX_DRAFT_SIZE = 2 * 1024 * 1024 // 2MB limit (content can be up to 1MB)
 
 /**
  * Metadata for uploaded blobs (CIDs preserved - blobs still exist in PDS)

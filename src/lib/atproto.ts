@@ -2,6 +2,7 @@ import { AtpAgent } from '@atproto/api'
 import { isValidHandle } from '@atproto/syntax'
 import type { Theme, ThemePreset, CustomColors } from './themes'
 import type { SelfLabels } from './image-upload'
+import { extractCidFromBlobref } from './image-labels'
 
 // Simple DID validation
 function isValidDid(did: string): boolean {
@@ -523,8 +524,7 @@ export async function getBlogEntry(
 
     // Check if content is stored as a blob (large documents)
     let content = (record.content as string) || ''
-    const contentBlobRaw = record.contentBlob as { ref?: { $link?: string }; mimeType?: string; size?: number } | undefined
-    const contentBlobCid = contentBlobRaw?.ref?.$link
+    const contentBlobCid = extractCidFromBlobref(record.contentBlob)
 
     if (contentBlobCid && isV2) {
       try {
@@ -557,7 +557,7 @@ export async function getBlogEntry(
       url: isV2 ? (record.url as string | undefined) : undefined,
       path: isV2 ? (record.path as string | undefined) : undefined,
       tags,
-      contentBlob: contentBlobCid ? contentBlobRaw as BlogEntry['contentBlob'] : undefined,
+      contentBlob: contentBlobCid ? { ref: { $link: contentBlobCid }, mimeType: 'text/markdown', size: 0 } : undefined,
     }
   }
 
