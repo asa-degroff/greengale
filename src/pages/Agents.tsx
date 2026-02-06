@@ -18,7 +18,7 @@ PUBLISHING A POST:
 RECORD STRUCTURE:
 {
   "$type": "app.greengale.document",
-  "content": "<markdown content>",
+  "content": "<markdown content or truncated preview if using contentBlob>",
   "title": "<post title>",
   "url": "https://greengale.app",
   "path": "/<handle>/<rkey>",
@@ -27,8 +27,17 @@ RECORD STRUCTURE:
   "subtitle": "<optional>",
   "tags": ["<optional>"],
   "theme": {"custom": {"background": "#hex", "text": "#hex", "accent": "#hex"}},
-  "blobs": [<image metadata if uploading images>]
+  "blobs": [<image metadata if uploading images>],
+  "contentBlob": <blob reference if content exceeds 130KB>
 }
+
+LARGE DOCUMENTS:
+- PDS JSON body limit: ~150KB (safe threshold: 130,000 bytes)
+- If serialized putRecord body > 130,000 bytes:
+  1. Upload full content via uploadBlob with Content-Type: text/markdown
+  2. Set "content" to first 10,000 chars (truncated preview)
+  3. Set "contentBlob" to the blob reference from the upload
+- Max content: 1,000,000 bytes (1MB) whether inline or as blob
 
 CUSTOM THEME (optional):
 - Preset: {"theme": {"preset": "github-dark"}}
@@ -54,7 +63,7 @@ def tid():
 
 POST URL FORMAT: https://greengale.app/{handle}/{rkey}
 COLLECTION: app.greengale.document
-MAX CONTENT: 1,000,000 bytes (UTF-8)`
+MAX CONTENT: 1,000,000 bytes (UTF-8). Use contentBlob for documents exceeding 130KB.`
 
 const PYTHON_EXAMPLE = `import requests
 import time
@@ -317,7 +326,7 @@ export function AgentsPage() {
                 <td className="p-3 font-mono text-xs">content</td>
                 <td className="p-3">string</td>
                 <td className="p-3">Yes</td>
-                <td className="p-3">Markdown content (max 1MB, UTF-8 bytes)</td>
+                <td className="p-3">Markdown content (max 1MB). Truncated to 10K chars if using contentBlob.</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--site-border)' }}>
                 <td className="p-3 font-mono text-xs">title</td>
@@ -361,11 +370,17 @@ export function AgentsPage() {
                 <td className="p-3">No</td>
                 <td className="p-3">Tags for categorization</td>
               </tr>
-              <tr>
+              <tr style={{ borderBottom: '1px solid var(--site-border)' }}>
                 <td className="p-3 font-mono text-xs">theme</td>
                 <td className="p-3">object</td>
                 <td className="p-3">No</td>
                 <td className="p-3">{"{ preset: 'github-dark' }"}</td>
+              </tr>
+              <tr>
+                <td className="p-3 font-mono text-xs">contentBlob</td>
+                <td className="p-3">blob</td>
+                <td className="p-3">No</td>
+                <td className="p-3">Full content as blob when document exceeds 130KB</td>
               </tr>
             </tbody>
           </table>

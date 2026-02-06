@@ -89,6 +89,7 @@ The `app.greengale.document` collection stores blog posts.
 | `tags` | array | String tags for categorization (max 100 items) |
 | `latex` | boolean | Legacy field, LaTeX is always enabled |
 | `blobs` | array | Uploaded image metadata |
+| `contentBlob` | blob | Full content as a blob for large documents (see "Large Documents" section) |
 
 ### Theme Object
 
@@ -349,15 +350,146 @@ else:
     print(f"Error: {response.json()}")
 ```
 
+## Large Documents (Content Blob)
+
+The Bluesky PDS has a JSON body limit of ~150KB. GreenGale uses a safe threshold of **130,000 bytes** for the serialized `putRecord` request. Documents exceeding this limit must store their content as a separate blob.
+
+### How It Works
+
+1. **Build the putRecord body** as normal (with full content in the `content` field)
+2. **Check the serialized JSON size** — if `JSON.stringify({repo, collection, rkey, record})` exceeds 130,000 bytes, use blob storage
+3. **Upload content as a blob** via `com.atproto.repo.uploadBlob` with `Content-Type: text/markdown`
+4. **Set `content`** to a truncated preview (first 10,000 characters) for backward compatibility
+5. **Set `contentBlob`** to the blob reference returned by the upload
+
+### Python Implementation
+
+```python
+import json
+
+PDS_JSON_SAFE_LIMIT = 130_000
+CONTENT_PREVIEW_CHARS = 10_000
+
+def publish_with_blob_support(access_token, did, handle, rkey, record, pds_endpoint="https://bsky.social"):
+    """Publish a record, using blob storage for large content."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    # Build the putRecord body
+    body = {
+        "repo": did,
+        "collection": "app.greengale.document",
+        "rkey": rkey,
+        "record": record
+    }
+
+    # Check if the JSON body exceeds the PDS limit
+    if len(json.dumps(body).encode("utf-8")) > PDS_JSON_SAFE_LIMIT:
+        full_content = record["content"]
+
+        # Upload content as a text blob
+        blob_response = requests.post(
+            f"{pds_endpoint}/xrpc/com.atproto.repo.uploadBlob",
+            headers={**headers, "Content-Type": "text/markdown"},
+            data=full_content.encode("utf-8")
+        )
+        blob_response.raise_for_status()
+        blob_ref = blob_response.json()["blob"]
+
+        # Replace content with preview, add blob reference
+        record["content"] = full_content[:CONTENT_PREVIEW_CHARS]
+        record["contentBlob"] = blob_ref
+
+    # Save to PDS
+    response = requests.post(
+        f"{pds_endpoint}/xrpc/com.atproto.repo.putRecord",
+        headers={**headers, "Content-Type": "application/json"},
+        json=body
+    )
+    response.raise_for_status()
+    return response.json()
+```
+
+### TypeScript Implementation
+
+```typescript
+const PDS_JSON_SAFE_LIMIT = 130_000;
+const CONTENT_PREVIEW_CHARS = 10_000;
+
+async function publishWithBlobSupport(
+  accessJwt: string,
+  did: string,
+  rkey: string,
+  record: Record<string, unknown>,
+  pdsEndpoint = 'https://bsky.social'
+) {
+  const headers = { Authorization: `Bearer ${accessJwt}` };
+  const body = {
+    repo: did,
+    collection: 'app.greengale.document',
+    rkey,
+    record
+  };
+
+  // Check if the JSON body exceeds the PDS limit
+  const bodyBytes = new TextEncoder().encode(JSON.stringify(body));
+  if (bodyBytes.byteLength > PDS_JSON_SAFE_LIMIT) {
+    const fullContent = record.content as string;
+
+    // Upload content as a text blob
+    const blobRes = await fetch(
+      `${pdsEndpoint}/xrpc/com.atproto.repo.uploadBlob`,
+      {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'text/markdown' },
+        body: new TextEncoder().encode(fullContent)
+      }
+    );
+    if (!blobRes.ok) throw new Error(`Blob upload failed: ${await blobRes.text()}`);
+    const { blob } = await blobRes.json();
+
+    // Replace content with preview, add blob reference
+    record.content = fullContent.substring(0, CONTENT_PREVIEW_CHARS);
+    record.contentBlob = blob;
+  }
+
+  const res = await fetch(`${pdsEndpoint}/xrpc/com.atproto.repo.putRecord`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`Publish failed: ${await res.text()}`);
+  return res.json();
+}
+```
+
+### Reading Large Documents
+
+When reading a post, check for the `contentBlob` field. If present, fetch the blob for the full content instead of using the truncated `content` field:
+
+```python
+def get_full_content(record, pds_endpoint, did):
+    """Get the full content, fetching from blob if needed."""
+    content_blob = record.get("contentBlob")
+    if content_blob:
+        cid = content_blob["ref"]["$link"]
+        url = f"{pds_endpoint}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid}"
+        response = requests.get(url)
+        if response.ok:
+            return response.text
+    return record.get("content", "")
+```
+
 ## Complete Python Example
 
 ```python
 """
 GreenGale Blog Publisher
 Publishes a markdown blog post to GreenGale via AT Protocol.
+Automatically uses blob storage for large documents (>130KB).
 """
 
 import requests
+import json
 import time
 import random
 from datetime import datetime, timezone
@@ -373,6 +505,9 @@ def generate_tid():
     tid += S32_CHARS[random.randint(0, 31)]
     tid += S32_CHARS[random.randint(0, 31)]
     return tid
+
+PDS_JSON_SAFE_LIMIT = 130_000
+CONTENT_PREVIEW_CHARS = 10_000
 
 def publish_to_greengale(
     identifier: str,
@@ -391,7 +526,7 @@ def publish_to_greengale(
         identifier: Bluesky handle or DID
         app_password: AT Protocol app password
         title: Post title
-        content: Markdown content
+        content: Markdown content (up to 1MB)
         subtitle: Optional subtitle
         tags: Optional list of tags
         visibility: 'public', 'url', or 'author'
@@ -411,6 +546,7 @@ def publish_to_greengale(
     access_token = session_data["accessJwt"]
     did = session_data["did"]
     handle = session_data["handle"]
+    headers = {"Authorization": f"Bearer {access_token}"}
 
     # Generate record key
     rkey = generate_tid()
@@ -433,16 +569,33 @@ def publish_to_greengale(
     if theme_preset:
         record["theme"] = {"preset": theme_preset}
 
+    # Check if the JSON body exceeds the PDS limit (~130KB)
+    put_body = {
+        "repo": did,
+        "collection": "app.greengale.document",
+        "rkey": rkey,
+        "record": record
+    }
+
+    if len(json.dumps(put_body).encode("utf-8")) > PDS_JSON_SAFE_LIMIT:
+        # Upload content as a text blob
+        blob_response = requests.post(
+            "https://bsky.social/xrpc/com.atproto.repo.uploadBlob",
+            headers={**headers, "Content-Type": "text/markdown"},
+            data=content.encode("utf-8")
+        )
+        blob_response.raise_for_status()
+        blob_ref = blob_response.json()["blob"]
+
+        # Store truncated preview inline, full content as blob
+        record["content"] = content[:CONTENT_PREVIEW_CHARS]
+        record["contentBlob"] = blob_ref
+
     # Save to PDS
     response = requests.post(
         "https://bsky.social/xrpc/com.atproto.repo.putRecord",
-        headers={"Authorization": f"Bearer {access_token}"},
-        json={
-            "repo": did,
-            "collection": "app.greengale.document",
-            "rkey": rkey,
-            "record": record
-        }
+        headers={**headers, "Content-Type": "application/json"},
+        json=put_body
     )
     response.raise_for_status()
     result = response.json()
@@ -473,9 +626,12 @@ if __name__ == "__main__":
 /**
  * GreenGale Blog Publisher
  * Publishes a markdown blog post to GreenGale via AT Protocol.
+ * Automatically uses blob storage for large documents (>130KB).
  */
 
 const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz';
+const PDS_JSON_SAFE_LIMIT = 130_000;
+const CONTENT_PREVIEW_CHARS = 10_000;
 
 function generateTid(): string {
   const now = Date.now() * 1000;
@@ -538,6 +694,7 @@ async function publishToGreengale(options: PublishOptions): Promise<PublishResul
 
   const session = await sessionRes.json();
   const { accessJwt, did, handle } = session;
+  const headers = { Authorization: `Bearer ${accessJwt}` };
 
   // Generate record key
   const rkey = generateTid();
@@ -557,21 +714,42 @@ async function publishToGreengale(options: PublishOptions): Promise<PublishResul
   if (tags?.length) record.tags = tags;
   if (themePreset) record.theme = { preset: themePreset };
 
+  // Check if the JSON body exceeds the PDS limit (~130KB)
+  const putBody = {
+    repo: did,
+    collection: 'app.greengale.document',
+    rkey,
+    record
+  };
+
+  const bodyBytes = new TextEncoder().encode(JSON.stringify(putBody));
+  if (bodyBytes.byteLength > PDS_JSON_SAFE_LIMIT) {
+    // Upload content as a text blob
+    const blobRes = await fetch(
+      'https://bsky.social/xrpc/com.atproto.repo.uploadBlob',
+      {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'text/markdown' },
+        body: new TextEncoder().encode(content)
+      }
+    );
+    if (!blobRes.ok) {
+      throw new Error(`Blob upload failed: ${await blobRes.text()}`);
+    }
+    const { blob } = await blobRes.json();
+
+    // Store truncated preview inline, full content as blob
+    record.content = content.substring(0, CONTENT_PREVIEW_CHARS);
+    record.contentBlob = blob;
+  }
+
   // Save to PDS
   const putRes = await fetch(
     'https://bsky.social/xrpc/com.atproto.repo.putRecord',
     {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessJwt}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        repo: did,
-        collection: 'app.greengale.document',
-        rkey,
-        record
-      })
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(putBody)
     }
   );
 
@@ -908,6 +1086,8 @@ Available label values: `nudity`, `sexual`, `porn`, `graphic-media`
 
 ## Reading Posts
 
+**Note:** When reading posts directly from the PDS (via `com.atproto.repo.getRecord`), check for the `contentBlob` field. If present, the `content` field contains only a truncated preview — fetch the blob via `com.atproto.sync.getBlob` for the full content. The GreenGale API (`app.greengale.feed.getPost`) handles this automatically.
+
 ### Get a Single Post
 
 ```python
@@ -1015,7 +1195,7 @@ PUBLISHING A POST:
 RECORD STRUCTURE:
 {
   "$type": "app.greengale.document",
-  "content": "<markdown content>",
+  "content": "<markdown content or truncated preview if using contentBlob>",
   "title": "<post title>",
   "url": "https://greengale.app",
   "path": "/<handle>/<rkey>",
@@ -1024,8 +1204,17 @@ RECORD STRUCTURE:
   "subtitle": "<optional>",
   "tags": ["<optional>"],
   "theme": {"custom": {"background": "#hex", "text": "#hex", "accent": "#hex"}},
-  "blobs": [<image metadata if uploading images>]
+  "blobs": [<image metadata if uploading images>],
+  "contentBlob": <blob reference if content exceeds 130KB>
 }
+
+LARGE DOCUMENTS:
+- The PDS has a JSON body limit of ~150KB (safe threshold: 130,000 bytes)
+- If JSON.stringify({repo, collection, rkey, record}) > 130,000 bytes:
+  1. Upload full content via uploadBlob with Content-Type: text/markdown
+  2. Set "content" to first 10,000 characters (truncated preview)
+  3. Set "contentBlob" to the blob reference from the upload response
+- Max content size: 1,000,000 bytes (1MB) whether inline or as blob
 
 CUSTOM THEME (optional):
 - Use "theme": {"preset": "github-dark"} for preset themes
