@@ -13,12 +13,12 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }:
     >
       <defs>
         {/* Main cloud filter - blur + displacement for organic softness */}
-        <filter id={`cloud-main-${seed}`} x="-50%" y="-50%" width="200%" height="200%">
+        <filter id={`cloud-main-${seed}`} x="-20%" y="-20%" width="140%" height="140%">
           {/* Generate noise for displacement */}
           <feTurbulence
             type="fractalNoise"
             baseFrequency="0.015"
-            numOctaves="4"
+            numOctaves="2"
             seed={seed}
             result="noise"
           />
@@ -37,11 +37,11 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }:
         </filter>
 
         {/* Wisp filter - extra soft and diffuse */}
-        <filter id={`cloud-wisp-${seed}`} x="-60%" y="-60%" width="220%" height="220%">
+        <filter id={`cloud-wisp-${seed}`} x="-30%" y="-30%" width="160%" height="160%">
           <feTurbulence
             type="fractalNoise"
             baseFrequency="0.02"
-            numOctaves="3"
+            numOctaves="2"
             seed={seed + 100}
             result="noise"
           />

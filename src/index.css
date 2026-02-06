@@ -2056,22 +2056,24 @@ html {
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+  container-type: inline-size;
 }
 
 /* Individual cloud instance - floating from right to left */
 .cloud-instance {
   position: absolute;
+  left: 0;
   width: 180px;
   height: 120px;
   animation: cloud-float linear infinite;
   will-change: transform, opacity;
 }
 
-/* Main floating animation - moves clouds from right to left
-   Uses percentage-based positioning to work with any container width */
+/* Main floating animation - uses transform for compositor-only animation
+   (avoids re-rasterizing SVG filters every frame) */
 @keyframes cloud-float {
   0% {
-    left: 100%;
+    transform: translateX(100cqi);
     opacity: 0;
   }
   3% {
@@ -2081,7 +2083,7 @@ html {
     opacity: 1;
   }
   100% {
-    left: -200px;
+    transform: translateX(-200px);
     opacity: 0;
   }
 }
@@ -2105,7 +2107,7 @@ html {
   .cloud-instance {
     animation: none;
     left: 50% !important;
-    transform: translateX(-50%);
+    transform: translateX(-50%) !important;
     opacity: 0.15 !important;
   }
 
