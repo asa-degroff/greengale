@@ -384,7 +384,7 @@ export function PostPage() {
         author={author || undefined}
         source={entry.source}
         blobs={entry.blobs}
-        postUrl={`${window.location.origin}/${handle}/${rkey},https://whtwnd.com/${handle}/${rkey}`}
+        postUrl={`${window.location.origin}/${handle}/${rkey},https://whtwnd.com/${handle}/${rkey},${window.location.origin}/${entry.authorDid}/${rkey},https://whtwnd.com/${entry.authorDid}/${rkey}`}
         tags={entry.tags}
         publicationVoiceTheme={publication?.voiceTheme}
       />
