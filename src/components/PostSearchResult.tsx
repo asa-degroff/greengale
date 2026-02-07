@@ -120,7 +120,6 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
               src={result.avatarUrl}
               alt=""
               className="w-5 h-5 rounded-full object-cover flex-shrink-0"
-              loading="lazy"
             />
           ) : (
             <div className="w-5 h-5 rounded-full bg-[var(--site-border)] flex items-center justify-center flex-shrink-0">

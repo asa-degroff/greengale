@@ -162,8 +162,6 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                       src={author.avatar}
                       alt=""
                       className="w-5 h-5 rounded-full flex-shrink-0"
-                      loading="lazy"
-                      decoding="async"
                     />
                   )}
                   <span className="truncate">@{authorHandle}</span>
@@ -192,8 +190,6 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                     src={author.avatar}
                     alt=""
                     className="w-5 h-5 rounded-full flex-shrink-0"
-                    loading="lazy"
-                    decoding="async"
                   />
                 )}
                 <span className="truncate">@{authorHandle}</span>

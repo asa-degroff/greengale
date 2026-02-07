@@ -724,7 +724,6 @@ export function Sidebar({ children }: SidebarProps) {
                         src={author.avatarUrl}
                         alt=""
                         className="w-5 h-5 rounded-full object-cover"
-                        loading="lazy"
                       />
                     ) : (
                       <div className="w-5 h-5 rounded-full bg-[var(--site-border)] flex items-center justify-center">
