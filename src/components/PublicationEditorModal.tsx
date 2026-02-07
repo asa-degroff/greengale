@@ -80,7 +80,7 @@ export function PublicationEditorModal({
   const [existingIconBlobRef, setExistingIconBlobRef] = useState(publication?.iconBlobRef || null)
 
   // Bio toggle
-  const [hideBlueskyBio, setHideBlueskyBio] = useState(publication?.hideBlueskyBio || false)
+  const [showBlueskyBio, setShowBlueskyBio] = useState(!publication?.hideBlueskyBio)
 
   // UI state
   const [saving, setSaving] = useState(false)
@@ -207,7 +207,7 @@ export function PublicationEditorModal({
         hiddenExternalDomains: hiddenDomains.size > 0
           ? Array.from(hiddenDomains)
           : undefined,
-        hideBlueskyBio: hideBlueskyBio || undefined,
+        hideBlueskyBio: showBlueskyBio ? undefined : true,
         pinnedPosts: publication?.pinnedPosts,
         iconBlobRef: newIconBlobRef || undefined,
         iconUrl: iconPreview || undefined,
@@ -723,14 +723,14 @@ export function PublicationEditorModal({
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                checked={hideBlueskyBio}
-                onChange={(e) => setHideBlueskyBio(e.target.checked)}
+                checked={showBlueskyBio}
+                onChange={(e) => setShowBlueskyBio(e.target.checked)}
                 className="mt-1 w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
               />
               <div>
-                <span className="text-sm font-medium text-[var(--site-text)]">Hide Bluesky bio</span>
+                <span className="text-sm font-medium text-[var(--site-text)]">Show Bluesky bio</span>
                 <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
-                  Don't show your Bluesky profile bio on your GreenGale profile.
+                  Display your Bluesky profile bio on your GreenGale profile.
                 </p>
               </div>
             </label>

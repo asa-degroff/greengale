@@ -302,13 +302,13 @@ export function AuthorPage() {
               </div>
             </div>
             {publication?.description && (
-              <p className="text-[var(--site-text)] max-w-2xl mb-3">
-                {publication.description}
+              <p className="text-[var(--site-text)] max-w-2xl mb-3 whitespace-pre-line">
+                {publication.description.replace(/\n{3,}/g, '\n\n')}
               </p>
             )}
             {author.description && !publication?.hideBlueskyBio && (
-              <p className="text-[var(--site-text-secondary)] max-w-2xl">
-                {linkifyText(author.description)}
+              <p className="text-[var(--site-text-secondary)] max-w-2xl whitespace-pre-line">
+                {linkifyText(author.description.replace(/\n{3,}/g, '\n\n'))}
               </p>
             )}
             <div className="mt-4 flex items-center gap-4">
@@ -326,7 +326,7 @@ export function AuthorPage() {
                 >
                   <path d="M123.121 33.6637C188.241 82.5526 258.281 181.681 284 234.873C309.719 181.681 379.759 82.5526 444.879 33.6637C491.866 -1.61183 568 -28.9064 568 57.9464C568 75.2916 558.055 203.659 552.222 224.501C531.947 296.954 458.067 315.434 392.347 304.249C507.222 323.8 536.444 388.56 473.333 453.32C353.473 576.312 301.061 422.461 287.631 383.039C285.169 373.096 284.017 368.617 284 368.617C283.983 368.617 282.831 373.096 280.369 383.039C266.939 422.461 214.527 576.312 94.6667 453.32C31.5556 388.56 60.7778 323.8 175.653 304.249C109.933 315.434 36.0533 296.954 15.7778 224.501C9.94525 203.659 0 75.2916 0 57.9464C0 -28.9064 76.1345 -1.61183 123.121 33.6637Z" />
                 </svg>
-                Bluesky Profile
+                Bluesky
               </a>
               <a
                 href={`/${author.handle}/rss`}
