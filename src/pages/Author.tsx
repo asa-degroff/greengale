@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
   getPublication,
+  getAuthorExternalLinks,
   type BlogEntry,
   type AuthorProfile,
   type Publication,
@@ -44,6 +45,7 @@ export function AuthorPage() {
   // Publication state
   const [publication, setPublication] = useState<Publication | null>(null)
   const [showPublicationModal, setShowPublicationModal] = useState(false)
+  const [blentoUrl, setBlentoUrl] = useState<string | null>(null)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
 
   // Check if current user is the author
@@ -75,10 +77,11 @@ export function AuthorPage() {
 
       try {
         const INITIAL_LIMIT = 24
-        const [profileResult, postsResult, publicationResult] = await Promise.all([
+        const [profileResult, postsResult, publicationResult, externalLinks] = await Promise.all([
           getAuthorProfile(handle!),
           getAuthorPosts(handle!, INITIAL_LIMIT, undefined, session?.did),
           getPublication(handle!).catch(() => null),
+          getAuthorExternalLinks(handle!).catch(() => ({})),
         ])
 
         // Handle author not found
@@ -98,6 +101,7 @@ export function AuthorPage() {
         setCursor(postsResult.cursor)
         setHasMore(!!postsResult.cursor)
         setPublication(publicationResult)
+        setBlentoUrl(externalLinks.blentoUrl || null)
 
         // Apply publication theme if it exists
         if (publicationResult?.theme) {
@@ -282,6 +286,22 @@ export function AuthorPage() {
                 </svg>
                 RSS
               </a>
+              {blentoUrl && (
+                <a
+                  href={blentoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-[var(--site-accent)] hover:underline"
+                >
+                  <img
+                    src="/icons/platforms/blento.png"
+                    alt=""
+                    className="w-4 h-4 rounded-sm"
+                    aria-hidden="true"
+                  />
+                  Blento
+                </a>
+              )}
             </div>
           </div>
         )}

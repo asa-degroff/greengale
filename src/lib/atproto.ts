@@ -911,6 +911,48 @@ export async function savePublication(
 }
 
 /**
+ * Fetch external publication links for an author (e.g. Blento profile URL).
+ * Looks at site.standard.publication records on the author's PDS.
+ */
+export async function getAuthorExternalLinks(
+  identifier: string
+): Promise<{ blentoUrl?: string }> {
+  try {
+    const did = await resolveIdentity(identifier)
+    const pdsEndpoint = await getPdsEndpoint(did)
+    const agent = new AtpAgent({ service: pdsEndpoint })
+
+    const response = await agent.com.atproto.repo.listRecords({
+      repo: did,
+      collection: 'site.standard.publication',
+      limit: 50,
+    })
+
+    const records = response.data.records || []
+    let blentoUrl: string | undefined
+
+    for (const record of records) {
+      const value = record.value as Record<string, unknown>
+      const url = value.url as string | undefined
+      if (url) {
+        try {
+          if (new URL(url).hostname.toLowerCase().includes('blento.app')) {
+            blentoUrl = url
+            break
+          }
+        } catch {
+          /* skip invalid URLs */
+        }
+      }
+    }
+
+    return { blentoUrl }
+  } catch {
+    return {}
+  }
+}
+
+/**
  * Convert hex color string to RGB object
  * Returns undefined if the hex string is invalid
  */
