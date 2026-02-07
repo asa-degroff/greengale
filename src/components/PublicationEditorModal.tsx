@@ -74,6 +74,14 @@ export function PublicationEditorModal({
     (publication?.voiceTheme?.speed as PlaybackRate) || 1.0
   )
 
+  // Icon state
+  const [iconFile, setIconFile] = useState<File | null>(null)
+  const [iconPreview, setIconPreview] = useState<string | null>(publication?.iconUrl || null)
+  const [existingIconBlobRef, setExistingIconBlobRef] = useState(publication?.iconBlobRef || null)
+
+  // Bio toggle
+  const [hideBlueskyBio, setHideBlueskyBio] = useState(publication?.hideBlueskyBio || false)
+
   // UI state
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -145,6 +153,32 @@ export function PublicationEditorModal({
     setError(null)
 
     try {
+      // Upload icon if a new file was selected
+      let newIconBlobRef = existingIconBlobRef
+      if (iconFile) {
+        const img = await createImageBitmap(iconFile)
+        const canvas = new OffscreenCanvas(256, 256)
+        const ctx = canvas.getContext('2d')!
+        // Center-crop to square
+        const size = Math.min(img.width, img.height)
+        const sx = (img.width - size) / 2
+        const sy = (img.height - size) / 2
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, 256, 256)
+        const blob = await canvas.convertToBlob({ type: 'image/png' })
+        const arrayBuffer = await blob.arrayBuffer()
+
+        const response = await session.fetchHandler('/xrpc/com.atproto.repo.uploadBlob', {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/png' },
+          body: arrayBuffer,
+        })
+        const result = await response.json() as { blob: { ref: { $link: string }; mimeType: string; size: number } }
+        newIconBlobRef = { $type: 'blob', ref: result.blob.ref, mimeType: result.blob.mimeType, size: result.blob.size }
+      } else if (!iconPreview) {
+        // Icon was removed
+        newIconBlobRef = null
+      }
+
       // Build voiceTheme only if user has customized settings (not all defaults)
       const hasCustomVoiceSettings =
         pubVoice !== DEFAULT_VOICE || pubPitch !== 1.0 || pubSpeed !== 1.0
@@ -173,6 +207,9 @@ export function PublicationEditorModal({
         hiddenExternalDomains: hiddenDomains.size > 0
           ? Array.from(hiddenDomains)
           : undefined,
+        hideBlueskyBio: hideBlueskyBio || undefined,
+        iconBlobRef: newIconBlobRef || undefined,
+        iconUrl: iconPreview || undefined,
       }
 
       await savePublication(
@@ -339,6 +376,60 @@ export function PublicationEditorModal({
         </div>
 
         <div className="space-y-4">
+          {/* Publication Icon */}
+          <div className="flex items-center gap-4">
+            {iconPreview ? (
+              <img
+                src={iconPreview}
+                alt="Publication icon"
+                className="w-16 h-16 rounded-full object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-[var(--site-accent)] flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
+                {(pubName || handle).charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="flex flex-col gap-1">
+              <label className="block text-sm font-medium text-[var(--site-text)]">
+                Publication Icon
+              </label>
+              <div className="flex items-center gap-2">
+                <label className="px-3 py-1 text-xs border border-[var(--site-border)] rounded hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)] cursor-pointer transition-colors">
+                  {iconPreview ? 'Change' : 'Upload'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        setIconFile(file)
+                        setIconPreview(URL.createObjectURL(file))
+                      }
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                {iconPreview && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIconFile(null)
+                      setIconPreview(null)
+                      setExistingIconBlobRef(null)
+                    }}
+                    className="px-3 py-1 text-xs text-red-500 hover:text-red-600 transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-[var(--site-text-secondary)]">
+                Square image, at least 256x256. Overrides your Bluesky avatar.
+              </p>
+            </div>
+          </div>
+
           {/* Name field */}
           <div>
             <label className="block text-sm font-medium text-[var(--site-text)] mb-1">
@@ -613,7 +704,7 @@ export function PublicationEditorModal({
           </div>
 
           {/* Discovery Settings */}
-          <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
+          <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)] space-y-3">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -625,6 +716,20 @@ export function PublicationEditorModal({
                 <span className="text-sm font-medium text-[var(--site-text)]">Show in Discover</span>
                 <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
                   Allow your posts to appear on the homepage and discovery feeds.
+                </p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hideBlueskyBio}
+                onChange={(e) => setHideBlueskyBio(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+              />
+              <div>
+                <span className="text-sm font-medium text-[var(--site-text)]">Hide Bluesky bio</span>
+                <p className="text-xs text-[var(--site-text-secondary)] mt-0.5">
+                  Don't show your Bluesky profile bio on your GreenGale profile.
                 </p>
               </div>
             </label>

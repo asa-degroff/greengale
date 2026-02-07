@@ -101,7 +101,7 @@ export function AuthorPage() {
         setCursor(postsResult.cursor)
         setHasMore(!!postsResult.cursor)
         setPublication(publicationResult)
-        setBlentoUrl(externalLinks.blentoUrl || null)
+        setBlentoUrl(('blentoUrl' in externalLinks ? externalLinks.blentoUrl : undefined) || null)
 
         // Apply publication theme if it exists
         if (publicationResult?.theme) {
@@ -208,9 +208,9 @@ export function AuthorPage() {
         {author && (
           <div className="mb-12">
             <div className="flex items-start gap-4 mb-4">
-              {author.avatar ? (
+              {(publication?.iconUrl || author.avatar) ? (
                 <img
-                  src={author.avatar}
+                  src={publication?.iconUrl || author.avatar}
                   alt={author.displayName || author.handle}
                   className="w-16 h-16 rounded-full object-cover flex-shrink-0"
                 />
@@ -245,7 +245,7 @@ export function AuthorPage() {
                 {publication.description}
               </p>
             )}
-            {author.description && (
+            {author.description && !publication?.hideBlueskyBio && (
               <p className="text-[var(--site-text-secondary)] max-w-2xl">
                 {linkifyText(author.description)}
               </p>

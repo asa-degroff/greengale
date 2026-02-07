@@ -279,6 +279,9 @@ export interface Publication {
   showInDiscover?: boolean
   voiceTheme?: VoiceTheme
   hiddenExternalDomains?: string[]
+  hideBlueskyBio?: boolean
+  iconBlobRef?: { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number }
+  iconUrl?: string // Resolved PDS blob URL for display (not stored, computed on read)
 }
 
 // site.standard.theme.color#rgb format (RGB integers 0-255)
@@ -824,6 +827,8 @@ export async function getPublication(identifier: string): Promise<Publication | 
 
     const record = response.data.value as Record<string, unknown>
 
+    const iconCid = extractCidFromBlobref(record.icon)
+
     return {
       name: (record.name as string) || '',
       url: (record.url as string) || '',
@@ -834,6 +839,11 @@ export async function getPublication(identifier: string): Promise<Publication | 
       voiceTheme: parseVoiceTheme(record.voiceTheme),
       hiddenExternalDomains: Array.isArray(record.hiddenExternalDomains)
         ? (record.hiddenExternalDomains as string[])
+        : undefined,
+      hideBlueskyBio: (record.hideBlueskyBio as boolean) || undefined,
+      iconBlobRef: iconCid ? (record.icon as Publication['iconBlobRef']) : undefined,
+      iconUrl: iconCid
+        ? `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(iconCid)}`
         : undefined,
     }
   } catch {
@@ -863,6 +873,8 @@ export async function savePublication(
     hiddenExternalDomains: publication.hiddenExternalDomains?.length
       ? publication.hiddenExternalDomains
       : undefined,
+    hideBlueskyBio: publication.hideBlueskyBio || undefined,
+    icon: publication.iconBlobRef || undefined,
   }
 
   const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
@@ -888,6 +900,7 @@ export async function savePublication(
         url: publication.url,
         name: publication.name,
         description: publication.description,
+        icon: publication.iconBlobRef,
         basicTheme: toBasicTheme(publication.theme),
         theme: toGreenGaleTheme(publication.theme),
         preferences: {
@@ -1229,6 +1242,7 @@ export async function saveSiteStandardPublication(
     url: publication.url,
     name: publication.name,
     description: publication.description || undefined,
+    icon: publication.icon || undefined,
     basicTheme: publication.basicTheme || undefined,
     theme: publication.theme || undefined,
     preferences,

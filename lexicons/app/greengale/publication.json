@@ -45,6 +45,16 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Domains of external publications to hide from author profile"
+          },
+          "icon": {
+            "type": "blob",
+            "accept": ["image/*"],
+            "maxSize": 1000000,
+            "description": "Square image to identify the publication. Should be at least 256x256."
+          },
+          "hideBlueskyBio": {
+            "type": "boolean",
+            "description": "When true, the Bluesky profile bio is hidden on the author page"
           }
         }
       }
