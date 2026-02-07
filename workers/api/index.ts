@@ -285,9 +285,11 @@ app.get('/og/profile/:handle.png', async (c) => {
 
     // Fetch author data from D1
     const author = await c.env.DB.prepare(`
-      SELECT handle, display_name, description, avatar_url, posts_count
-      FROM authors
-      WHERE handle = ?
+      SELECT a.handle, a.display_name, a.description, a.avatar_url, a.posts_count,
+             a.pds_endpoint, a.did as author_did, pub.icon_cid
+      FROM authors a
+      LEFT JOIN publications pub ON a.did = pub.author_did
+      WHERE a.handle = ?
     `).bind(handle).first()
 
     if (!author) {
@@ -297,7 +299,7 @@ app.get('/og/profile/:handle.png', async (c) => {
     const imageResponse = await generateProfileOGImage({
       displayName: (author.display_name as string) || handle,
       handle: (author.handle as string) || handle,
-      avatarUrl: author.avatar_url as string | null,
+      avatarUrl: resolveAvatar(author as Record<string, unknown>),
       description: author.description as string | null,
       postsCount: author.posts_count as number | undefined,
     })
@@ -366,8 +368,8 @@ app.get('/og/:handle/:filename', async (c) => {
     // (dual-published posts share the same rkey, so we want the GreenGale version)
     const post = await c.env.DB.prepare(`
       SELECT p.uri, p.title, p.subtitle, p.theme_preset, p.first_image_cid,
-             a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
-             pub.theme_preset AS publication_theme_preset
+             p.author_did, a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+             pub.theme_preset AS publication_theme_preset, pub.icon_cid
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
@@ -445,7 +447,7 @@ app.get('/og/:handle/:filename', async (c) => {
       subtitle: post.subtitle as string | null,
       authorName: (post.display_name as string) || (post.handle as string) || handle,
       authorHandle: (post.handle as string) || handle,
-      authorAvatar: post.avatar_url as string | null,
+      authorAvatar: resolveAvatar(post as Record<string, unknown>),
       themePreset,
       customColors,
       thumbnailUrl,
@@ -645,9 +647,13 @@ app.get('/feed/:filename', async (c) => {
     }
 
     // Resolve handle to DID
-    const authorRow = await c.env.DB.prepare(
-      'SELECT did, display_name, description, avatar_url FROM authors WHERE handle = ?'
-    ).bind(handle).first()
+    const authorRow = await c.env.DB.prepare(`
+      SELECT a.did, a.did as author_did, a.display_name, a.description, a.avatar_url,
+             a.pds_endpoint, pub.name as pub_name, pub.description as pub_description, pub.icon_cid
+      FROM authors a
+      LEFT JOIN publications pub ON a.did = pub.author_did
+      WHERE a.handle = ?
+    `).bind(handle).first()
 
     if (!authorRow) {
       return c.json({ error: 'Author not found' }, 404)
@@ -656,15 +662,10 @@ app.get('/feed/:filename', async (c) => {
     const authorDid = authorRow.did as string
     const authorName = (authorRow.display_name as string) || handle
     const authorDescription = (authorRow.description as string) || `Blog posts by ${authorName}`
-    const authorAvatar = authorRow.avatar_url as string | null
+    const authorAvatar = resolveAvatar(authorRow as Record<string, unknown>)
 
-    // Fetch publication metadata (if exists)
-    const pubRow = await c.env.DB.prepare(
-      'SELECT name, description FROM publications WHERE author_did = ?'
-    ).bind(authorDid).first()
-
-    const pubName = pubRow?.name as string | null
-    const pubDescription = pubRow?.description as string | null
+    const pubName = authorRow.pub_name as string | null
+    const pubDescription = authorRow.pub_description as string | null
 
     // Fetch recent posts (limit 50 for RSS)
     const postsResult = await c.env.DB.prepare(`
@@ -1350,7 +1351,8 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       INNER JOIN post_tags pt ON p.uri = pt.post_uri
@@ -1469,7 +1471,8 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
         SELECT
           p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
           p.visibility, p.created_at, p.indexed_at,
-          a.handle, a.display_name, a.avatar_url,
+          a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+          pub.icon_cid,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
         FROM posts p
@@ -1482,7 +1485,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
       )
       SELECT uri, author_did, rkey, title, subtitle, source,
              visibility, created_at, indexed_at,
-             handle, display_name, avatar_url, tags
+             handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
       FROM ranked_posts
       WHERE author_rank <= 3
       ORDER BY created_at DESC
@@ -1678,11 +1681,13 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
         SELECT
           p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
           p.visibility, p.created_at, p.indexed_at, p.external_url,
-          a.handle, a.display_name, a.avatar_url,
+          a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+          pub.icon_cid,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
         FROM posts p
         LEFT JOIN authors a ON p.author_did = a.did
+        LEFT JOIN publications pub ON p.author_did = pub.author_did
         WHERE p.author_did IN (${placeholders})
           AND p.visibility = 'public'
           AND NOT (
@@ -1703,7 +1708,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
       )
       SELECT uri, author_did, rkey, title, subtitle, source,
              visibility, created_at, indexed_at, external_url,
-             handle, display_name, avatar_url, tags
+             handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
       FROM ranked_posts
       WHERE author_rank <= 3
       ORDER BY created_at DESC
@@ -1769,7 +1774,8 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at, p.external_url,
-        a.handle, a.display_name, a.avatar_url,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
@@ -1812,7 +1818,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
         did: row.author_did,
         handle: row.handle || '',
         displayName: row.display_name || null,
-        avatar: row.avatar_url || null,
+        avatar: resolveAvatar(row as Record<string, unknown>),
       },
       rkey: row.rkey,
       title: row.title || null,
@@ -1890,9 +1896,11 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
         p.visibility, p.created_at, p.indexed_at,
         p.content_preview, p.first_image_cid, p.external_url,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND ${visibilityFilter}
         AND NOT (
           p.uri LIKE '%/site.standard.document/%'
@@ -1982,9 +1990,11 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        pub.icon_cid
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND p.rkey = ?
         AND p.uri NOT LIKE '%/site.standard.document/%'
     `).bind(authorDid, rkey).first()
@@ -2032,11 +2042,11 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
   try {
     // Fetch author with LEFT JOIN to publications
     const query = author.startsWith('did:')
-      ? `SELECT a.*, p.name as pub_name, p.description as pub_description, p.theme_preset as pub_theme, p.url as pub_url
+      ? `SELECT a.*, a.did as author_did, p.name as pub_name, p.description as pub_description, p.theme_preset as pub_theme, p.url as pub_url, p.icon_cid
          FROM authors a
          LEFT JOIN publications p ON a.did = p.author_did
          WHERE a.did = ?`
-      : `SELECT a.*, p.name as pub_name, p.description as pub_description, p.theme_preset as pub_theme, p.url as pub_url
+      : `SELECT a.*, a.did as author_did, p.name as pub_name, p.description as pub_description, p.theme_preset as pub_theme, p.url as pub_url, p.icon_cid
          FROM authors a
          LEFT JOIN publications p ON a.did = p.author_did
          WHERE a.handle = ?`
@@ -2086,7 +2096,7 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
       did: authorRow.did,
       handle: authorRow.handle,
       displayName: authorRow.display_name,
-      avatar: authorRow.avatar_url,
+      avatar: resolveAvatar(authorRow as Record<string, unknown>),
       description: authorRow.description,
       postsCount: authorRow.posts_count || 0,
       publication,
@@ -2146,6 +2156,8 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           a.handle,
           a.display_name,
           a.avatar_url,
+          a.pds_endpoint,
+          p.icon_cid,
           p.name as pub_name,
           p.url as pub_url,
           NULL as post_rkey,
@@ -2185,6 +2197,8 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           a.handle,
           a.display_name,
           a.avatar_url,
+          a.pds_endpoint,
+          pub2.icon_cid,
           NULL as pub_name,
           NULL as pub_url,
           posts.rkey as post_rkey,
@@ -2201,6 +2215,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           GROUP BY author_did, rkey
         ) posts
         JOIN authors a ON posts.author_did = a.did
+        LEFT JOIN publications pub2 ON a.did = pub2.author_did
 
         UNION ALL
 
@@ -2210,6 +2225,8 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           a.handle,
           a.display_name,
           a.avatar_url,
+          a.pds_endpoint,
+          pub3.icon_cid,
           NULL as pub_name,
           NULL as pub_url,
           tagged_posts.rkey as post_rkey,
@@ -2228,6 +2245,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           GROUP BY p.author_did, p.rkey, pt.tag
         ) tagged_posts
         JOIN authors a ON tagged_posts.author_did = a.did
+        LEFT JOIN publications pub3 ON a.did = pub3.author_did
       )
       ORDER BY match_priority ASC, posts_count DESC
       LIMIT ?4
@@ -2243,6 +2261,8 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       handle: string
       display_name: string | null
       avatar_url: string | null
+      pds_endpoint: string | null
+      icon_cid: string | null
       pub_name: string | null
       pub_url: string | null
       post_rkey: string | null
@@ -2267,7 +2287,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       did: row.did,
       handle: row.handle,
       displayName: row.display_name || null,
-      avatarUrl: row.avatar_url || null,
+      avatarUrl: resolveAvatar({ ...row, author_did: row.did }),
       publication: row.pub_name ? {
         name: row.pub_name,
         url: row.pub_url || null,
@@ -2584,9 +2604,12 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         p.external_url,
         a.handle,
         a.display_name,
-        a.avatar_url
+        a.avatar_url,
+        a.pds_endpoint,
+        pub.icon_cid
       FROM posts p
       JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.uri IN (${placeholders})
         AND p.visibility = 'public'
         AND p.deleted_at IS NULL
@@ -2640,7 +2663,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         authorDid: row.author_did as string,
         handle: row.handle as string,
         displayName: row.display_name as string | null,
-        avatarUrl: row.avatar_url as string | null,
+        avatarUrl: resolveAvatar(row as Record<string, unknown>),
         rkey: row.rkey as string,
         title: row.title as string,
         subtitle: row.subtitle as string | null,
@@ -2770,6 +2793,8 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             a.handle,
             a.display_name,
             a.avatar_url,
+            a.pds_endpoint,
+            p.icon_cid,
             p.name as pub_name,
             p.url as pub_url,
             a.posts_count,
@@ -2828,7 +2853,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
               did: row.did,
               handle: row.handle,
               displayName: row.display_name || null,
-              avatarUrl: row.avatar_url || null,
+              avatarUrl: resolveAvatar({ ...row, author_did: row.did } as Record<string, unknown>),
               publication: row.pub_name ? {
                 name: row.pub_name,
                 url: row.pub_url || null,
@@ -3044,9 +3069,12 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                 p.external_url,
                 a.handle,
                 a.display_name,
-                a.avatar_url
+                a.avatar_url,
+                a.pds_endpoint,
+                pub.icon_cid
               FROM posts p
               JOIN authors a ON p.author_did = a.did
+              LEFT JOIN publications pub ON p.author_did = pub.author_did
               WHERE p.uri IN (${placeholders})
                 AND p.visibility = 'public'
                 AND p.deleted_at IS NULL
@@ -3100,7 +3128,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                 authorDid: row.author_did as string,
                 handle: row.handle as string,
                 displayName: row.display_name as string | null,
-                avatarUrl: row.avatar_url as string | null,
+                avatarUrl: resolveAvatar(row as Record<string, unknown>),
                 rkey: row.rkey as string,
                 title: row.title as string,
                 subtitle: row.subtitle as string | null,
@@ -3276,9 +3304,12 @@ app.get('/xrpc/app.greengale.feed.getSimilarPosts', async (c) => {
         p.created_at,
         a.handle,
         a.display_name,
-        a.avatar_url
+        a.avatar_url,
+        a.pds_endpoint,
+        pub.icon_cid
       FROM posts p
       JOIN authors a ON p.author_did = a.did
+      LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.uri IN (${placeholders})
         AND p.visibility = 'public'
         AND p.deleted_at IS NULL
@@ -3303,7 +3334,7 @@ app.get('/xrpc/app.greengale.feed.getSimilarPosts', async (c) => {
         authorDid: row.author_did as string,
         handle: row.handle as string,
         displayName: row.display_name as string | null,
-        avatarUrl: row.avatar_url as string | null,
+        avatarUrl: resolveAvatar(row as Record<string, unknown>),
         rkey: row.rkey as string,
         title: row.title as string,
         subtitle: row.subtitle as string | null,
@@ -6508,6 +6539,14 @@ app.post('/xrpc/app.greengale.admin.discoverSiteStandardPublications', async (c)
   }
 })
 
+// Resolve avatar URL: prefer GreenGale publication icon over Bluesky avatar
+function resolveAvatar(row: Record<string, unknown>): string | null {
+  if (row.icon_cid && row.pds_endpoint && row.author_did) {
+    return `${row.pds_endpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(row.author_did as string)}&cid=${encodeURIComponent(row.icon_cid as string)}`
+  }
+  return (row.avatar_url as string) || null
+}
+
 // Format post from DB row to API response
 // Tags can be passed directly or extracted from the 'tags' column (comma-separated from GROUP_CONCAT)
 function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
@@ -6534,7 +6573,7 @@ function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
       did: row.author_did,
       handle: row.handle,
       displayName: row.display_name,
-      avatar: row.avatar_url,
+      avatar: resolveAvatar(row),
       pdsEndpoint: row.pds_endpoint,
     } : undefined,
     tags: postTags?.length ? postTags : undefined,

@@ -691,6 +691,79 @@ describe('Firehose Indexer', () => {
     })
   })
 
+  describe('Publication Icon CID Extraction', () => {
+    // Mirrors the icon CID extraction logic in indexPublication()
+    function extractIconCid(record: Record<string, unknown> | undefined): string | null {
+      let iconCid: string | null = null
+      const icon = record?.icon as Record<string, unknown> | undefined
+      if (icon?.ref && typeof icon.ref === 'object') {
+        const ref = icon.ref as Record<string, unknown>
+        if (ref.$link && typeof ref.$link === 'string') {
+          iconCid = ref.$link
+        }
+      }
+      return iconCid
+    }
+
+    it('extracts icon CID from blob reference', () => {
+      const record = {
+        name: 'My Blog',
+        url: 'https://example.com',
+        icon: {
+          $type: 'blob',
+          ref: { $link: 'bafkreiexampleiconcid123' },
+          mimeType: 'image/png',
+          size: 12345,
+        },
+      }
+
+      expect(extractIconCid(record)).toBe('bafkreiexampleiconcid123')
+    })
+
+    it('returns null when no icon is present', () => {
+      const record = {
+        name: 'My Blog',
+        url: 'https://example.com',
+      }
+
+      expect(extractIconCid(record)).toBeNull()
+    })
+
+    it('returns null when icon has no ref', () => {
+      const record = {
+        name: 'My Blog',
+        url: 'https://example.com',
+        icon: { $type: 'blob', mimeType: 'image/png' },
+      }
+
+      expect(extractIconCid(record)).toBeNull()
+    })
+
+    it('returns null when ref.$link is not a string', () => {
+      const record = {
+        name: 'My Blog',
+        url: 'https://example.com',
+        icon: { ref: { $link: 42 } },
+      }
+
+      expect(extractIconCid(record)).toBeNull()
+    })
+
+    it('returns null when ref is not an object', () => {
+      const record = {
+        name: 'My Blog',
+        url: 'https://example.com',
+        icon: { ref: 'not-an-object' },
+      }
+
+      expect(extractIconCid(record)).toBeNull()
+    })
+
+    it('returns null for undefined record', () => {
+      expect(extractIconCid(undefined)).toBeNull()
+    })
+  })
+
   describe('Event Routing', () => {
     // Simulated handleMessage routing logic
     function routeEvent(event: {

@@ -1170,6 +1170,16 @@ export class FirehoseConsumer extends DurableObject<Env> {
         showInDiscover = (record?.showInDiscover as boolean | undefined) !== false
       }
 
+      // Extract icon CID from blob reference (if present)
+      let iconCid: string | null = null
+      const icon = record?.icon as Record<string, unknown> | undefined
+      if (icon?.ref && typeof icon.ref === 'object') {
+        const ref = icon.ref as Record<string, unknown>
+        if (ref.$link && typeof ref.$link === 'string') {
+          iconCid = ref.$link
+        }
+      }
+
       // Store theme data - either preset name or JSON for custom themes
       // site.standard uses 'basicTheme' instead of 'theme'
       let themePreset: string | null = null
@@ -1233,11 +1243,19 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      // Phase 2: Invalidate OG cache BEFORE DB write
-      // Invalidate profile OG image and all post OG images (since posts may inherit publication theme)
+      // Phase 2: Invalidate caches BEFORE DB write
+      // Invalidate OG images, feed caches, and RSS (since publication changes affect avatar in all feeds)
       if (authorData?.handle) {
         const cacheInvalidations: Promise<boolean>[] = [
           this.env.CACHE.delete(`og:profile:${authorData.handle}`),
+          // Feed caches (avatar is embedded in cached responses)
+          this.env.CACHE.delete('recent_posts:12:'),
+          this.env.CACHE.delete('recent_posts:24:'),
+          this.env.CACHE.delete('recent_posts:50:'),
+          this.env.CACHE.delete('recent_posts:100:'),
+          // RSS caches
+          this.env.CACHE.delete('rss:recent'),
+          this.env.CACHE.delete(`rss:author:${authorData.handle}`),
         ]
 
         // Get all rkeys for this author's posts to invalidate their OG images
@@ -1259,16 +1277,17 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Statement 1: Upsert publication
       statements.push(
         this.env.DB.prepare(`
-          INSERT INTO publications (author_did, name, description, theme_preset, url, show_in_discover)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO publications (author_did, name, description, theme_preset, url, show_in_discover, icon_cid)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(author_did) DO UPDATE SET
             name = excluded.name,
             description = excluded.description,
             theme_preset = excluded.theme_preset,
             url = excluded.url,
             show_in_discover = excluded.show_in_discover,
+            icon_cid = excluded.icon_cid,
             updated_at = datetime('now')
-        `).bind(did, name, description, themePreset, url, showInDiscover ? 1 : 0)
+        `).bind(did, name, description, themePreset, url, showInDiscover ? 1 : 0, iconCid)
       )
 
       // Statement 2: Upsert author

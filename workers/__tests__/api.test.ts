@@ -1283,6 +1283,126 @@ describe('API Endpoints', () => {
     })
   })
 
+  describe('resolveAvatar - publication icon preference', () => {
+    // Mirrors the resolveAvatar() function in api/index.ts
+    function resolveAvatar(row: Record<string, unknown>): string | null {
+      if (row.icon_cid && row.pds_endpoint && row.author_did) {
+        return `${row.pds_endpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(row.author_did as string)}&cid=${encodeURIComponent(row.icon_cid as string)}`
+      }
+      return (row.avatar_url as string) || null
+    }
+
+    it('prefers publication icon over Bluesky avatar', () => {
+      const row = {
+        author_did: 'did:plc:abc',
+        avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+        pds_endpoint: 'https://pds.example.com',
+        icon_cid: 'bafkreiexampleiconcid',
+      }
+
+      const result = resolveAvatar(row)
+      expect(result).toBe(
+        'https://pds.example.com/xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aabc&cid=bafkreiexampleiconcid'
+      )
+    })
+
+    it('falls back to Bluesky avatar when no icon_cid', () => {
+      const row = {
+        author_did: 'did:plc:abc',
+        avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+        pds_endpoint: 'https://pds.example.com',
+        icon_cid: null,
+      }
+
+      expect(resolveAvatar(row)).toBe('https://cdn.bsky.app/avatar.jpg')
+    })
+
+    it('falls back to Bluesky avatar when no pds_endpoint', () => {
+      const row = {
+        author_did: 'did:plc:abc',
+        avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+        pds_endpoint: null,
+        icon_cid: 'bafkreiexampleiconcid',
+      }
+
+      expect(resolveAvatar(row)).toBe('https://cdn.bsky.app/avatar.jpg')
+    })
+
+    it('falls back to Bluesky avatar when no author_did', () => {
+      const row = {
+        avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+        pds_endpoint: 'https://pds.example.com',
+        icon_cid: 'bafkreiexampleiconcid',
+      }
+
+      expect(resolveAvatar(row)).toBe('https://cdn.bsky.app/avatar.jpg')
+    })
+
+    it('returns null when no avatar at all', () => {
+      const row = {
+        author_did: 'did:plc:abc',
+        pds_endpoint: 'https://pds.example.com',
+      }
+
+      expect(resolveAvatar(row)).toBeNull()
+    })
+
+    it('encodes special characters in DID and CID', () => {
+      const row = {
+        author_did: 'did:plc:abc+def',
+        avatar_url: null,
+        pds_endpoint: 'https://pds.example.com',
+        icon_cid: 'bafkrei+test',
+      }
+
+      const result = resolveAvatar(row)
+      expect(result).toContain(encodeURIComponent('did:plc:abc+def'))
+      expect(result).toContain(encodeURIComponent('bafkrei+test'))
+    })
+
+    it('returns profile with publication icon when available', async () => {
+      const mockAuthor = {
+        did: 'did:plc:abc',
+        author_did: 'did:plc:abc',
+        handle: 'test.bsky.social',
+        display_name: 'Test User',
+        avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+        pds_endpoint: 'https://pds.example.com',
+        icon_cid: 'bafkreiexampleiconcid',
+        posts_count: 5,
+      }
+      env.DB._statement.first.mockResolvedValueOnce(mockAuthor)
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=test.bsky.social')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.avatar).toContain('com.atproto.sync.getBlob')
+      expect(data.avatar).toContain('bafkreiexampleiconcid')
+      expect(data.avatar).not.toContain('cdn.bsky.app')
+    })
+
+    it('returns profile with Bluesky avatar when no publication icon', async () => {
+      const mockAuthor = {
+        did: 'did:plc:abc',
+        author_did: 'did:plc:abc',
+        handle: 'test.bsky.social',
+        display_name: 'Test User',
+        avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+        pds_endpoint: 'https://pds.example.com',
+        icon_cid: null,
+        posts_count: 5,
+      }
+      env.DB._statement.first.mockResolvedValueOnce(mockAuthor)
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=test.bsky.social')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.avatar).toBe('https://cdn.bsky.app/avatar.jpg')
+    })
+  })
+
   describe('searchPublications', () => {
     it('returns 400 when q parameter is missing', async () => {
       const res = await makeRequest(env, '/xrpc/app.greengale.search.publications')
