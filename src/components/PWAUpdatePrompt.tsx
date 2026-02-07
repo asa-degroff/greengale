@@ -3,6 +3,15 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 
 export function PWAUpdatePrompt() {
   const [dismissed, setDismissed] = useState(false)
+  const [isStandalone, setIsStandalone] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(display-mode: standalone)')
+    setIsStandalone(mq.matches || (navigator as unknown as { standalone?: boolean }).standalone === true)
+    const handler = (e: MediaQueryListEvent) => setIsStandalone(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -22,7 +31,7 @@ export function PWAUpdatePrompt() {
     if (needRefresh) setDismissed(false)
   }, [needRefresh])
 
-  if (!needRefresh || dismissed) return null
+  if (!isStandalone || !needRefresh || dismissed) return null
 
   return (
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50">
