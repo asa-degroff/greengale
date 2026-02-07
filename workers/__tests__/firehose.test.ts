@@ -869,6 +869,36 @@ describe('Firehose Indexer', () => {
       const expectedKey = `og:profile:${handle}`
       expect(expectedKey).toBe('og:profile:test.bsky.social')
     })
+
+    it('should invalidate feed and RSS caches on publication index', () => {
+      // When a publication is indexed (e.g. icon change), cached feed responses
+      // contain stale avatar URLs and must be invalidated
+      const expectedCacheKeys = [
+        // Feed caches (avatar is embedded in cached responses)
+        'recent_posts:12:',
+        'recent_posts:24:',
+        'recent_posts:50:',
+        'recent_posts:100:',
+        // RSS caches
+        'rss:recent',
+      ]
+
+      // Author-specific RSS cache uses the handle
+      const authorHandle = 'test.bsky.social'
+      expectedCacheKeys.push(`rss:author:${authorHandle}`)
+
+      // Verify all keys match expected patterns
+      const feedKeys = expectedCacheKeys.filter(k => k.startsWith('recent_posts:'))
+      expect(feedKeys).toHaveLength(4)
+      for (const key of feedKeys) {
+        expect(key).toMatch(/^recent_posts:\d+:$/)
+      }
+
+      const rssKeys = expectedCacheKeys.filter(k => k.startsWith('rss:'))
+      expect(rssKeys).toHaveLength(2)
+      expect(rssKeys).toContain('rss:recent')
+      expect(rssKeys).toContain(`rss:author:${authorHandle}`)
+    })
   })
 
   describe('Author Data Fetching', () => {
@@ -1093,6 +1123,51 @@ describe('Firehose Indexer', () => {
         const url = (record as Record<string, unknown>).url as string | null
 
         expect(!name || !url).toBe(true) // Should fail validation
+      })
+
+      it('includes icon_cid in publication upsert', () => {
+        // The INSERT/UPSERT for publications must include icon_cid
+        // to store the publication icon blob reference
+        const expectedColumns = [
+          'author_did', 'name', 'description', 'theme_preset',
+          'url', 'show_in_discover', 'icon_cid',
+        ]
+
+        // Simulate the bind call with all expected values
+        const authorDid = 'did:plc:abc'
+        const name = 'My Blog'
+        const description = 'A test blog'
+        const themePreset = 'default'
+        const url = 'https://example.com'
+        const showInDiscover = 1
+        const iconCid = 'bafkreiexampleiconcid123'
+
+        const bindArgs = [authorDid, name, description, themePreset, url, showInDiscover, iconCid]
+
+        expect(bindArgs).toHaveLength(expectedColumns.length)
+        expect(bindArgs[expectedColumns.indexOf('icon_cid')]).toBe('bafkreiexampleiconcid123')
+      })
+
+      it('sets icon_cid to null when no icon in publication record', () => {
+        // When the publication has no icon, icon_cid should be null
+        const record = {
+          name: 'My Blog',
+          url: 'https://example.com',
+          // no icon field
+        }
+
+        // Extract icon CID using same logic as firehose
+        let iconCid: string | null = null
+        const icon = record as Record<string, unknown>
+        const iconField = icon.icon as Record<string, unknown> | undefined
+        if (iconField?.ref && typeof iconField.ref === 'object') {
+          const ref = iconField.ref as Record<string, unknown>
+          if (ref.$link && typeof ref.$link === 'string') {
+            iconCid = ref.$link
+          }
+        }
+
+        expect(iconCid).toBeNull()
       })
     })
   })

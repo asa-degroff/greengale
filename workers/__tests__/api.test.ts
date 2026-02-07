@@ -1401,6 +1401,124 @@ describe('API Endpoints', () => {
       const data = await res.json()
       expect(data.avatar).toBe('https://cdn.bsky.app/avatar.jpg')
     })
+
+    it('resolves publication icon in getRecentPosts feed', async () => {
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:abc/app.greengale.document/123',
+          author_did: 'did:plc:abc',
+          rkey: '123',
+          title: 'Post With Icon',
+          subtitle: null,
+          source: 'greengale',
+          visibility: 'public',
+          created_at: '2024-01-01T00:00:00Z',
+          indexed_at: '2024-01-01T00:00:00Z',
+          handle: 'test.bsky.social',
+          display_name: 'Test User',
+          avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+          pds_endpoint: 'https://pds.example.com',
+          icon_cid: 'bafkreifeedicon',
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts[0].author.avatar).toContain('com.atproto.sync.getBlob')
+      expect(data.posts[0].author.avatar).toContain('bafkreifeedicon')
+      expect(data.posts[0].author.avatar).not.toContain('cdn.bsky.app')
+    })
+
+    it('falls back to Bluesky avatar in getRecentPosts when no icon_cid', async () => {
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:abc/app.greengale.document/123',
+          author_did: 'did:plc:abc',
+          rkey: '123',
+          title: 'Post Without Icon',
+          subtitle: null,
+          source: 'greengale',
+          visibility: 'public',
+          created_at: '2024-01-01T00:00:00Z',
+          indexed_at: '2024-01-01T00:00:00Z',
+          handle: 'test.bsky.social',
+          display_name: 'Test User',
+          avatar_url: 'https://cdn.bsky.app/avatar.jpg',
+          pds_endpoint: 'https://pds.example.com',
+          icon_cid: null,
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts[0].author.avatar).toBe('https://cdn.bsky.app/avatar.jpg')
+    })
+
+    it('resolves publication icon in getAuthorPosts feed', async () => {
+      // First call resolves the author DID
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
+      // Second call returns the posts
+      env.DB._statement.all.mockResolvedValueOnce({
+        results: [
+          {
+            uri: 'at://did:plc:abc/app.greengale.document/456',
+            author_did: 'did:plc:abc',
+            rkey: '456',
+            title: 'Author Post With Icon',
+            subtitle: null,
+            source: 'greengale',
+            visibility: 'public',
+            created_at: '2024-01-01T00:00:00Z',
+            indexed_at: '2024-01-01T00:00:00Z',
+            handle: 'author.bsky.social',
+            display_name: 'Author',
+            avatar_url: 'https://cdn.bsky.app/author-avatar.jpg',
+            pds_endpoint: 'https://author-pds.example.com',
+            icon_cid: 'bafkreiauthoricon',
+          },
+        ],
+      })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getAuthorPosts?author=did:plc:abc')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts[0].author.avatar).toContain('com.atproto.sync.getBlob')
+      expect(data.posts[0].author.avatar).toContain('bafkreiauthoricon')
+      expect(data.posts[0].author.avatar).toContain('author-pds.example.com')
+    })
+
+    it('resolves publication icon in getPost response', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({
+        uri: 'at://did:plc:abc/app.greengale.document/789',
+        author_did: 'did:plc:abc',
+        rkey: '789',
+        title: 'Single Post With Icon',
+        subtitle: null,
+        source: 'greengale',
+        visibility: 'public',
+        created_at: '2024-01-01T00:00:00Z',
+        indexed_at: '2024-01-01T00:00:00Z',
+        handle: 'single.bsky.social',
+        display_name: 'Single User',
+        avatar_url: 'https://cdn.bsky.app/single-avatar.jpg',
+        pds_endpoint: 'https://single-pds.example.com',
+        icon_cid: 'bafkreisingleicon',
+      })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=789')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.post.author.avatar).toContain('com.atproto.sync.getBlob')
+      expect(data.post.author.avatar).toContain('bafkreisingleicon')
+    })
   })
 
   describe('searchPublications', () => {
