@@ -280,6 +280,7 @@ export interface Publication {
   voiceTheme?: VoiceTheme
   hiddenExternalDomains?: string[]
   hideBlueskyBio?: boolean
+  pinnedPosts?: string[]  // array of rkeys, max 4
   iconBlobRef?: { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number }
   iconUrl?: string // Resolved PDS blob URL for display (not stored, computed on read)
 }
@@ -841,6 +842,9 @@ export async function getPublication(identifier: string): Promise<Publication | 
         ? (record.hiddenExternalDomains as string[])
         : undefined,
       hideBlueskyBio: (record.hideBlueskyBio as boolean) || undefined,
+      pinnedPosts: Array.isArray(record.pinnedPosts)
+        ? (record.pinnedPosts as string[]).filter(r => typeof r === 'string' && r.length > 0).slice(0, 4)
+        : undefined,
       iconBlobRef: iconCid ? (record.icon as Publication['iconBlobRef']) : undefined,
       iconUrl: iconCid
         ? `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(iconCid)}`
@@ -874,6 +878,7 @@ export async function savePublication(
       ? publication.hiddenExternalDomains
       : undefined,
     hideBlueskyBio: publication.hideBlueskyBio || undefined,
+    pinnedPosts: publication.pinnedPosts?.length ? publication.pinnedPosts.slice(0, 4) : undefined,
     icon: publication.iconBlobRef || undefined,
   }
 
@@ -921,6 +926,20 @@ export async function savePublication(
       console.warn('Failed to delete site.standard.publication:', err)
     }
   }
+}
+
+/**
+ * Toggle a post's pinned state in the publication's pinnedPosts array.
+ * Returns the new array of pinned rkeys.
+ * If the post is already pinned, it is removed.
+ * If the post is not pinned and there is room, it is appended.
+ * If the post is not pinned and the max is reached, returns the array unchanged.
+ */
+export function togglePinnedPost(currentPins: string[] | undefined, rkey: string, maxPins = 4): string[] {
+  const pins = currentPins || []
+  if (pins.includes(rkey)) return pins.filter(r => r !== rkey)
+  if (pins.length >= maxPins) return pins
+  return [...pins, rkey]
 }
 
 /**

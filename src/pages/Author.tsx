@@ -11,7 +11,9 @@ import { useAuth } from '@/lib/auth'
 import {
   getAuthorProfile,
   getPublication,
+  savePublication,
   getAuthorExternalLinks,
+  togglePinnedPost,
   type BlogEntry,
   type AuthorProfile,
   type Publication,
@@ -196,6 +198,40 @@ export function AuthorPage() {
     [filteredPosts]
   )
 
+  // Pinned posts logic
+  const pinnedRkeys = useMemo(() => new Set(publication?.pinnedPosts || []), [publication?.pinnedPosts])
+
+  // Merge pinned posts at the top, followed by unpinned in original order
+  const sortedEntries = useMemo(() => {
+    if (pinnedRkeys.size === 0) return cardEntries
+    const pinned = cardEntries.filter(({ post }) => pinnedRkeys.has(post.rkey))
+    const unpinned = cardEntries.filter(({ post }) => !pinnedRkeys.has(post.rkey))
+    // Sort pinned to match publication array order
+    const order = publication?.pinnedPosts || []
+    pinned.sort((a, b) => order.indexOf(a.post.rkey) - order.indexOf(b.post.rkey))
+    return [...pinned, ...unpinned]
+  }, [cardEntries, pinnedRkeys, publication?.pinnedPosts])
+
+  const handleTogglePin = useCallback(async (rkey: string) => {
+    if (!session) return
+    const prev = publication
+    const currentPins = publication?.pinnedPosts
+    const newPins = togglePinnedPost(currentPins, rkey)
+    // Optimistic update
+    const basePub = publication || { name: author?.displayName || handle || '', url: `https://greengale.app/${handle}` }
+    const updated = { ...basePub, pinnedPosts: newPins.length ? newPins : undefined }
+    setPublication(updated)
+    try {
+      await savePublication(
+        { did: session.did, fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options) },
+        updated,
+      )
+    } catch (err) {
+      console.error('Failed to save pinned posts:', err)
+      setPublication(prev)
+    }
+  }, [session, publication, author?.displayName, handle])
+
   // Open publication editor
   const openPublicationEditor = useCallback(() => {
     setShowPublicationModal(true)
@@ -344,7 +380,7 @@ export function AuthorPage() {
               Blog Posts
             </h2>
             <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-              {cardEntries.map(({ post, entry }) => (
+              {sortedEntries.map(({ post, entry }) => (
                 <BlogCard
                   key={post.uri}
                   entry={entry}
@@ -354,6 +390,9 @@ export function AuthorPage() {
                   contentPreview={post.contentPreview}
                   firstImageCid={post.firstImageCid}
                   pdsEndpoint={post.author?.pdsEndpoint}
+                  isPinned={pinnedRkeys.has(post.rkey)}
+                  onTogglePin={isOwnProfile ? handleTogglePin : undefined}
+                  pinCount={pinnedRkeys.size}
                 />
               ))}
             </MasonryGrid>

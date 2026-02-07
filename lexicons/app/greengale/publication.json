@@ -55,6 +55,12 @@
           "hideBlueskyBio": {
             "type": "boolean",
             "description": "When true, the Bluesky profile bio is hidden on the author page"
+          },
+          "pinnedPosts": {
+            "type": "array",
+            "maxLength": 4,
+            "items": { "type": "string", "maxLength": 32 },
+            "description": "rkeys of posts pinned to top of author page, in display order"
           }
         }
       }

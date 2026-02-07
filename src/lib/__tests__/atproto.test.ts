@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme, parseVoiceTheme, voiceThemeToRecord, generateTid, resolveIdentity, getPdsEndpoint, clearIdentityCache, withRetry } from '../atproto'
+import { slugify, toBasicTheme, toGreenGaleTheme, hexToRgb, computeAccentForeground, extractPlaintext, resolveExternalUrl, deduplicateBlogEntries, hasOldBasicThemeFormat, convertOldBasicTheme, parseVoiceTheme, voiceThemeToRecord, generateTid, resolveIdentity, getPdsEndpoint, clearIdentityCache, withRetry, togglePinnedPost } from '../atproto'
 import type { BlogEntry, SiteStandardColor, SiteStandardDocument } from '../atproto'
 import type { Theme } from '../themes'
 
@@ -1908,6 +1908,47 @@ Third.`
       const result = await promise
       expect(result).toBe('ok')
       expect(fn).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('togglePinnedPost', () => {
+    it('adds rkey to empty pins', () => {
+      expect(togglePinnedPost(undefined, 'abc')).toEqual(['abc'])
+      expect(togglePinnedPost([], 'abc')).toEqual(['abc'])
+    })
+
+    it('appends rkey to existing pins', () => {
+      expect(togglePinnedPost(['a', 'b'], 'c')).toEqual(['a', 'b', 'c'])
+    })
+
+    it('removes rkey if already pinned', () => {
+      expect(togglePinnedPost(['a', 'b', 'c'], 'b')).toEqual(['a', 'c'])
+    })
+
+    it('returns unchanged array when at max and adding new', () => {
+      const pins = ['a', 'b', 'c', 'd']
+      expect(togglePinnedPost(pins, 'e')).toEqual(['a', 'b', 'c', 'd'])
+    })
+
+    it('can still remove when at max', () => {
+      const pins = ['a', 'b', 'c', 'd']
+      expect(togglePinnedPost(pins, 'c')).toEqual(['a', 'b', 'd'])
+    })
+
+    it('respects custom maxPins', () => {
+      expect(togglePinnedPost(['a', 'b'], 'c', 2)).toEqual(['a', 'b'])
+      expect(togglePinnedPost(['a'], 'b', 2)).toEqual(['a', 'b'])
+    })
+
+    it('preserves order of existing pins when removing', () => {
+      expect(togglePinnedPost(['x', 'y', 'z'], 'x')).toEqual(['y', 'z'])
+      expect(togglePinnedPost(['x', 'y', 'z'], 'z')).toEqual(['x', 'y'])
+    })
+
+    it('returns new array reference (immutable)', () => {
+      const pins = ['a', 'b']
+      const result = togglePinnedPost(pins, 'c')
+      expect(result).not.toBe(pins)
     })
   })
 })

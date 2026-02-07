@@ -208,6 +208,7 @@ export function PublicationEditorModal({
           ? Array.from(hiddenDomains)
           : undefined,
         hideBlueskyBio: hideBlueskyBio || undefined,
+        pinnedPosts: publication?.pinnedPosts,
         iconBlobRef: newIconBlobRef || undefined,
         iconUrl: iconPreview || undefined,
       }
@@ -425,7 +426,7 @@ export function PublicationEditorModal({
                 )}
               </div>
               <p className="text-xs text-[var(--site-text-secondary)]">
-                Square image, at least 256x256. Overrides your Bluesky avatar.
+                Square image, at least 256x256. Bluesky avatar will be shown if not specified.
               </p>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { useMemo, memo } from 'react'
+import { useMemo, memo, useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { extractText, extractFirstImage } from '@/lib/markdown'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
@@ -13,9 +13,89 @@ interface BlogCardProps {
   contentPreview?: string | null
   firstImageCid?: string | null
   pdsEndpoint?: string | null
+  // Pinned post controls (only shown for own profile)
+  isPinned?: boolean
+  onTogglePin?: (rkey: string) => void
+  pinCount?: number
 }
 
-export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags, contentPreview, firstImageCid, pdsEndpoint }: BlogCardProps) {
+function CardOptionsMenu({ rkey, isPinned, pinCount, onTogglePin }: {
+  rkey: string
+  isPinned: boolean
+  pinCount: number
+  onTogglePin: (rkey: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const disabled = !isPinned && pinCount >= 4
+
+  const handleClose = useCallback(() => setOpen(false), [])
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('.card-options-menu')) {
+        handleClose()
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [open, handleClose])
+
+  return (
+    <div className="card-options-menu relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setOpen(prev => !prev)
+        }}
+        className="p-1 text-[var(--site-text)] opacity-70 hover:opacity-100 drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-opacity"
+        aria-label="Post options"
+      >
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1">
+          <circle cx="12" cy="5" r="2" />
+          <circle cx="12" cy="12" r="2" />
+          <circle cx="12" cy="19" r="2" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--site-bg)] border border-[var(--site-border)] rounded-md shadow-lg z-20">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (!disabled) {
+                onTogglePin(rkey)
+                setOpen(false)
+              }
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between gap-2 rounded-md"
+          >
+            <span className="flex items-center gap-2">
+              <svg className="w-3.5 h-3.5 rotate-45" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {isPinned ? (
+                  <>
+                    <path d="M12 17v5M8 7.3V9.44c0 .21 0 .31-.02.41a1 1 0 01-.09.25c-.05.1-.11.18-.24.34L6.08 12.4c-.67.83-1 1.25-1 1.6a1 1 0 00.38.78c.27.22.8.22 1.87.22h9.34c1.07 0 1.6 0 1.87-.22a1 1 0 00.38-.78c0-.35-.33-.77-1-1.6l-1.57-1.96a2 2 0 01-.24-.34 1 1 0 01-.09-.25c-.02-.1-.02-.2-.02-.41V7.3c0-.11 0-.17.01-.23a1 1 0 01.03-.15c.01-.05.04-.1.08-.22l1.01-2.52c.3-.73.44-1.1.38-1.4a1 1 0 00-.43-.63C17.18 2 16.78 2 15.99 2H8.01c-.79 0-1.19 0-1.44.17a1 1 0 00-.43.63c-.06.3.08.66.38 1.4l1.01 2.52c.04.11.06.17.08.22a1 1 0 01.03.15c.01.06.01.12.01.23z" />
+                    <line x1="4" y1="4" x2="20" y2="20" strokeWidth="2.5" />
+                  </>
+                ) : (
+                  <path d="M12 17v5M8 7.3V9.44c0 .21 0 .31-.02.41a1 1 0 01-.09.25c-.05.1-.11.18-.24.34L6.08 12.4c-.67.83-1 1.25-1 1.6a1 1 0 00.38.78c.27.22.8.22 1.87.22h9.34c1.07 0 1.6 0 1.87-.22a1 1 0 00.38-.78c0-.35-.33-.77-1-1.6l-1.57-1.96a2 2 0 01-.24-.34 1 1 0 01-.09-.25c-.02-.1-.02-.2-.02-.41V7.3c0-.11 0-.17.01-.23a1 1 0 01.03-.15c.01-.05.04-.1.08-.22l1.01-2.52c.3-.73.44-1.1.38-1.4a1 1 0 00-.43-.63C17.18 2 16.78 2 15.99 2H8.01c-.79 0-1.19 0-1.44.17a1 1 0 00-.43.63c-.06.3.08.66.38 1.4l1.01 2.52c.04.11.06.17.08.22a1 1 0 01.03.15c.01.06.01.12.01.23z" />
+                )}
+              </svg>
+              {isPinned ? 'Unpin from profile' : 'Pin to profile'}
+            </span>
+            {disabled && <span className="text-xs text-[var(--site-text-secondary)]">Max 4</span>}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags, contentPreview, firstImageCid, pdsEndpoint, isPinned, onTogglePin, pinCount }: BlogCardProps) {
   const navigate = useNavigate()
   // Use indexed preview if available, otherwise extract from content
   const preview = contentPreview ?? extractText(entry.content, 160)
@@ -227,19 +307,38 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
 
   return (
     <article
-      className="border border-[var(--site-border)] rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-[var(--site-bg)]"
+      className="relative border border-[var(--site-border)] rounded-lg hover:shadow-md transition-shadow bg-[var(--site-bg)]"
     >
+      {(isPinned || onTogglePin) && (
+        <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+          {isPinned && (
+            <div className="text-[var(--site-text)] drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)]" title="Pinned">
+              <svg className="w-4 h-4 rotate-45" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 17v5M8 7.3V9.44c0 .21 0 .31-.02.41a1 1 0 01-.09.25c-.05.1-.11.18-.24.34L6.08 12.4c-.67.83-1 1.25-1 1.6a1 1 0 00.38.78c.27.22.8.22 1.87.22h9.34c1.07 0 1.6 0 1.87-.22a1 1 0 00.38-.78c0-.35-.33-.77-1-1.6l-1.57-1.96a2 2 0 01-.24-.34 1 1 0 01-.09-.25c-.02-.1-.02-.2-.02-.41V7.3c0-.11 0-.17.01-.23a1 1 0 01.03-.15c.01-.05.04-.1.08-.22l1.01-2.52c.3-.73.44-1.1.38-1.4a1 1 0 00-.43-.63C17.18 2 16.78 2 15.99 2H8.01c-.79 0-1.19 0-1.44.17a1 1 0 00-.43.63c-.06.3.08.66.38 1.4l1.01 2.52c.04.11.06.17.08.22a1 1 0 01.03.15c.01.06.01.12.01.23z" />
+              </svg>
+            </div>
+          )}
+          {onTogglePin && (
+            <CardOptionsMenu
+              rkey={entry.rkey}
+              isPinned={!!isPinned}
+              pinCount={pinCount ?? 0}
+              onTogglePin={onTogglePin}
+            />
+          )}
+        </div>
+      )}
       {isNetworkPost ? (
         <a
           href={externalUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="block"
+          className="block rounded-lg overflow-hidden"
         >
           {cardContent}
         </a>
       ) : (
-        <Link to={`/${authorHandle}/${entry.rkey}`} className="block">
+        <Link to={`/${authorHandle}/${entry.rkey}`} className="block rounded-lg overflow-hidden">
           {cardContent}
         </Link>
       )}
