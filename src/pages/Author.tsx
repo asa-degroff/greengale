@@ -9,16 +9,14 @@ const PublicationEditorModal = lazy(() =>
 import { AuthorPageLoading } from '@/components/PageLoading'
 import { useAuth } from '@/lib/auth'
 import {
-  getAuthorProfile,
   getPublication,
   savePublication,
   getAuthorExternalLinks,
   togglePinnedPost,
   type BlogEntry,
-  type AuthorProfile,
   type Publication,
 } from '@/lib/atproto'
-import { getAuthorPosts, type AppViewPost } from '@/lib/appview'
+import { getAuthorPosts, getAuthorProfile, type AppViewAuthor, type AppViewPost } from '@/lib/appview'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast } from '@/lib/themes'
@@ -34,7 +32,7 @@ export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
   const navigate = useNavigate()
   const { session } = useAuth()
-  const [author, setAuthor] = useState<AuthorProfile | null>(null)
+  const [author, setAuthor] = useState<AppViewAuthor | null>(null)
   const [posts, setPosts] = useState<AppViewPost[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -63,7 +61,7 @@ export function AuthorPage() {
       ? `${publication?.name || author?.displayName || canonicalHandle}'s Blog`
       : undefined,
     canonical: canonicalHandle ? buildAuthorCanonical(canonicalHandle) : undefined,
-    description: publication?.description || author?.description,
+    description: publication?.description || author?.description || undefined,
     ogImage: canonicalHandle ? buildAuthorOgImage(canonicalHandle) : undefined,
     rssFeed: canonicalHandle ? {
       title: `${publication?.name || author?.displayName || canonicalHandle}'s Blog RSS`,
@@ -121,8 +119,8 @@ export function AuthorPage() {
         // Track this author as recently viewed
         addRecentAuthor({
           handle: profileResult.handle,
-          displayName: profileResult.displayName,
-          avatarUrl: profileResult.avatar,
+          displayName: profileResult.displayName || undefined,
+          avatarUrl: profileResult.avatar || undefined,
         })
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load author')
@@ -271,7 +269,7 @@ export function AuthorPage() {
             <div className="flex items-start gap-4 mb-4">
               {(publication?.iconUrl || author.avatar) ? (
                 <img
-                  src={publication?.iconUrl || author.avatar}
+                  src={publication?.iconUrl || author.avatar || undefined}
                   alt={author.displayName || author.handle}
                   className="w-16 h-16 rounded-full object-cover flex-shrink-0"
                 />
@@ -384,7 +382,13 @@ export function AuthorPage() {
                 <BlogCard
                   key={post.uri}
                   entry={entry}
-                  author={author || undefined}
+                  author={author ? {
+                    did: author.did,
+                    handle: author.handle,
+                    displayName: author.displayName || undefined,
+                    avatar: author.avatar || undefined,
+                    description: author.description || undefined,
+                  } : undefined}
                   externalUrl={post.externalUrl}
                   tags={post.tags}
                   contentPreview={post.contentPreview}
