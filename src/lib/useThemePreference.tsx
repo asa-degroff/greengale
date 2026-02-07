@@ -2,7 +2,7 @@ import {
   createContext,
   useContext,
   useState,
-  useEffect,
+  useLayoutEffect,
   useCallback,
   type ReactNode,
 } from 'react'
@@ -153,8 +153,10 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     return null
   })()
 
-  // Apply theme to document and update theme-color meta tag
-  useEffect(() => {
+  // Apply theme to document and update theme-color meta tag.
+  // useLayoutEffect ensures DOM updates happen before the browser paints,
+  // preventing a single-frame flash of wrong theme colors when navigating.
+  useLayoutEffect(() => {
     document.documentElement.setAttribute('data-active-theme', effectiveTheme)
 
     // Apply theme colors to document root as inline styles

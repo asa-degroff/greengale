@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode, type ComponentType } from 'react'
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type ReactNode, type ComponentType } from 'react'
 import { renderMarkdown } from '@/lib/markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ContentWarningImage } from './ContentWarningImage'
@@ -243,7 +243,10 @@ export function MarkdownRenderer({
   )
 
 
-  useEffect(() => {
+  // useLayoutEffect prevents the browser from painting the empty state before
+  // the markdown finishes rendering. When renderMarkdown resolves quickly (e.g.,
+  // from cache), the content appears on the first paint with no flicker.
+  useLayoutEffect(() => {
     let cancelled = false
 
     async function render() {

@@ -350,7 +350,7 @@ export function PostPage() {
   const isAuthor = session?.did && entry.authorDid === session.did
 
   return (
-    <div className="animate-fade-in">
+    <div>
       {fromCache && (
         <div className="max-w-3xl mx-auto px-4 pt-4">
           <div className="text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
