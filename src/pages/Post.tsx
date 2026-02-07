@@ -5,12 +5,12 @@ import { LoadingCube } from '@/components/LoadingCube'
 import { useAuth } from '@/lib/auth'
 import {
   getBlogEntry,
-  getAuthorProfile,
   getPublication,
   type BlogEntry,
   type AuthorProfile,
   type Publication,
 } from '@/lib/atproto'
+import { getAuthorProfile } from '@/lib/appview'
 import { cachePost, getCachedPost } from '@/lib/offline-store'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast, type Theme } from '@/lib/themes'
@@ -135,14 +135,23 @@ export function PostPage() {
           return
         }
 
+        // Convert AppViewAuthor to AuthorProfile format
+        const author: AuthorProfile | null = authorResult ? {
+          did: authorResult.did,
+          handle: authorResult.handle,
+          displayName: authorResult.displayName || undefined,
+          avatar: authorResult.avatar || undefined,
+          description: authorResult.description || undefined,
+        } : null
+
         // Check if handle has changed - redirect to canonical URL
-        if (authorResult.handle.toLowerCase() !== handle!.toLowerCase()) {
-          navigate(`/${authorResult.handle}/${rkey}`, { replace: true })
+        if (author && author.handle.toLowerCase() !== handle!.toLowerCase()) {
+          navigate(`/${author.handle}/${rkey}`, { replace: true })
           return
         }
 
         setEntry(entryResult)
-        setAuthor(authorResult)
+        setAuthor(author)
         setPublication(publicationResult)
         hasLoadedRef.current = true
 
@@ -153,17 +162,19 @@ export function PostPage() {
           handle!,
           rkey!,
           entryResult,
-          authorResult,
+          author || { did: entryResult.authorDid, handle: handle! },
           publicationResult,
           !!(session?.did && entryResult.authorDid === session.did)
         )
 
         // Track this author as recently viewed
-        addRecentAuthor({
-          handle: authorResult.handle,
-          displayName: authorResult.displayName,
-          avatarUrl: authorResult.avatar,
-        })
+        if (author) {
+          addRecentAuthor({
+            handle: author.handle,
+            displayName: author.displayName,
+            avatarUrl: author.avatar,
+          })
+        }
 
       } catch (err) {
         if (cancelled) return
