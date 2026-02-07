@@ -311,7 +311,7 @@ export function AuthorPage() {
                 </svg>
                 RSS
               </a>
-              {blentoUrl && (
+              {blentoUrl && !publication?.hiddenExternalDomains?.includes('blento.app') && (
                 <a
                   href={blentoUrl}
                   target="_blank"
