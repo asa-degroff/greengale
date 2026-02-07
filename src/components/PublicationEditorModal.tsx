@@ -73,6 +73,9 @@ export function PublicationEditorModal({
   const [pubSpeed, setPubSpeed] = useState<PlaybackRate>(
     (publication?.voiceTheme?.speed as PlaybackRate) || 1.0
   )
+  const [customVoice, setCustomVoice] = useState(
+    !!(publication?.voiceTheme?.voice || publication?.voiceTheme?.pitch || publication?.voiceTheme?.speed)
+  )
 
   // Icon state
   const [iconFile, setIconFile] = useState<File | null>(null)
@@ -809,17 +812,50 @@ export function PublicationEditorModal({
           {/* Voice Settings */}
           <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
             <h3 className="text-sm font-medium text-[var(--site-text)] mb-3">Voice Settings</h3>
-            <p className="text-xs text-[var(--site-text-secondary)] mb-4">
+            <p className="text-xs text-[var(--site-text-secondary)] mb-3">
               Set default voice for TTS playback. Readers can still adjust settings in their player.
             </p>
-            <VoiceSettingsPreview
-              voice={pubVoice}
-              pitch={pubPitch}
-              speed={pubSpeed}
-              onVoiceChange={setPubVoice}
-              onPitchChange={setPubPitch}
-              onSpeedChange={setPubSpeed}
-            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomVoice(false)
+                  setPubVoice(DEFAULT_VOICE)
+                  setPubPitch(1.0)
+                  setPubSpeed(1.0)
+                }}
+                className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                  !customVoice
+                    ? 'bg-[var(--site-accent)] text-white border-[var(--site-accent)]'
+                    : 'border-[var(--site-border)] text-[var(--site-text-secondary)] hover:border-[var(--site-text-secondary)]'
+                }`}
+              >
+                Default
+              </button>
+              <button
+                type="button"
+                onClick={() => setCustomVoice(true)}
+                className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
+                  customVoice
+                    ? 'bg-[var(--site-accent)] text-white border-[var(--site-accent)]'
+                    : 'border-[var(--site-border)] text-[var(--site-text-secondary)] hover:border-[var(--site-text-secondary)]'
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+            {customVoice && (
+              <div className="mt-4">
+                <VoiceSettingsPreview
+                  voice={pubVoice}
+                  pitch={pubPitch}
+                  speed={pubSpeed}
+                  onVoiceChange={setPubVoice}
+                  onPitchChange={setPubPitch}
+                  onSpeedChange={setPubSpeed}
+                />
+              </div>
+            )}
           </div>
 
           {/* site.standard Publishing */}
