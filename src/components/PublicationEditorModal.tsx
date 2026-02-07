@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
 import type { Publication } from '@/lib/atproto'
 import { savePublication } from '@/lib/atproto'
 import type { PitchRate, PlaybackRate } from '@/lib/tts'
 import { DEFAULT_VOICE } from '@/lib/tts'
+import { getPlatformInfo, getExternalDomain } from '@/lib/platform-utils'
 import {
   THEME_PRESETS,
   THEME_LABELS,
@@ -78,11 +79,54 @@ export function PublicationEditorModal({
   const [error, setError] = useState<string | null>(null)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>(() => getRecentPalettes())
 
+  // External blog visibility state
+  const [externalPubs, setExternalPubs] = useState<Array<{
+    name: string
+    url: string
+    domain: string
+  }>>([])
+  const [loadingExternalPubs, setLoadingExternalPubs] = useState(false)
+  const [hiddenDomains, setHiddenDomains] = useState<Set<string>>(
+    new Set(publication?.hiddenExternalDomains || [])
+  )
+
   // Orphaned records cleanup state
   const [orphanedRecords, setOrphanedRecords] = useState<Array<{ rkey: string; title: string }>>([])
   const [scanningOrphans, setScanningOrphans] = useState(false)
   const [deletingOrphans, setDeletingOrphans] = useState(false)
   const [orphanScanComplete, setOrphanScanComplete] = useState(false)
+
+  // Fetch external site.standard.publication records
+  useEffect(() => {
+    async function loadExternalPubs() {
+      setLoadingExternalPubs(true)
+      try {
+        const response = await fetch(
+          `https://bsky.social/xrpc/com.atproto.repo.listRecords?repo=${session.did}&collection=site.standard.publication&limit=50`
+        )
+        if (!response.ok) return
+        const data = await response.json()
+        const records = data.records || []
+        const external = records
+          .filter(
+            (r: { value?: { preferences?: { greengale?: unknown }; url?: string } }) =>
+              !r.value?.preferences?.greengale && !r.value?.url?.includes('greengale.app')
+          )
+          .map((r: { value?: { name?: string; url?: string } }) => ({
+            name: r.value?.name || 'Untitled',
+            url: r.value?.url || '',
+            domain: getExternalDomain(r.value?.url || ''),
+          }))
+          .filter((p: { domain: string }) => p.domain)
+        setExternalPubs(external)
+      } catch {
+        /* silently fail */
+      } finally {
+        setLoadingExternalPubs(false)
+      }
+    }
+    loadExternalPubs()
+  }, [session.did])
 
   // Memoized validation
   const pubCustomColorsValidation = useMemo(
@@ -126,6 +170,9 @@ export function PublicationEditorModal({
         enableSiteStandard: pubEnableSiteStandard || undefined,
         showInDiscover: pubShowInDiscover,
         voiceTheme,
+        hiddenExternalDomains: hiddenDomains.size > 0
+          ? Array.from(hiddenDomains)
+          : undefined,
       }
 
       await savePublication(
@@ -582,6 +629,76 @@ export function PublicationEditorModal({
               </div>
             </label>
           </div>
+
+          {/* External Blog Visibility */}
+          {(externalPubs.length > 0 || loadingExternalPubs) && (
+            <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">
+              <h3 className="text-sm font-medium text-[var(--site-text)] mb-1">External Blogs</h3>
+              <p className="text-xs text-[var(--site-text-secondary)] mb-3">
+                Show posts from your external blogs on your GreenGale profile.
+              </p>
+              {loadingExternalPubs ? (
+                <p className="text-xs text-[var(--site-text-secondary)]">Loading...</p>
+              ) : (
+                <div className="space-y-2">
+                  {externalPubs.map((pub) => {
+                    const platform = getPlatformInfo(pub.url)
+                    const isVisible = !hiddenDomains.has(pub.domain)
+                    return (
+                      <label
+                        key={pub.domain}
+                        className="flex items-center gap-3 cursor-pointer py-1"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isVisible}
+                          onChange={() => {
+                            setHiddenDomains((prev) => {
+                              const next = new Set(prev)
+                              if (isVisible) {
+                                next.add(pub.domain)
+                              } else {
+                                next.delete(pub.domain)
+                              }
+                              return next
+                            })
+                          }}
+                          className="w-4 h-4 rounded border-[var(--site-border)] text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+                        />
+                        <div className="flex items-center gap-2 min-w-0">
+                          {platform ? (
+                            <img
+                              src={platform.icon}
+                              alt={platform.name}
+                              className="w-4 h-4 rounded-sm flex-shrink-0"
+                            />
+                          ) : (
+                            <svg
+                              className="w-4 h-4 text-[var(--site-text-secondary)] flex-shrink-0"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle cx="12" cy="12" r="10" strokeWidth={1.5} />
+                              <path strokeWidth={1.5} d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                            </svg>
+                          )}
+                          <div className="min-w-0">
+                            <span className="text-sm text-[var(--site-text)] block truncate">
+                              {pub.name}
+                            </span>
+                            <span className="text-xs text-[var(--site-text-secondary)] block truncate">
+                              {pub.domain}
+                            </span>
+                          </div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Voice Settings */}
           <div className="p-4 border border-[var(--site-border)] rounded-md bg-[var(--site-bg-secondary)]">

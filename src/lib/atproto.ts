@@ -278,6 +278,7 @@ export interface Publication {
   enableSiteStandard?: boolean
   showInDiscover?: boolean
   voiceTheme?: VoiceTheme
+  hiddenExternalDomains?: string[]
 }
 
 // site.standard.theme.color#rgb format (RGB integers 0-255)
@@ -831,6 +832,9 @@ export async function getPublication(identifier: string): Promise<Publication | 
       enableSiteStandard: (record.enableSiteStandard as boolean | undefined) || false,
       showInDiscover: (record.showInDiscover as boolean | undefined) ?? true,
       voiceTheme: parseVoiceTheme(record.voiceTheme),
+      hiddenExternalDomains: Array.isArray(record.hiddenExternalDomains)
+        ? (record.hiddenExternalDomains as string[])
+        : undefined,
     }
   } catch {
     // Publication doesn't exist
@@ -856,6 +860,9 @@ export async function savePublication(
     enableSiteStandard: publication.enableSiteStandard || undefined,
     showInDiscover: publication.showInDiscover === false ? false : undefined,
     voiceTheme: voiceThemeToRecord(publication.voiceTheme),
+    hiddenExternalDomains: publication.hiddenExternalDomains?.length
+      ? publication.hiddenExternalDomains
+      : undefined,
   }
 
   const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {

@@ -40,6 +40,11 @@
             "type": "ref",
             "ref": "app.greengale.blog.defs#voiceTheme",
             "description": "Default voice settings for TTS playback on posts"
+          },
+          "hiddenExternalDomains": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Domains of external publications to hide from author profile"
           }
         }
       }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
+import { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
@@ -151,6 +151,22 @@ export function AuthorPage() {
     }
   }, [handle, cursor, loadingMore, session?.did])
 
+  // Filter out posts from hidden external domains
+  const filteredPosts = useMemo(() => {
+    const hidden = publication?.hiddenExternalDomains
+    if (!hidden?.length) return posts
+    const hiddenSet = new Set(hidden)
+    return posts.filter((post) => {
+      if (!post.externalUrl) return true
+      try {
+        const domain = new URL(post.externalUrl).hostname.replace(/^www\./, '')
+        return !hiddenSet.has(domain)
+      } catch {
+        return true
+      }
+    })
+  }, [posts, publication?.hiddenExternalDomains])
+
   // Open publication editor
   const openPublicationEditor = useCallback(() => {
     setShowPublicationModal(true)
@@ -271,7 +287,7 @@ export function AuthorPage() {
         )}
 
         {/* Blog Entries */}
-        {posts.length === 0 ? (
+        {filteredPosts.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-[var(--site-text-secondary)]">
               No blog posts found for this author.
@@ -283,7 +299,7 @@ export function AuthorPage() {
               Blog Posts
             </h2>
             <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-              {posts.map((post) => {
+              {filteredPosts.map((post) => {
                 // Convert AppViewPost to minimal BlogEntry for BlogCard
                 const entry: BlogEntry = {
                   uri: post.uri,
