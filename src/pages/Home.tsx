@@ -153,16 +153,16 @@ export function HomePage() {
   // Lazy-load network posts when tab is switched
   useEffect(() => {
     if (activeTab === 'network' && !networkFeed.loaded && !networkFeed.loading) {
-      (networkFeed as unknown as { load: () => Promise<void> }).load()
+      networkFeed.load()
     }
-  }, [activeTab, networkFeed])
+  }, [activeTab, networkFeed.loaded, networkFeed.loading, networkFeed.load])
 
   // Lazy-load following posts when tab is switched
   useEffect(() => {
     if (activeTab === 'following' && !followingFeed.loaded && !followingFeed.loading && isAuthenticated && session?.did) {
       followingFeed.load()
     }
-  }, [activeTab, followingFeed, isAuthenticated, session?.did])
+  }, [activeTab, followingFeed.loaded, followingFeed.loading, followingFeed.load, isAuthenticated, session?.did])
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return

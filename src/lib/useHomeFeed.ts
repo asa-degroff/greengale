@@ -152,11 +152,11 @@ export function useNetworkFeed(): UseFeedResult & { load: () => Promise<void> } 
       const { posts: newPosts, cursor: nextCursor } = await getNetworkPosts(PAGE_SIZE)
       setPosts(newPosts)
       setCursor(nextCursor)
-      setLoaded(true)
       setCachedNetworkFeed(newPosts, nextCursor, 1)
     } catch {
       // Network feed not available
     } finally {
+      setLoaded(true)
       setLoading(false)
     }
   }, [loaded, loading])
@@ -226,11 +226,11 @@ export function useFollowingFeed(userDid: string | undefined): UseFeedResult & {
       const { posts: newPosts, cursor: nextCursor } = await getFollowingPosts(userDid, PAGE_SIZE)
       setPosts(newPosts)
       setCursor(nextCursor)
-      setLoaded(true)
       setCachedFollowingFeed(newPosts, nextCursor, 1)
     } catch {
       // Following feed not available
     } finally {
+      setLoaded(true)
       setLoading(false)
     }
   }, [userDid, loaded, loading])
