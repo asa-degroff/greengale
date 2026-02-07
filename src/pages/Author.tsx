@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { BlogCard } from '@/components/BlogCard'
 import { MasonryGrid } from '@/components/MasonryGrid'
@@ -40,6 +40,7 @@ export function AuthorPage() {
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const loadingMoreRef = useRef(false)
   const { addRecentAuthor } = useRecentAuthors()
 
   // Publication state
@@ -139,8 +140,9 @@ export function AuthorPage() {
 
   // Load more posts
   const loadMore = useCallback(async () => {
-    if (!handle || !cursor || loadingMore) return
+    if (!handle || !cursor || loadingMoreRef.current) return
 
+    loadingMoreRef.current = true
     setLoadingMore(true)
     try {
       const BATCH_SIZE = 24
@@ -151,9 +153,10 @@ export function AuthorPage() {
     } catch (err) {
       console.error('Error loading more posts:', err)
     } finally {
+      loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [handle, cursor, loadingMore, session?.did])
+  }, [handle, cursor, session?.did])
 
   // Filter out posts from hidden external domains
   const filteredPosts = useMemo(() => {
@@ -170,6 +173,28 @@ export function AuthorPage() {
       }
     })
   }, [posts, publication?.hiddenExternalDomains])
+
+  // Pre-map AppViewPosts to BlogEntry objects so BlogCard gets stable references
+  const cardEntries = useMemo(() =>
+    filteredPosts.map((post) => ({
+      post,
+      entry: {
+        uri: post.uri,
+        cid: '',
+        authorDid: post.authorDid,
+        rkey: post.rkey,
+        title: post.title || 'Untitled',
+        subtitle: post.subtitle || undefined,
+        content: '',
+        createdAt: post.createdAt || undefined,
+        source: post.source === 'network' ? 'greengale' : post.source,
+        visibility: post.visibility as 'public' | 'url' | 'author',
+        externalUrl: post.externalUrl || undefined,
+        tags: post.tags,
+      } satisfies BlogEntry,
+    })),
+    [filteredPosts]
+  )
 
   // Open publication editor
   const openPublicationEditor = useCallback(() => {
@@ -307,7 +332,7 @@ export function AuthorPage() {
         )}
 
         {/* Blog Entries */}
-        {filteredPosts.length === 0 ? (
+        {cardEntries.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-[var(--site-text-secondary)]">
               No blog posts found for this author.
@@ -319,35 +344,18 @@ export function AuthorPage() {
               Blog Posts
             </h2>
             <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-              {filteredPosts.map((post) => {
-                // Convert AppViewPost to minimal BlogEntry for BlogCard
-                const entry: BlogEntry = {
-                  uri: post.uri,
-                  cid: '', // Not available from indexed data, but not used by BlogCard
-                  authorDid: post.authorDid,
-                  rkey: post.rkey,
-                  title: post.title || 'Untitled',
-                  subtitle: post.subtitle || undefined,
-                  content: '', // Empty - we use indexed preview instead
-                  createdAt: post.createdAt || undefined,
-                  source: post.source === 'network' ? 'greengale' : post.source,
-                  visibility: post.visibility as 'public' | 'url' | 'author',
-                  externalUrl: post.externalUrl || undefined,
-                  tags: post.tags,
-                }
-                return (
-                  <BlogCard
-                    key={post.uri}
-                    entry={entry}
-                    author={author || undefined}
-                    externalUrl={post.externalUrl}
-                    tags={post.tags}
-                    contentPreview={post.contentPreview}
-                    firstImageCid={post.firstImageCid}
-                    pdsEndpoint={post.author?.pdsEndpoint}
-                  />
-                )
-              })}
+              {cardEntries.map(({ post, entry }) => (
+                <BlogCard
+                  key={post.uri}
+                  entry={entry}
+                  author={author || undefined}
+                  externalUrl={post.externalUrl}
+                  tags={post.tags}
+                  contentPreview={post.contentPreview}
+                  firstImageCid={post.firstImageCid}
+                  pdsEndpoint={post.author?.pdsEndpoint}
+                />
+              ))}
             </MasonryGrid>
             {/* Load More Button */}
             {hasMore && (
