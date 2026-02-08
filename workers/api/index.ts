@@ -1985,18 +1985,32 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
       }
     }
 
-    // Exclude site.standard.document posts since dual-published posts share the same rkey
+    // Exclude dual-published site.standard.document posts (where a GreenGale/WhiteWind
+    // version exists), but allow external-only site.standard posts (e.g. Leaflet)
     const post = await c.env.DB.prepare(`
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
-        p.visibility, p.created_at, p.indexed_at,
+        p.visibility, p.created_at, p.indexed_at, p.external_url,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
         pub.icon_cid
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND p.rkey = ?
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND NOT (
+          p.uri LIKE '%/site.standard.document/%'
+          AND (
+            p.external_url IS NULL
+            OR EXISTS (
+              SELECT 1 FROM posts gg
+              WHERE gg.author_did = p.author_did
+                AND gg.rkey = p.rkey
+                AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                  OR gg.uri LIKE '%/app.greengale.document/%'
+                  OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+            )
+          )
+        )
     `).bind(authorDid, rkey).first()
 
     if (!post) {

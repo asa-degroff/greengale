@@ -16,7 +16,7 @@ import {
   type BlogEntry,
   type Publication,
 } from '@/lib/atproto'
-import { getAuthorPosts, getAuthorProfile, type AppViewAuthor, type AppViewPost } from '@/lib/appview'
+import { getAuthorPosts, getAuthorProfile, getPost, type AppViewAuthor, type AppViewPost } from '@/lib/appview'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { getEffectiveTheme, correctCustomColorsContrast } from '@/lib/themes'
@@ -98,7 +98,25 @@ export function AuthorPage() {
         }
 
         setAuthor(profileResult)
-        setPosts(postsResult.posts)
+
+        // Fetch any pinned posts that aren't in the first page of results
+        let allPosts = postsResult.posts
+        const pinnedRkeys = publicationResult?.pinnedPosts
+        if (pinnedRkeys?.length) {
+          const loadedRkeys = new Set(allPosts.map(p => p.rkey))
+          const missingRkeys = pinnedRkeys.filter(rkey => !loadedRkeys.has(rkey))
+          if (missingRkeys.length > 0) {
+            const missing = await Promise.all(
+              missingRkeys.map(rkey => getPost(profileResult.did, rkey, session?.did).catch(() => null))
+            )
+            const found = missing.filter((p): p is AppViewPost => p !== null)
+            if (found.length > 0) {
+              allPosts = [...allPosts, ...found]
+            }
+          }
+        }
+
+        setPosts(allPosts)
         setCursor(postsResult.cursor)
         setHasMore(!!postsResult.cursor)
         setPublication(publicationResult)
@@ -147,7 +165,11 @@ export function AuthorPage() {
     try {
       const BATCH_SIZE = 24
       const result = await getAuthorPosts(handle, BATCH_SIZE, cursor, session?.did)
-      setPosts(prev => [...prev, ...result.posts])
+      setPosts(prev => {
+        const existing = new Set(prev.map(p => p.rkey))
+        const newPosts = result.posts.filter(p => !existing.has(p.rkey))
+        return [...prev, ...newPosts]
+      })
       setCursor(result.cursor)
       setHasMore(!!result.cursor)
     } catch (err) {
