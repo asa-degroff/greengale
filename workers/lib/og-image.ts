@@ -447,6 +447,9 @@ export interface ProfileOGImageData {
   avatarUrl?: string | null
   description?: string | null
   postsCount?: number
+  themePreset?: string | null
+  customColors?: { background?: string; text?: string; accent?: string } | null
+  publicationName?: string | null
 }
 
 /**
@@ -454,15 +457,15 @@ export interface ProfileOGImageData {
  * Returns a PNG image response (1200x630)
  */
 export async function generateProfileOGImage(data: ProfileOGImageData): Promise<Response> {
-  // Use default GreenGale colors
-  const colors = resolveThemeColors()
+  // Use publication theme colors, falling back to default GreenGale colors
+  const colors = resolveThemeColors(data.themePreset, data.customColors)
   const isDark = isDarkTheme(colors)
 
   // Load base fonts
   const baseFonts = await loadBaseFonts()
 
   // Collect all text that might need fallback fonts
-  const allText = [data.displayName, data.handle, data.description].filter(Boolean).join('')
+  const allText = [data.displayName, data.handle, data.description, data.publicationName].filter(Boolean).join('')
 
   // Build fonts array with fallback fonts for non-Latin scripts
   const fonts = await buildFontsArray(baseFonts, allText)
@@ -658,7 +661,7 @@ function buildHomepageHtml(colors: ThemeColors, isDark: boolean): string {
  * Build HTML for user profile OG image
  */
 function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark: boolean): string {
-  const { displayName, handle, avatarUrl, description, postsCount } = data
+  const { displayName, handle, avatarUrl, description, postsCount, publicationName } = data
   const fontFamily = "'iA Writer Quattro', sans-serif"
   const titleFontFamily = "'IBM Plex Sans', sans-serif"
 
@@ -685,6 +688,10 @@ function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark:
     ? `<div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-top: 16px;">${postsCount} ${postsCount === 1 ? 'post' : 'posts'}</div>`
     : ''
 
+  // Determine primary title and whether to show "by Display Name" line
+  const primaryTitle = publicationName || displayName || handle
+  const showByLine = publicationName && displayName && publicationName !== displayName
+
   // Build grid pattern
   const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
 
@@ -697,8 +704,9 @@ function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark:
     <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; top: 60px; left: 60px; right: 60px; bottom: 100px;">
       ${avatarHtml}
-      <div style="display: flex; font-size: 48px; font-weight: 700; color: ${colors.text}; font-family: ${titleFontFamily}; margin-bottom: 8px;">${escapeHtml(displayName || handle)}</div>
-      <div style="display: flex; font-size: 28px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-bottom: 16px;">@${escapeHtml(handle)}</div>
+      <div style="display: flex; font-size: 48px; font-weight: 700; color: ${colors.text}; font-family: ${titleFontFamily}; margin-bottom: 8px;">${escapeHtml(primaryTitle)}</div>
+      <div style="display: flex; font-size: 28px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-bottom: ${showByLine ? '8' : '16'}px;">@${escapeHtml(handle)}</div>
+      ${showByLine ? `<div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-bottom: 16px;">by ${escapeHtml(displayName)}</div>` : ''}
       ${descriptionHtml}
       ${postsHtml}
     </div>

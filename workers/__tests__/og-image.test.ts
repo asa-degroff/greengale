@@ -789,6 +789,79 @@ describe('OG Image Generation', () => {
       expect(result.type).toBe('ImageResponse')
     })
 
+    it('generates profile OG image with theme preset', async () => {
+      const { generateProfileOGImage } = await import('../lib/og-image')
+
+      const result = await generateProfileOGImage({
+        displayName: 'Test User',
+        handle: 'testuser',
+        description: 'A test user bio',
+        postsCount: 42,
+        themePreset: 'dracula',
+      })
+
+      expect(result).toBeDefined()
+      expect(result.type).toBe('ImageResponse')
+      const html = (result as unknown as { html: string }).html
+      // Dracula theme colors
+      expect(html).toContain('#282a36')
+      expect(html).toContain('#f8f8f2')
+    })
+
+    it('generates profile OG image with custom colors', async () => {
+      const { generateProfileOGImage } = await import('../lib/og-image')
+
+      const result = await generateProfileOGImage({
+        displayName: 'Custom User',
+        handle: 'customuser',
+        description: 'Custom themed bio',
+        postsCount: 10,
+        customColors: { background: '#1a1a2e', text: '#eaeaea', accent: '#e94560' },
+      })
+
+      expect(result).toBeDefined()
+      expect(result.type).toBe('ImageResponse')
+      const html = (result as unknown as { html: string }).html
+      expect(html).toContain('#1a1a2e')
+      expect(html).toContain('#eaeaea')
+    })
+
+    it('generates profile OG image with publication name', async () => {
+      const { generateProfileOGImage } = await import('../lib/og-image')
+
+      const result = await generateProfileOGImage({
+        displayName: 'John Doe',
+        handle: 'johndoe',
+        description: 'My blog about tech',
+        postsCount: 5,
+        publicationName: "John's Tech Blog",
+      })
+
+      expect(result).toBeDefined()
+      const html = (result as unknown as { html: string }).html
+      // Publication name should be the primary title
+      expect(html).toContain("John's Tech Blog")
+      // "by Display Name" line should be shown since pub name differs
+      expect(html).toContain('by John Doe')
+    })
+
+    it('omits by-line when publication name matches display name', async () => {
+      const { generateProfileOGImage } = await import('../lib/og-image')
+
+      const result = await generateProfileOGImage({
+        displayName: 'Same Name',
+        handle: 'samename',
+        publicationName: 'Same Name',
+      })
+
+      expect(result).toBeDefined()
+      const html = (result as unknown as { html: string }).html
+      // Should show the name as primary title
+      expect(html).toContain('Same Name')
+      // Should NOT show "by Same Name" since it's redundant
+      expect(html).not.toContain('by Same Name')
+    })
+
     it('generates post OG image with tags', async () => {
       const { generateOGImage } = await import('../lib/og-image')
 

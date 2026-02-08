@@ -286,7 +286,10 @@ app.get('/og/profile/:handle.png', async (c) => {
     // Fetch author data from D1
     const author = await c.env.DB.prepare(`
       SELECT a.handle, a.display_name, a.description, a.avatar_url, a.posts_count,
-             a.pds_endpoint, a.did as author_did, pub.icon_cid
+             a.pds_endpoint, a.did as author_did, pub.icon_cid,
+             pub.theme_preset as publication_theme_preset,
+             pub.description as publication_description,
+             pub.name as publication_name
       FROM authors a
       LEFT JOIN publications pub ON a.did = pub.author_did
       WHERE a.handle = ?
@@ -296,12 +299,43 @@ app.get('/og/profile/:handle.png', async (c) => {
       return c.json({ error: 'Author not found' }, 404)
     }
 
+    // Parse publication theme data - could be preset name or JSON custom colors
+    let themePreset: string | null = null
+    let customColors: { background?: string; text?: string; accent?: string } | null = null
+    const themeData = author.publication_theme_preset as string | null
+    if (themeData) {
+      if (themeData.startsWith('{')) {
+        try { customColors = JSON.parse(themeData) } catch { /* Invalid JSON, ignore */ }
+      } else {
+        themePreset = themeData
+      }
+    }
+
+    // Resolve avatar, proxying PDS blob URLs (likely AVIF) through wsrv.nl for format conversion
+    let avatarUrl = resolveAvatar(author as Record<string, unknown>)
+    if (avatarUrl && avatarUrl.includes('com.atproto.sync.getBlob')) {
+      const proxyUrl = `https://wsrv.nl/?url=${encodeURIComponent(avatarUrl)}&w=240&h=240&fit=cover&output=jpeg&q=85`
+      try {
+        const resp = await fetch(proxyUrl)
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer()
+          const bytes = new Uint8Array(buf)
+          let binary = ''
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+          avatarUrl = `data:image/jpeg;base64,${btoa(binary)}`
+        }
+      } catch { /* Avatar proxy failed, use raw URL */ }
+    }
+
     const imageResponse = await generateProfileOGImage({
       displayName: (author.display_name as string) || handle,
       handle: (author.handle as string) || handle,
-      avatarUrl: resolveAvatar(author as Record<string, unknown>),
-      description: author.description as string | null,
+      avatarUrl,
+      description: (author.publication_description as string) || (author.description as string) || null,
       postsCount: author.posts_count as number | undefined,
+      themePreset,
+      customColors,
+      publicationName: (author.publication_name as string) || null,
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
