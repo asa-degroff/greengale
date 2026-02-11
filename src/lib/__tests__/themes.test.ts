@@ -289,9 +289,11 @@ describe('Theme System', () => {
       expect(colors).toEqual(getPresetColors('github-light'))
     })
 
-    it('returns github-light colors for custom preset', () => {
+    it('returns dark default colors for custom preset', () => {
       const colors = getPresetColors('custom')
-      expect(colors).toEqual(getPresetColors('github-light'))
+      expect(colors.background).toBe('#0c0908')
+      expect(colors.text).toBe('#ebf4ff')
+      expect(colors.accent).toBe('#2e7f4d')
     })
 
     it('returns valid colors for all presets', () => {

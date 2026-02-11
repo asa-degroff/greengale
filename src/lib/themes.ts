@@ -320,8 +320,20 @@ const PRESET_COLORS: Record<Exclude<ThemePreset, 'default' | 'custom'>, PresetCo
 /**
  * Get the base colors for a preset (for UI pre-fill in custom theme editor)
  */
+/** Default colors shown when user selects 'custom' without prior customization */
+const CUSTOM_DEFAULT_COLORS: PresetColors = {
+  background: '#0c0908',
+  text: '#ebf4ff',
+  accent: '#2e7f4d',
+  link: '#2e7f4d',
+  codeBackground: '#141110',
+}
+
 export function getPresetColors(preset: ThemePreset): PresetColors {
-  if (preset === 'default' || preset === 'custom') {
+  if (preset === 'custom') {
+    return CUSTOM_DEFAULT_COLORS
+  }
+  if (preset === 'default') {
     return PRESET_COLORS['github-light']
   }
   return PRESET_COLORS[preset]
