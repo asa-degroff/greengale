@@ -13,15 +13,15 @@ type PostResultType = PostSearchResultType | UnifiedPostResult
 const MATCH_TYPE_BADGES = {
   semantic: {
     label: 'Semantic',
-    className: 'bg-amber-500 text-white dark:bg-amber-900/30 dark:text-amber-300',
+    className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   },
   keyword: {
     label: 'Keyword',
-    className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
+    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
   },
   both: {
     label: 'Keyword + Semantic',
-    className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
+    className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
   },
 } as const
 
@@ -95,7 +95,7 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
             {badge.label}
           </span>
           {result.externalUrl && (
-            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1">
+            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1">
               {platformInfo ? (
                 <img src={platformInfo.icon} alt="" className="w-3 h-3" />
               ) : (

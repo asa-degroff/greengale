@@ -539,6 +539,18 @@ export function getCustomColorStyles(custom?: CustomColors): React.CSSProperties
   } as React.CSSProperties
 }
 
+export const DARK_THEME_PRESETS = new Set<ThemePreset>([
+  'github-dark', 'dracula', 'nord', 'solarized-dark', 'monokai',
+])
+
+export function isCustomColorsDark(colors: CustomColors): boolean {
+  if (!colors.background) return false
+  const bg = parse(colors.background)
+  if (!bg) return false
+  const bgOklch = oklch(bg) as Oklch
+  return (bgOklch?.l ?? 0) < 0.5
+}
+
 /**
  * Check if a theme is dark (default follows site theme, so we check separately)
  */
@@ -547,5 +559,5 @@ export function isDarkTheme(preset: ThemePreset): boolean {
     // Default theme follows site theme - check current site theme
     return document.documentElement.getAttribute('data-site-theme') === 'dark'
   }
-  return ['github-dark', 'dracula', 'nord', 'solarized-dark', 'monokai'].includes(preset)
+  return DARK_THEME_PRESETS.has(preset)
 }

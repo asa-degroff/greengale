@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { ThemePreset, CustomColors } from './themes'
-import { deriveFullSiteColors, getPresetColors } from './themes'
+import { deriveFullSiteColors, getPresetColors, DARK_THEME_PRESETS, isCustomColorsDark } from './themes'
 
 // Background colors for each theme preset (used for theme-color meta tag)
 // For 'default', we check the site theme (light/dark) separately
@@ -159,6 +159,19 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     document.documentElement.setAttribute('data-active-theme', effectiveTheme)
 
+    // Set data-theme-dark when the effective visual theme is dark (preset or custom).
+    // For 'default' theme, the existing data-site-theme="dark" handles dark: styles.
+    const isThemeDark =
+      effectiveTheme === 'custom'
+        ? effectiveCustomColors != null && isCustomColorsDark(effectiveCustomColors)
+        : effectiveTheme !== 'default' && DARK_THEME_PRESETS.has(effectiveTheme)
+
+    if (isThemeDark) {
+      document.documentElement.setAttribute('data-theme-dark', '')
+    } else {
+      document.documentElement.removeAttribute('data-theme-dark')
+    }
+
     // Apply theme colors to document root as inline styles
     // This ensures CSS variables are set with highest priority for all theme types
     const customColorProps: string[] = []
@@ -244,6 +257,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         observer.disconnect()
         // Reset to default when unmounting (shouldn't happen, but safety)
         document.documentElement.setAttribute('data-active-theme', 'default')
+        document.documentElement.removeAttribute('data-theme-dark')
       }
     }
 
@@ -255,6 +269,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       }
       // Reset to default when unmounting (shouldn't happen, but safety)
       document.documentElement.setAttribute('data-active-theme', 'default')
+      document.documentElement.removeAttribute('data-theme-dark')
     }
   }, [effectiveTheme, effectiveCustomColors])
 

@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* Configure Tailwind dark mode to use data-site-theme attribute */
-@custom-variant dark (&:where([data-site-theme="dark"], [data-site-theme="dark"] *));
+@custom-variant dark (&:where([data-site-theme="dark"], [data-site-theme="dark"] *, [data-theme-dark], [data-theme-dark] *));
 
 /* KaTeX styles */
 @import "katex/dist/katex.min.css";

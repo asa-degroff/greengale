@@ -7,25 +7,25 @@ import { getPlatformInfo, getExternalDomain } from '@/lib/platform-utils'
 const MATCH_TYPE_BADGES = {
   handle: {
     label: 'Handle',
-    className: 'bg-blue-600 text-white dark:bg-blue-900/30 dark:text-blue-300',
+    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
   },
   displayName: {
     label: 'Name',
-    className: 'bg-green-600 text-white dark:bg-green-900/30 dark:text-green-300',
+    className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
   },
   publicationName: {
     label: 'Publication',
-    className: 'bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300',
+    className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
   },
   publicationUrl: {
     label: 'URL',
-    className: 'bg-orange-500 text-white dark:bg-orange-900/30 dark:text-orange-300',
+    className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
   },
 } as const
 
 const DEFAULT_BADGE = {
   label: 'Match',
-  className: 'bg-gray-600 text-white dark:bg-gray-900/30 dark:text-gray-300',
+  className: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
 }
 
 interface AuthorSearchResultRowProps {
@@ -90,14 +90,14 @@ export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: Auth
           <span className="font-medium text-[var(--site-text)] truncate">
             {result.displayName || result.handle}
           </span>
-          <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-gray-600 text-white dark:bg-gray-700 dark:text-gray-300">
+          <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
             Author
           </span>
           <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${badge.className}`}>
             {badge.label}
           </span>
           {isExternal && (
-            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-purple-600 text-white dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1">
+            <span className="text-xs px-2 py-0.5 rounded whitespace-nowrap bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 flex items-center gap-1">
               {platformInfo ? (
                 <img src={platformInfo.icon} alt="" className="w-3 h-3" />
               ) : (
