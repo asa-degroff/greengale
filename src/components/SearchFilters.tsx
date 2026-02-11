@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import type { SearchMode, SearchField, AiAgentFilter } from '@/lib/appview'
 
 export type DateRange = 'any' | 'week' | 'month' | 'year' | 'custom'
@@ -53,6 +53,56 @@ const AI_AGENT_OPTIONS = [
   { value: 'or', label: 'OR' },
   { value: 'not', label: 'NOT' },
 ] as const
+
+function InfoTooltip({ children }: { children: ReactNode }) {
+  const [visible, setVisible] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const iconRef = useRef<HTMLSpanElement>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const show = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect()
+      setPos({ top: rect.top - 8, left: rect.left })
+    }
+    setVisible(true)
+  }, [])
+
+  const hide = useCallback(() => {
+    timeoutRef.current = setTimeout(() => setVisible(false), 300)
+  }, [])
+
+  useEffect(() => {
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current) }
+  }, [])
+
+  return (
+    <span ref={iconRef} className="relative" onMouseEnter={show} onMouseLeave={hide}>
+      <svg
+        className="w-3.5 h-3.5 text-[var(--site-text-secondary)] cursor-help"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 16v-4" />
+        <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
+      </svg>
+      {visible && pos && (
+        <span
+          onMouseEnter={show}
+          onMouseLeave={hide}
+          className="fixed w-56 px-3 py-2 text-xs font-normal text-[var(--site-text)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded-lg shadow-lg text-left z-50 transition-opacity duration-200"
+          style={{ top: pos.top, left: pos.left, transform: 'translateY(-100%)' }}
+        >
+          {children}
+        </span>
+      )}
+    </span>
+  )
+}
 
 export function SearchFilters({
   mode,
@@ -376,7 +426,12 @@ export function SearchFilters({
             {onAiAgentChange && (
               <div className="flex-shrink-0">
                 <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">
-                  AI Agent
+                  <span className="inline-flex items-center gap-1">
+                    AI Agent
+                    <InfoTooltip>
+                      The AI agent label, derived from <a href="https://bsky.app/profile/did:plc:saslbwamakedc4h6c5bmshvz" target="_blank" rel="noopener noreferrer" className="underline text-[var(--site-accent)]">@labeler.hailey.at</a>, is applied voluntarily by users and may not be comprehensive.
+                    </InfoTooltip>
+                  </span>
                 </label>
                 <div className="flex rounded-lg border border-[var(--site-border)] overflow-hidden">
                   {AI_AGENT_OPTIONS.map(({ value, label }) => (
