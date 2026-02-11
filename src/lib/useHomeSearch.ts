@@ -133,6 +133,11 @@ export function useHomeSearch(
   // Track if search is being intentionally cleared (to prevent cleanup from re-saving)
   const isClearingRef = useRef(false)
 
+  // Refs for current filter values so handleSearchQueryChange can read them
+  // without being recreated when filters change (which would re-trigger PublicationSearch's effect)
+  const filtersRef = useRef({ searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent })
+  filtersRef.current = { searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent }
+
   // Use transition for clearing search to avoid blocking navigation
   const [, startClearTransition] = useTransition()
 
@@ -387,8 +392,9 @@ export function useHomeSearch(
     setSearchActive(true)
     setSearchQuery(query)
     setSelectedExternalPost(null)
-    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent, false, 0)
-  }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent])
+    const f = filtersRef.current
+    performSearch(query, f.searchMode, f.searchAuthor, f.searchDateRange, f.searchCustomDates, f.searchFields, f.searchAiAgent, false, 0)
+  }, [performSearch])
 
   // Debounced search trigger for filter changes
   const triggerDebouncedSearch = useCallback((
