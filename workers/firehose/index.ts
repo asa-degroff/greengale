@@ -93,6 +93,7 @@ interface AuthorData {
   avatar: string | null
   banner: string | null
   pdsEndpoint: string | null
+  isAiAgent: boolean
 }
 
 // Alarm interval - check connection every 30 seconds
@@ -726,8 +727,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       if (authorData) {
         statements.push(
           this.env.DB.prepare(`
-            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint, is_ai_agent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(did) DO UPDATE SET
               handle = excluded.handle,
               display_name = excluded.display_name,
@@ -735,6 +736,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
               avatar_url = excluded.avatar_url,
               banner_url = excluded.banner_url,
               pds_endpoint = COALESCE(excluded.pds_endpoint, authors.pds_endpoint),
+              is_ai_agent = excluded.is_ai_agent,
               updated_at = datetime('now')
           `).bind(
             authorData.did,
@@ -743,7 +745,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
             authorData.description,
             authorData.avatar,
             authorData.banner,
-            authorData.pdsEndpoint
+            authorData.pdsEndpoint,
+            authorData.isAiAgent ? 1 : 0
           )
         )
       } else {
@@ -1061,31 +1064,52 @@ export class FirehoseConsumer extends DurableObject<Env> {
         banner?: string
       }
 
-      // Also fetch PDS endpoint from DID document (needed for OG image thumbnails)
-      let pdsEndpoint: string | null = null
-      try {
-        let didDocUrl: string
-        if (did.startsWith('did:web:')) {
-          const parts = did.slice('did:web:'.length).split(':')
-          const host = decodeURIComponent(parts[0])
-          const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
-          didDocUrl = `https://${host}${path}/did.json`
-        } else {
-          didDocUrl = `https://plc.directory/${did}`
-        }
-        const didDocResponse = await fetch(didDocUrl)
-        if (didDocResponse.ok) {
-          const didDoc = await didDocResponse.json() as {
-            service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+      // Fetch PDS endpoint and AI agent label in parallel
+      const [pdsEndpoint, isAiAgent] = await Promise.all([
+        // PDS endpoint from DID document (needed for OG image thumbnails)
+        (async (): Promise<string | null> => {
+          try {
+            let didDocUrl: string
+            if (did.startsWith('did:web:')) {
+              const parts = did.slice('did:web:'.length).split(':')
+              const host = decodeURIComponent(parts[0])
+              const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
+              didDocUrl = `https://${host}${path}/did.json`
+            } else {
+              didDocUrl = `https://plc.directory/${did}`
+            }
+            const didDocResponse = await fetch(didDocUrl)
+            if (didDocResponse.ok) {
+              const didDoc = await didDocResponse.json() as {
+                service?: Array<{ id: string; type: string; serviceEndpoint: string }>
+              }
+              const pdsService = didDoc.service?.find(
+                s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
+              )
+              return pdsService?.serviceEndpoint || null
+            }
+            return null
+          } catch {
+            return null
           }
-          const pdsService = didDoc.service?.find(
-            s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-          )
-          pdsEndpoint = pdsService?.serviceEndpoint || null
-        }
-      } catch {
-        // PDS lookup failed, continue without it
-      }
+        })(),
+        // AI agent label from Hailey's Labeler
+        (async (): Promise<boolean> => {
+          try {
+            const labelerDid = 'did:plc:saslbwamakedc4h6c5bmshvz'
+            const labelResponse = await fetch(
+              `https://public.api.bsky.app/xrpc/com.atproto.label.queryLabels?uriPatterns=${encodeURIComponent(did)}&sources=${encodeURIComponent(labelerDid)}`
+            )
+            if (!labelResponse.ok) return false
+            const labelData = await labelResponse.json() as {
+              labels?: Array<{ val: string; neg?: boolean }>
+            }
+            return (labelData.labels || []).some(l => l.val === 'ai-agent' && !l.neg)
+          } catch {
+            return false
+          }
+        })(),
+      ])
 
       return {
         did: profile.did,
@@ -1095,6 +1119,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
         avatar: profile.avatar || null,
         banner: profile.banner || null,
         pdsEndpoint,
+        isAiAgent,
       }
     } catch {
       return null
@@ -1294,8 +1319,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       if (authorData) {
         statements.push(
           this.env.DB.prepare(`
-            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint, is_ai_agent)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(did) DO UPDATE SET
               handle = excluded.handle,
               display_name = excluded.display_name,
@@ -1303,6 +1328,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
               avatar_url = excluded.avatar_url,
               banner_url = excluded.banner_url,
               pds_endpoint = COALESCE(excluded.pds_endpoint, authors.pds_endpoint),
+              is_ai_agent = excluded.is_ai_agent,
               updated_at = datetime('now')
           `).bind(
             authorData.did,
@@ -1311,7 +1337,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
             authorData.description,
             authorData.avatar,
             authorData.banner,
-            authorData.pdsEndpoint
+            authorData.pdsEndpoint,
+            authorData.isAiAgent ? 1 : 0
           )
         )
       } else {

@@ -336,6 +336,8 @@ export type SearchField = 'handle' | 'name' | 'pub' | 'content'
 /**
  * Search for posts using semantic, keyword, or hybrid search
  */
+export type AiAgentFilter = 'or' | 'and' | 'not'
+
 export async function searchPosts(
   query: string,
   options?: {
@@ -345,6 +347,7 @@ export async function searchPosts(
     after?: string
     before?: string
     fields?: SearchField[]
+    aiAgent?: AiAgentFilter
     signal?: AbortSignal
   }
 ): Promise<SearchPostsResponse> {
@@ -357,6 +360,9 @@ export async function searchPosts(
   if (options?.before) params.set('before', options.before)
   if (options?.fields && options.fields.length > 0) {
     params.set('fields', options.fields.join(','))
+  }
+  if (options?.aiAgent && options.aiAgent !== 'or') {
+    params.set('aiAgent', options.aiAgent)
   }
 
   const response = await fetch(
@@ -459,6 +465,7 @@ export async function searchUnified(
     before?: string
     fields?: SearchField[]
     types?: ('post' | 'author')[]
+    aiAgent?: AiAgentFilter
     signal?: AbortSignal
   }
 ): Promise<UnifiedSearchResponse> {
@@ -475,6 +482,9 @@ export async function searchUnified(
   }
   if (options?.types && options.types.length > 0) {
     params.set('types', options.types.join(','))
+  }
+  if (options?.aiAgent && options.aiAgent !== 'or') {
+    params.set('aiAgent', options.aiAgent)
   }
 
   const response = await fetch(

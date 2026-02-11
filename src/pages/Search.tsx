@@ -6,6 +6,7 @@ import {
   type UnifiedPostResult,
   type SearchMode,
   type SearchField,
+  type AiAgentFilter,
 } from '@/lib/appview'
 import { PostSearchResult } from '@/components/PostSearchResult'
 import { AuthorSearchResultRow } from '@/components/AuthorSearchResultRow'
@@ -60,6 +61,7 @@ export function SearchPage() {
   const authorParam = searchParams.get('author') || ''
   const dateParam = searchParams.get('date') as DateRange | null
   const fieldsParam = searchParams.get('fields') || ''
+  const aiAgentParam = searchParams.get('aiAgent') as AiAgentFilter | null
 
   // Local state
   const [inputValue, setInputValue] = useState(query)
@@ -67,6 +69,7 @@ export function SearchPage() {
   const [author, setAuthor] = useState(authorParam)
   const [dateRange, setDateRange] = useState<DateRange>(dateParam || 'any')
   const [fields, setFields] = useState<SearchField[]>(parseFields(fieldsParam))
+  const [aiAgent, setAiAgent] = useState<AiAgentFilter>(aiAgentParam || 'or')
 
   // Results state
   const [results, setResults] = useState<UnifiedSearchResult[]>([])
@@ -143,6 +146,7 @@ export function SearchPage() {
         author: author || undefined,
         after: afterDate,
         fields: fields.length > 0 ? fields : undefined,
+        aiAgent: aiAgent !== 'or' ? aiAgent : undefined,
         signal,
       })
 
@@ -174,7 +178,7 @@ export function SearchPage() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [mode, author, dateRange, fields, offset])
+  }, [mode, author, dateRange, fields, aiAgent, offset])
 
   // Search when query or filters change (reset pagination)
   // Using a ref to avoid stale closure issues with performSearch
@@ -186,7 +190,7 @@ export function SearchPage() {
       setSelectedExternalPost(null)
       performSearchRef.current(query, false)
     }
-  }, [query, mode, author, dateRange, fields])
+  }, [query, mode, author, dateRange, fields, aiAgent])
 
   // Handle input changes with debounce
   useEffect(() => {
@@ -248,6 +252,11 @@ export function SearchPage() {
     updateUrl({ fields: newFields.length > 0 ? newFields.join(',') : undefined })
   }, [updateUrl])
 
+  const handleAiAgentChange = useCallback((newAiAgent: AiAgentFilter) => {
+    setAiAgent(newAiAgent)
+    updateUrl({ aiAgent: newAiAgent !== 'or' ? newAiAgent : undefined })
+  }, [updateUrl])
+
   const handleLoadMore = useCallback(() => {
     if (!loadingMore && hasMore) {
       performSearch(query, true)
@@ -303,6 +312,8 @@ export function SearchPage() {
           onDateRangeChange={handleDateRangeChange}
           fields={fields}
           onFieldsChange={handleFieldsChange}
+          aiAgent={aiAgent}
+          onAiAgentChange={handleAiAgentChange}
         />
       </div>
 

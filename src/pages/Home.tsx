@@ -335,6 +335,8 @@ export function HomePage() {
                   onCustomDatesChange={search.handleSearchCustomDatesChange as (dates: CustomDateRange) => void}
                   fields={search.searchFields}
                   onFieldsChange={search.handleSearchFieldsChange}
+                  aiAgent={search.searchAiAgent}
+                  onAiAgentChange={search.handleSearchAiAgentChange}
                 />
               </div>
             </div>
@@ -424,7 +426,7 @@ function SearchResultsSection({ search, onMouseEnter }: SearchResultsSectionProp
     <div className="mb-12 animate-section-fade-in">
       {/* Results header */}
       <div className="flex items-center gap-2 mb-4 pb-4 border-b border-[var(--site-border)]">
-        <span className={`text-sm text-[var(--site-text-secondary)] transition-opacity duration-150 ${search.searchCountStale ? 'opacity-50' : 'opacity-100'}`}>
+        <span className="text-sm text-[var(--site-text-secondary)]">
           {search.searchTotal > search.searchResults.length
             ? `Showing ${search.searchResults.length} of ${search.searchTotal} results`
             : `${search.searchTotal} result${search.searchTotal !== 1 ? 's' : ''}`
@@ -486,11 +488,11 @@ function SearchResultsSection({ search, onMouseEnter }: SearchResultsSectionProp
       )}
 
       {/* Load More Button */}
-      {search.searchHasMore && !search.searchLoading && !search.searchCountStale && (
+      {search.searchHasMore && (
         <div className="mt-6 text-center">
           <button
             onClick={search.handleLoadMoreSearch}
-            disabled={search.searchLoadingMore}
+            disabled={search.searchLoadingMore || search.searchLoading || search.searchCountStale}
             className="px-6 py-2 rounded-lg border border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)] transition-colors disabled:opacity-50"
           >
             {search.searchLoadingMore ? (

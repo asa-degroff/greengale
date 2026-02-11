@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS authors (
   banner_url TEXT,
   pds_endpoint TEXT,
   posts_count INTEGER DEFAULT 0,
+  is_ai_agent INTEGER DEFAULT 0,
   updated_at TEXT DEFAULT (datetime('now'))
 );
 

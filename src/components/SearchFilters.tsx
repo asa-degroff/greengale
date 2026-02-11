@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import type { SearchMode, SearchField } from '@/lib/appview'
+import type { SearchMode, SearchField, AiAgentFilter } from '@/lib/appview'
 
 export type DateRange = 'any' | 'week' | 'month' | 'year' | 'custom'
+export type { AiAgentFilter }
 
 export interface CustomDateRange {
   after?: string  // ISO date string
@@ -21,6 +22,8 @@ interface SearchFiltersProps {
   onCustomDatesChange?: (dates: CustomDateRange) => void
   fields: SearchField[]
   onFieldsChange: (fields: SearchField[]) => void
+  aiAgent?: AiAgentFilter
+  onAiAgentChange?: (filter: AiAgentFilter) => void
 }
 
 const FIELD_OPTIONS: { value: SearchField; label: string }[] = [
@@ -45,6 +48,12 @@ const DATE_OPTIONS = [
   { value: 'custom', label: 'Custom range', shortLabel: 'Custom' },
 ] as const
 
+const AI_AGENT_OPTIONS = [
+  { value: 'and', label: 'AND' },
+  { value: 'or', label: 'OR' },
+  { value: 'not', label: 'NOT' },
+] as const
+
 export function SearchFilters({
   mode,
   onModeChange,
@@ -56,6 +65,8 @@ export function SearchFilters({
   onCustomDatesChange,
   fields,
   onFieldsChange,
+  aiAgent = 'or',
+  onAiAgentChange,
 }: SearchFiltersProps) {
   const [authorInput, setAuthorInput] = useState(author)
   const [results, setResults] = useState<BlueskyActor[]>([])
@@ -247,7 +258,7 @@ export function SearchFilters({
 
   // Check if any extra filters are active (for badge indicator)
   // On mobile, field filters are in the expansion, so include them in the indicator
-  const hasActiveFilters = author !== '' || dateRange !== 'any' || !isAllSelected
+  const hasActiveFilters = author !== '' || dateRange !== 'any' || !isAllSelected || aiAgent !== 'or'
 
   return (
     <div className="space-y-2">
@@ -361,6 +372,30 @@ export function SearchFilters({
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+            {/* AI Agent filter */}
+            {onAiAgentChange && (
+              <div className="flex-shrink-0">
+                <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">
+                  AI Agent
+                </label>
+                <div className="flex rounded-lg border border-[var(--site-border)] overflow-hidden">
+                  {AI_AGENT_OPTIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => onAiAgentChange(value)}
+                      className={`px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                        aiAgent === value
+                          ? 'bg-[var(--site-accent)] text-white'
+                          : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Author filter */}
             <div className="flex-1 min-w-0">
               <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">

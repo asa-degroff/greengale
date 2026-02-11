@@ -5,6 +5,7 @@ import {
   type UnifiedPostResult,
   type SearchMode,
   type SearchField,
+  type AiAgentFilter,
 } from '@/lib/appview'
 import { dateRangeToParams, type DateRange, type CustomDateRange } from '@/components/SearchFilters'
 
@@ -23,6 +24,7 @@ interface PersistedSearchState {
   searchDateRange: DateRange
   searchCustomDates: CustomDateRange
   searchFields: SearchField[]
+  searchAiAgent: AiAgentFilter
   searchTotal: number
   searchHasMore: boolean
   searchOffset: number
@@ -70,6 +72,7 @@ interface UseHomeSearchResult {
   searchDateRange: DateRange
   searchCustomDates: CustomDateRange
   searchFields: SearchField[]
+  searchAiAgent: AiAgentFilter
   searchFallbackUsed: boolean
   selectedExternalPost: UnifiedPostResult | null
   searchSelectedIndex: number
@@ -87,6 +90,7 @@ interface UseHomeSearchResult {
   handleSearchDateRangeChange: (dateRange: DateRange) => void
   handleSearchCustomDatesChange: (customDates: CustomDateRange) => void
   handleSearchFieldsChange: (fields: SearchField[]) => void
+  handleSearchAiAgentChange: (aiAgent: AiAgentFilter) => void
   setSelectedExternalPost: (post: UnifiedPostResult | null) => void
   setSearchSelectedIndex: (index: number) => void
   handleSelectSearchResult: (index: number) => void
@@ -108,6 +112,7 @@ export function useHomeSearch(
   const [searchDateRange, setSearchDateRange] = useState<DateRange>(persistedState?.searchDateRange ?? 'any')
   const [searchCustomDates, setSearchCustomDates] = useState<CustomDateRange>(persistedState?.searchCustomDates ?? {})
   const [searchFields, setSearchFields] = useState<SearchField[]>(persistedState?.searchFields ?? [])
+  const [searchAiAgent, setSearchAiAgent] = useState<AiAgentFilter>(persistedState?.searchAiAgent ?? 'or')
   const [searchFallbackUsed, setSearchFallbackUsed] = useState(persistedState?.searchFallbackUsed ?? false)
   const [selectedExternalPost, setSelectedExternalPost] = useState<UnifiedPostResult | null>(null)
   const [searchSelectedIndex, setSearchSelectedIndex] = useState(persistedState?.searchSelectedIndex ?? -1)
@@ -161,6 +166,7 @@ export function useHomeSearch(
         searchDateRange,
         searchCustomDates,
         searchFields,
+        searchAiAgent,
         searchTotal,
         searchHasMore,
         searchOffset,
@@ -185,6 +191,7 @@ export function useHomeSearch(
           searchDateRange,
           searchCustomDates,
           searchFields,
+          searchAiAgent,
           searchTotal,
           searchHasMore,
           searchOffset,
@@ -202,6 +209,7 @@ export function useHomeSearch(
     searchDateRange,
     searchCustomDates,
     searchFields,
+    searchAiAgent,
     searchTotal,
     searchHasMore,
     searchOffset,
@@ -216,6 +224,7 @@ export function useHomeSearch(
     dateRange: DateRange,
     customDates: CustomDateRange,
     fields: SearchField[],
+    aiAgent: AiAgentFilter = 'or',
     appendResults = false,
     currentOffset = 0
   ) => {
@@ -223,8 +232,8 @@ export function useHomeSearch(
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort()
     }
-    searchAbortControllerRef.current = new AbortController()
-    const signal = searchAbortControllerRef.current.signal
+    const controller = new AbortController()
+    searchAbortControllerRef.current = controller
 
     if (appendResults) {
       setSearchLoadingMore(true)
@@ -254,7 +263,8 @@ export function useHomeSearch(
         after: dateParams.after,
         before: dateParams.before,
         fields: fields.length > 0 ? fields : undefined,
-        signal,
+        aiAgent: aiAgent !== 'or' ? aiAgent : undefined,
+        signal: controller.signal,
       })
 
       if (appendResults) {
@@ -268,7 +278,10 @@ export function useHomeSearch(
 
       setSearchTotal(response.total)
       setSearchHasMore(response.hasMore)
-      setSearchCountStale(false)
+      // Only clear stale flag if no new debounced search is pending
+      if (!filterDebounceRef.current) {
+        setSearchCountStale(false)
+      }
 
       if (response.fallback === 'keyword') {
         setSearchFallbackUsed(true)
@@ -283,13 +296,16 @@ export function useHomeSearch(
         setSearchHasMore(false)
       }
     } finally {
-      setSearchLoading(false)
-      setSearchLoadingMore(false)
-      if (loadingDelayRef.current) {
-        clearTimeout(loadingDelayRef.current)
-        loadingDelayRef.current = null
+      // Only reset loading state if this request wasn't aborted by a newer one
+      if (!controller.signal.aborted) {
+        setSearchLoading(false)
+        setSearchLoadingMore(false)
+        if (loadingDelayRef.current) {
+          clearTimeout(loadingDelayRef.current)
+          loadingDelayRef.current = null
+        }
+        setSearchLoadingVisible(false)
       }
-      setSearchLoadingVisible(false)
     }
   }, [])
 
@@ -325,6 +341,7 @@ export function useHomeSearch(
       setSearchDateRange('any')
       setSearchCustomDates({})
       setSearchFields([])
+      setSearchAiAgent('or')
       setSearchOffset(0)
       setSearchTotal(0)
       setSearchHasMore(false)
@@ -347,6 +364,7 @@ export function useHomeSearch(
         searchDateRange,
         searchCustomDates,
         searchFields,
+        searchAiAgent,
         true,
         searchOffset
       )
@@ -361,6 +379,7 @@ export function useHomeSearch(
     searchDateRange,
     searchCustomDates,
     searchFields,
+    searchAiAgent,
     searchOffset,
   ])
 
@@ -368,8 +387,8 @@ export function useHomeSearch(
     setSearchActive(true)
     setSearchQuery(query)
     setSelectedExternalPost(null)
-    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, false, 0)
-  }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields])
+    performSearch(query, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent, false, 0)
+  }, [performSearch, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent])
 
   // Debounced search trigger for filter changes
   const triggerDebouncedSearch = useCallback((
@@ -378,14 +397,16 @@ export function useHomeSearch(
     author: string,
     dateRange: DateRange,
     customDates: CustomDateRange,
-    fields: SearchField[]
+    fields: SearchField[],
+    aiAgent: AiAgentFilter = 'or'
   ) => {
     if (filterDebounceRef.current) {
       clearTimeout(filterDebounceRef.current)
     }
     filterDebounceRef.current = setTimeout(() => {
+      filterDebounceRef.current = null
       if (query) {
-        performSearch(query, mode, author, dateRange, customDates, fields, false, 0)
+        performSearch(query, mode, author, dateRange, customDates, fields, aiAgent, false, 0)
       }
     }, FILTER_DEBOUNCE_MS)
   }, [performSearch])
@@ -393,34 +414,40 @@ export function useHomeSearch(
   const handleSearchModeChange = useCallback((mode: SearchMode) => {
     setSearchMode(mode)
     if (searchQuery) setSearchCountStale(true)
-    triggerDebouncedSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates, searchFields)
-  }, [triggerDebouncedSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates, searchFields])
+    triggerDebouncedSearch(searchQuery, mode, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent)
+  }, [triggerDebouncedSearch, searchQuery, searchAuthor, searchDateRange, searchCustomDates, searchFields, searchAiAgent])
 
   const handleSearchAuthorChange = useCallback((author: string) => {
     setSearchAuthor(author)
     if (searchQuery) setSearchCountStale(true)
-    triggerDebouncedSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates, searchFields)
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchDateRange, searchCustomDates, searchFields])
+    triggerDebouncedSearch(searchQuery, searchMode, author, searchDateRange, searchCustomDates, searchFields, searchAiAgent)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchDateRange, searchCustomDates, searchFields, searchAiAgent])
 
   const handleSearchDateRangeChange = useCallback((dateRange: DateRange) => {
     setSearchDateRange(dateRange)
     if (searchQuery) setSearchCountStale(true)
-    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates, searchFields)
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchCustomDates, searchFields])
+    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, dateRange, searchCustomDates, searchFields, searchAiAgent)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchCustomDates, searchFields, searchAiAgent])
 
   const handleSearchCustomDatesChange = useCallback((customDates: CustomDateRange) => {
     setSearchCustomDates(customDates)
     if (searchDateRange === 'custom') {
       if (searchQuery) setSearchCountStale(true)
-      triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates, searchFields)
+      triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, customDates, searchFields, searchAiAgent)
     }
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchFields])
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchFields, searchAiAgent])
 
   const handleSearchFieldsChange = useCallback((fields: SearchField[]) => {
     setSearchFields(fields)
     if (searchQuery) setSearchCountStale(true)
-    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, fields)
-  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates])
+    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, fields, searchAiAgent)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchAiAgent])
+
+  const handleSearchAiAgentChange = useCallback((aiAgent: AiAgentFilter) => {
+    setSearchAiAgent(aiAgent)
+    if (searchQuery) setSearchCountStale(true)
+    triggerDebouncedSearch(searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields, aiAgent)
+  }, [triggerDebouncedSearch, searchQuery, searchMode, searchAuthor, searchDateRange, searchCustomDates, searchFields])
 
   const handleSelectSearchResult = useCallback((index: number) => {
     const result = searchResults[index]
@@ -448,6 +475,7 @@ export function useHomeSearch(
     searchDateRange,
     searchCustomDates,
     searchFields,
+    searchAiAgent,
     searchFallbackUsed,
     selectedExternalPost,
     searchSelectedIndex,
@@ -463,6 +491,7 @@ export function useHomeSearch(
     handleSearchDateRangeChange,
     handleSearchCustomDatesChange,
     handleSearchFieldsChange,
+    handleSearchAiAgentChange,
     setSelectedExternalPost,
     setSearchSelectedIndex,
     handleSelectSearchResult,

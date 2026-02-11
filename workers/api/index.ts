@@ -2400,13 +2400,16 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
     ? fieldsParam.split(',').filter(f => validFields.includes(f))
     : undefined
 
+  // AI agent filter: 'and' (only agents), 'not' (exclude agents), or omitted (no filter)
+  const aiAgentFilter = c.req.query('aiAgent')?.trim() || undefined
+
   // Determine if we should run semantic search
   // Semantic search only works on content fields
   const hasContentFields = !fields || fields.includes('content')
 
   // Cache key includes mode and filters
   const fieldsKey = fields ? fields.sort().join(',') : ''
-  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}:${fieldsKey}`
+  const cacheKey = `search_posts:${searchTerm.toLowerCase()}:${limit}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}:${fieldsKey}:${aiAgentFilter || ''}`
 
   try {
     // Check cache first
@@ -2599,6 +2602,13 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         keywordBindings.push(beforeFilter)
       }
 
+      // AI agent filter
+      if (aiAgentFilter === 'and') {
+        keywordSql += ` AND a.is_ai_agent = 1`
+      } else if (aiAgentFilter === 'not') {
+        keywordSql += ` AND (a.is_ai_agent IS NULL OR a.is_ai_agent = 0)`
+      }
+
       keywordSql += ` ORDER BY score DESC LIMIT ?`
       keywordBindings.push(500) // Fixed limit to allow more results for author/handle matches
 
@@ -2695,6 +2705,13 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
     if (beforeFilter) {
       postsSql += ` AND p.created_at <= ?`
       postsBindings.push(beforeFilter)
+    }
+
+    // AI agent filter
+    if (aiAgentFilter === 'and') {
+      postsSql += ` AND a.is_ai_agent = 1`
+    } else if (aiAgentFilter === 'not') {
+      postsSql += ` AND (a.is_ai_agent IS NULL OR a.is_ai_agent = 0)`
     }
 
     const postsResult = await c.env.DB.prepare(postsSql).bind(...postsBindings).all()
@@ -2805,10 +2822,13 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
     ? typesParam.split(',').filter(t => ['post', 'author'].includes(t))
     : ['post', 'author'] // Default to both
 
+  // AI agent filter: 'and' (only agents), 'not' (exclude agents), or omitted (no filter)
+  const aiAgentFilter = c.req.query('aiAgent')?.trim() || undefined
+
   // Cache key includes all parameters
   const fieldsKey = selectedFields.length > 0 ? selectedFields.sort().join(',') : 'all'
   const typesKey = includeTypes.sort().join(',')
-  const cacheKey = `unified_search:${searchTerm.toLowerCase()}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}:${fieldsKey}:${typesKey}`
+  const cacheKey = `unified_search:${searchTerm.toLowerCase()}:${mode}:${authorFilter || ''}:${afterFilter || ''}:${beforeFilter || ''}:${fieldsKey}:${typesKey}:${aiAgentFilter || ''}`
 
   try {
     // Check cache for full result set
@@ -2859,12 +2879,15 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             CASE WHEN LOWER(p.name) LIKE ?3 ESCAPE '\\' OR LOWER(p.url) LIKE ?3 ESCAPE '\\' THEN 1 ELSE 0 END as match_pub
           FROM authors a
           LEFT JOIN publications p ON a.did = p.author_did
-          WHERE
+          WHERE (
             LOWER(a.handle) = ?1
             OR LOWER(a.handle) LIKE ?2 ESCAPE '\\'
             OR LOWER(a.display_name) LIKE ?3 ESCAPE '\\'
             OR LOWER(p.name) LIKE ?3 ESCAPE '\\'
             OR LOWER(p.url) LIKE ?3 ESCAPE '\\'
+          )
+          ${aiAgentFilter === 'and' ? 'AND a.is_ai_agent = 1' : ''}
+          ${aiAgentFilter === 'not' ? 'AND (a.is_ai_agent IS NULL OR a.is_ai_agent = 0)' : ''}
           ORDER BY score DESC, posts_count DESC
           LIMIT 100
         `
@@ -3032,6 +3055,8 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                       OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
                 )
               )
+              ${aiAgentFilter === 'and' ? 'AND a.is_ai_agent = 1' : ''}
+              ${aiAgentFilter === 'not' ? 'AND (a.is_ai_agent IS NULL OR a.is_ai_agent = 0)' : ''}
             ORDER BY score DESC
             LIMIT 500
           `
@@ -3159,6 +3184,13 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             if (beforeFilter) {
               postsSql += ` AND p.created_at <= ?`
               postsBindings.push(beforeFilter)
+            }
+
+            // AI agent filter
+            if (aiAgentFilter === 'and') {
+              postsSql += ` AND a.is_ai_agent = 1`
+            } else if (aiAgentFilter === 'not') {
+              postsSql += ` AND (a.is_ai_agent IS NULL OR a.is_ai_agent = 0)`
             }
 
             const postsResult = await c.env.DB.prepare(postsSql).bind(...postsBindings).all()
@@ -3631,6 +3663,87 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
   } catch (error) {
     console.error('Error refreshing author profiles:', error)
     return c.json({ error: 'Failed to refresh profiles' }, 500)
+  }
+})
+
+// Refresh AI agent labels for all authors (admin only)
+// Queries the labeler API to update is_ai_agent column
+// Usage: POST /xrpc/app.greengale.admin.refreshAiAgentLabels
+app.post('/xrpc/app.greengale.admin.refreshAiAgentLabels', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  try {
+    const labelerDid = 'did:plc:saslbwamakedc4h6c5bmshvz'
+
+    // Get all author DIDs
+    const result = await c.env.DB.prepare('SELECT did FROM authors').all()
+    const authors = result.results || []
+
+    // Query labels in batches (keep batches small to avoid URL length limits)
+    const BATCH_SIZE = 10
+    const aiAgentDids = new Set<string>()
+    let batchesFailed = 0
+
+    for (let i = 0; i < authors.length; i += BATCH_SIZE) {
+      const batch = authors.slice(i, i + BATCH_SIZE)
+      const params = new URLSearchParams()
+      for (const author of batch) {
+        params.append('uriPatterns', author.did as string)
+      }
+      params.set('sources', labelerDid)
+
+      try {
+        const response = await fetch(
+          `https://public.api.bsky.app/xrpc/com.atproto.label.queryLabels?${params}`
+        )
+        if (response.ok) {
+          const data = await response.json() as {
+            labels?: Array<{ uri: string; val: string; neg?: boolean }>
+          }
+          for (const label of data.labels || []) {
+            if (label.val === 'ai-agent' && !label.neg) {
+              aiAgentDids.add(label.uri)
+            }
+          }
+        } else {
+          console.error(`Label query failed for batch ${i / BATCH_SIZE}: ${response.status} ${response.statusText}`)
+          batchesFailed++
+        }
+      } catch (err) {
+        console.error(`Label query error for batch ${i / BATCH_SIZE}:`, err)
+        batchesFailed++
+      }
+    }
+
+    // Reset all to 0
+    await c.env.DB.prepare('UPDATE authors SET is_ai_agent = 0').run()
+
+    // Set matching authors to 1 (batch in groups to avoid D1 limits)
+    const aiAgentArray = [...aiAgentDids]
+    for (let i = 0; i < aiAgentArray.length; i += 50) {
+      const batch = aiAgentArray.slice(i, i + 50)
+      const statements = batch.map(did =>
+        c.env.DB.prepare('UPDATE authors SET is_ai_agent = 1 WHERE did = ?').bind(did)
+      )
+      await c.env.DB.batch(statements)
+    }
+
+    return c.json({
+      success: true,
+      total: authors.length,
+      aiAgentCount: aiAgentDids.size,
+      batchesFailed,
+      aiAgentDids: aiAgentArray,
+    })
+  } catch (error) {
+    console.error('Error refreshing AI agent labels:', error)
+    return c.json({
+      error: 'Failed to refresh AI agent labels',
+      details: error instanceof Error ? error.message : String(error),
+    }, 500)
   }
 })
 
