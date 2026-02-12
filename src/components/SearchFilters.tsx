@@ -422,6 +422,8 @@ export function SearchFilters({
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+            {/* AI Agent + Author row (share a row on mobile too) */}
+            <div className="flex gap-3 items-end flex-1 min-w-0">
             {/* AI Agent filter */}
             {onAiAgentChange && (
               <div className="flex-shrink-0">
@@ -534,9 +536,10 @@ export function SearchFilters({
                 )}
               </div>
             </div>
+            </div>
 
             {/* Date range */}
-            <div className="flex-shrink-0">
+            <div className="sm:flex-shrink-0">
               <label className="block text-xs font-medium text-[var(--site-text-secondary)] mb-1">
                 Date
               </label>
@@ -545,7 +548,7 @@ export function SearchFilters({
                   <button
                     key={value}
                     onClick={() => onDateRangeChange(value)}
-                    className={`px-2.5 py-1.5 text-sm font-medium transition-colors ${
+                    className={`flex-1 sm:flex-initial px-2.5 py-1.5 text-sm font-medium transition-colors ${
                       dateRange === value
                         ? 'bg-[var(--site-accent)] text-white'
                         : 'bg-[var(--site-bg)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg-secondary)]'
