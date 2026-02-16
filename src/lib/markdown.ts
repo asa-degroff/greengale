@@ -14,6 +14,7 @@ import { remarkBlueskyEmbed } from './remark-bluesky-embed'
 import { remarkMention } from './remark-mention'
 import { rehypeBlueskyEmbed } from './rehype-bluesky-embed'
 import { rehypeHeadingIds } from './rehype-heading-ids'
+import { rehypeTableWrapper } from './rehype-table-wrapper'
 
 // Production JSX runtime for rehype-react v8+
 const production = {
@@ -322,6 +323,9 @@ export async function renderMarkdown(
 
   // Add IDs to headings for TOC anchor navigation
   processor = processor.use(rehypeHeadingIds)
+
+  // Wrap tables in scrollable containers
+  processor = processor.use(rehypeTableWrapper)
 
   processor = processor
     .use(rehypeSanitize, sanitizeSchema)

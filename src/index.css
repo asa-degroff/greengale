@@ -635,14 +635,16 @@ body {
   opacity: 0.9;
 }
 
+.markdown-body .table-scroll-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 1em;
+}
+
 .markdown-body table {
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
-  margin-bottom: 1em;
-  display: block;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .markdown-body th,
