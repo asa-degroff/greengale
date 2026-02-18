@@ -1793,3 +1793,93 @@ export async function migrateSiteStandardPublication(
     return { migrated: false, error: message }
   }
 }
+
+/**
+ * Migration v2: Fix publication URLs that are missing the user's handle.
+ * Some early publications were saved with url: "https://greengale.app" instead of
+ * "https://greengale.app/{handle}", causing dead links on standard.site and other platforms.
+ */
+export async function migratePublicationUrls(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> },
+  handle: string
+): Promise<{ migrated: boolean; error?: string }> {
+  const correctUrl = `https://greengale.app/${handle}`
+
+  try {
+    let migrated = false
+
+    // Fix app.greengale.publication
+    try {
+      const response = await session.fetchHandler(
+        `/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(PUBLICATION_COLLECTION)}&rkey=self`,
+        { method: 'GET' }
+      )
+
+      if (response.ok) {
+        const data = (await response.json()) as { value: Record<string, unknown> }
+        const record = data.value
+        if (typeof record.url === 'string' && record.url === 'https://greengale.app') {
+          const putResponse = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              repo: session.did,
+              collection: PUBLICATION_COLLECTION,
+              rkey: 'self',
+              record: { ...record, url: correctUrl },
+            }),
+          })
+          if (putResponse.ok) {
+            console.log('[Migration v2] Fixed app.greengale.publication URL')
+            migrated = true
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Migration v2] Failed to check/fix greengale publication:', e)
+    }
+
+    // Fix site.standard.publication
+    try {
+      const listResponse = await session.fetchHandler(
+        `/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(SITE_STANDARD_PUBLICATION)}&limit=50`,
+        { method: 'GET' }
+      )
+
+      if (listResponse.ok) {
+        const listData = (await listResponse.json()) as {
+          records?: Array<{ uri: string; value: Record<string, unknown> }>
+        }
+
+        for (const item of listData.records || []) {
+          const record = item.value
+          if (typeof record.url === 'string' && record.url === 'https://greengale.app') {
+            const rkey = item.uri.split('/').pop() || ''
+            const putResponse = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                repo: session.did,
+                collection: SITE_STANDARD_PUBLICATION,
+                rkey,
+                record: { ...record, url: correctUrl },
+              }),
+            })
+            if (putResponse.ok) {
+              console.log(`[Migration v2] Fixed site.standard.publication URL (rkey: ${rkey})`)
+              migrated = true
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Migration v2] Failed to check/fix site.standard publication:', e)
+    }
+
+    return { migrated }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[Migration v2] Failed:', message)
+    return { migrated: false, error: message }
+  }
+}

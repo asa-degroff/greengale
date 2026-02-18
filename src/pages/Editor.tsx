@@ -1141,7 +1141,7 @@ export function EditorPage() {
             // Create minimal publication record
             await savePublication(session, {
               name: handle || 'My Blog',
-              url: 'https://greengale.app',
+              url: `https://greengale.app/${handle}`,
             })
           }
         } catch (pubErr) {
@@ -1163,7 +1163,7 @@ export function EditorPage() {
             // Create site.standard.publication and get its rkey
             const existingPub = await getPublication(session.did)
             pubRkey = await saveSiteStandardPublication(session, {
-              url: existingPub?.url || 'https://greengale.app',
+              url: existingPub?.url || `https://greengale.app/${handle}`,
               name: existingPub?.name || handle || 'My Blog',
               description: existingPub?.description,
               basicTheme: existingPub?.theme ? toBasicTheme(existingPub.theme) : undefined,

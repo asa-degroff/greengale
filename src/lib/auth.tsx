@@ -11,7 +11,7 @@ import {
   OAuthSession,
   AtprotoDohHandleResolver,
 } from '@atproto/oauth-client-browser'
-import { migrateSiteStandardPublication } from './atproto'
+import { migrateSiteStandardPublication, migratePublicationUrls } from './atproto'
 import { markFromPWA, tryBridgeSession, isIOSStandalone } from './pwa-session-bridge'
 
 // Minimal OAuth scopes: blog entry collections + V2 document collection + publication + site.standard + blob uploads
@@ -169,6 +169,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem(migrationKey, new Date().toISOString())
           } catch (migrationError) {
             console.error('[Auth] Migration error:', migrationError)
+          }
+        }
+
+        // Migration v2: Fix publication URLs missing the user handle
+        if (resolvedHandle) {
+          const migrationKeyV2 = `publication-url-fix-v2-${did}`
+          if (!localStorage.getItem(migrationKeyV2)) {
+            try {
+              const urlFixResult = await migratePublicationUrls(result.session, resolvedHandle)
+              if (urlFixResult.migrated) {
+                console.log('[Auth] Publication URL fix completed')
+              }
+              localStorage.setItem(migrationKeyV2, new Date().toISOString())
+            } catch (e) {
+              console.error('[Auth] Publication URL fix error:', e)
+            }
           }
         }
 
