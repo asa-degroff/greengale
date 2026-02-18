@@ -1665,6 +1665,7 @@ html {
 .audio-player-loading-icon {
   color: var(--theme-accent);
   cursor: default;
+  border: none;
 }
 
 /* ==================== Markdown Toolbar ==================== */
