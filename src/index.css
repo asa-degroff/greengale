@@ -2023,8 +2023,39 @@ html {
   animation-duration: 300ms;
 }
 
+/* Content slide animations for switching posts within the preview panel */
+@keyframes preview-content-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes preview-content-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-50%);
+    opacity: 0;
+  }
+}
+
+.preview-content-slide-in {
+  animation: preview-content-slide-in 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.preview-content-slide-out {
+  animation: preview-content-slide-out 300ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-in {
+  .animate-in,
+  .preview-content-slide-in,
+  .preview-content-slide-out {
     animation: none !important;
   }
 }

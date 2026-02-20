@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import type { PostSearchResult, UnifiedPostResult } from '@/lib/appview'
 
 /**
@@ -7,6 +7,8 @@ import type { PostSearchResult, UnifiedPostResult } from '@/lib/appview'
  */
 type PostResultType = PostSearchResult | UnifiedPostResult
 
+const TRANSITION_DURATION = 300
+
 interface ExternalPreviewPanelProps {
   post: PostResultType | null
   onClose: () => void
@@ -14,6 +16,38 @@ interface ExternalPreviewPanelProps {
 
 export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const [prevPostUri, setPrevPostUri] = useState<string | null>(null)
+  const [exitingPost, setExitingPost] = useState<PostResultType | null>(null)
+  const [prevPostSnapshot, setPrevPostSnapshot] = useState<PostResultType | null>(null)
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Synchronous state derivation during render (React's "storing information
+  // from previous renders" pattern). This fires in the same render cycle as
+  // the post change, so both exitingPost and the new post render together.
+  const currentUri = post?.uri ?? null
+  if (currentUri !== prevPostUri) {
+    if (post && prevPostSnapshot && currentUri && prevPostUri) {
+      // Post changed to a different post — trigger transition
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+      setExitingPost(prevPostSnapshot)
+      exitTimerRef.current = setTimeout(() => {
+        setExitingPost(null)
+      }, TRANSITION_DURATION)
+    } else if (!post) {
+      // Panel closed
+      setExitingPost(null)
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+    }
+    setPrevPostUri(currentUri)
+    setPrevPostSnapshot(post)
+  }
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => {
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
+    }
+  }, [])
 
   // Check if we're on a wide screen (2xl breakpoint = 1536px)
   const isWideScreen = () => window.matchMedia('(min-width: 1536px)').matches
@@ -33,8 +67,9 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
       const target = e.target as Element
       // Don't close if clicking inside the panel
       if (panelRef.current?.contains(target)) return
-      // Don't close if clicking on a search result (let them switch documents)
+      // Don't close if clicking on a search result or feed card (let them switch documents)
       if (target.closest('button[class*="transition-colors"]')) return
+      if (target.closest('[data-external-post-card]')) return
       // Don't close if clicking on the sidebar
       if (target.closest('aside') || target.closest('[class*="complementary"]')) return
       // Don't close if clicking on the search bar (prevents disorienting layout shift while typing)
@@ -98,107 +133,52 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
     }
   }
 
-  if (!post) return null
+  // Process a post's content for display
+  const processContent = useCallback((p: PostResultType) => {
+    const preview = p.contentPreview
+    const sub = p.subtitle
+    let content: string | null = null
 
-  const externalUrl = post.externalUrl
+    if (preview) {
+      const trimmed = preview.trim()
+      const subTrimmed = sub?.trim()
 
-  // Deduplicate content: if subtitle appears at the start of contentPreview, show only the unique part
-  const contentPreview = post.contentPreview
-  const subtitle = post.subtitle
-  let displayContent: string | null = null
-
-  if (contentPreview) {
-    const content = contentPreview.trim()
-    const subtitleTrimmed = subtitle?.trim()
-
-    if (subtitleTrimmed && content.startsWith(subtitleTrimmed)) {
-      // Remove the subtitle portion from the beginning
-      const remainder = content.slice(subtitleTrimmed.length).trim()
-      // If there's meaningful content after the subtitle, return it
-      if (remainder.length > 20) {
-        displayContent = remainder
+      if (subTrimmed && trimmed.startsWith(subTrimmed)) {
+        const remainder = trimmed.slice(subTrimmed.length).trim()
+        if (remainder.length > 20) content = remainder
+      } else {
+        content = trimmed
       }
-      // If the content is basically just the subtitle, don't show it (displayContent stays null)
-    } else {
-      displayContent = content
     }
-  }
 
-  // Check if content appears truncated (content_preview is capped at 3000 chars during indexing)
-  let contentIsTruncated = false
-  if (displayContent && contentPreview) {
-    // If the raw preview is near the 3000-char cap, it was almost certainly truncated
-    const nearCap = contentPreview.trim().length >= 2900
-    // If it's well under the cap, it's the full content — not truncated
-    contentIsTruncated = nearCap
-  }
+    const isTruncated = !!(content && preview && preview.trim().length >= 2900)
 
-  return (
-    <>
-      {/* Backdrop - visible on mobile/medium screens, hidden on wide screens where content slides over */}
-      <div
-        className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 2xl:hidden"
-        onClick={handleBackdropClick}
-        aria-hidden="true"
-      />
+    return { displayContent: content, contentIsTruncated: isTruncated }
+  }, [])
 
-      {/* Panel - slides from right on desktop, slides from bottom on mobile */}
-      <div
-        ref={panelRef}
-        className="fixed z-50 bg-[var(--site-bg)] shadow-xl flex flex-col
-          /* Mobile: bottom sheet */
-          inset-x-0 bottom-0 top-auto max-h-[85vh] rounded-t-2xl
-          /* Desktop: right side panel */
-          md:inset-y-0 md:right-0 md:left-auto md:w-[480px] md:max-w-[calc(100vw-320px)] md:max-h-none md:rounded-none md:rounded-l-2xl
-          /* Animation */
-          animate-in slide-in-responsive duration-300"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="external-preview-title"
-      >
-        {/* Mobile drag handle */}
-        <div className="md:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-[var(--site-border)]" />
-        </div>
+  // Render a post's content + footer
+  const renderPostContent = useCallback((p: PostResultType) => {
+    const { displayContent, contentIsTruncated } = processContent(p)
+    const url = p.externalUrl
 
-        {/* Header */}
-        <div className="flex-shrink-0 bg-[var(--site-bg)] border-b border-[var(--site-border)] px-4 py-3 flex items-center justify-between">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-            External Post
-          </span>
-          <button
-            onClick={onClose}
-            className="p-2 -mr-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors rounded-lg hover:bg-[var(--site-bg-secondary)]"
-            aria-label="Close preview"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
+    return (
+      <>
         {/* Scrollable content area */}
         <div className="external-preview-content flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
-          {/* Title */}
           <h2 id="external-preview-title" className="text-2xl font-bold text-[var(--site-text)] mb-2">
-            {post.title}
+            {p.title}
           </h2>
 
-          {/* Subtitle */}
-          {post.subtitle && (
+          {p.subtitle && (
             <p className="text-[var(--site-text-secondary)] mb-4">
-              {post.subtitle}
+              {p.subtitle}
             </p>
           )}
 
-          {/* Author info */}
           <div className="flex items-center gap-3 mb-6 pb-4 border-b border-[var(--site-border)]">
-            {post.avatarUrl ? (
+            {p.avatarUrl ? (
               <img
-                src={post.avatarUrl}
+                src={p.avatarUrl}
                 alt=""
                 className="w-10 h-10 rounded-full object-cover"
                 loading="lazy"
@@ -212,15 +192,14 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
             )}
             <div>
               <div className="font-medium text-[var(--site-text)]">
-                {post.displayName || `@${post.handle}`}
+                {p.displayName || `@${p.handle}`}
               </div>
               <div className="text-sm text-[var(--site-text-secondary)]">
-                {post.createdAt && formatDate(post.createdAt)}
+                {p.createdAt && formatDate(p.createdAt)}
               </div>
             </div>
           </div>
 
-          {/* Content preview */}
           {displayContent && (
             <div>
               <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
@@ -240,21 +219,19 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
 
         {/* Fixed footer with CTA */}
         <div className="flex-shrink-0 p-4 md:px-6 md:pb-6 md:pt-4 border-t border-[var(--site-border)] bg-[var(--site-bg)]">
-          {externalUrl && (
+          {url ? (
             <a
-              href={externalUrl}
+              href={url}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-3 w-full px-5 py-3.5 bg-[var(--site-accent)] text-white rounded-xl hover:opacity-90 transition-opacity font-medium"
             >
-              <span>Read on {getHostname(externalUrl)}</span>
+              <span>Read on {getHostname(url)}</span>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
             </a>
-          )}
-
-          {!externalUrl && (
+          ) : (
             <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
               <p className="text-yellow-800 dark:text-yellow-200 text-sm">
                 No external link available for this post.
@@ -265,6 +242,82 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
           <p className="text-center text-xs text-[var(--site-text-secondary)] mt-3">
             Opens in a new tab
           </p>
+        </div>
+      </>
+    )
+  }, [processContent])
+
+  if (!post) return null
+
+  const isTransitioning = !!exitingPost
+
+  return (
+    <>
+      {/* Backdrop - visible on mobile/medium screens, hidden on wide screens where content slides over */}
+      <div
+        className="fixed inset-0 bg-black/50 z-40 transition-opacity duration-300 2xl:hidden"
+        onClick={handleBackdropClick}
+        aria-hidden="true"
+      />
+
+      {/* Panel - slides from right on desktop, slides from bottom on mobile */}
+      <div
+        ref={panelRef}
+        className="fixed z-50 bg-[var(--site-bg)] shadow-xl flex flex-col overflow-hidden
+          /* Mobile: bottom sheet */
+          inset-x-0 bottom-0 top-auto max-h-[85vh] rounded-t-2xl
+          /* Desktop: right side panel */
+          md:inset-y-0 md:right-0 md:left-auto md:w-[480px] md:max-w-[calc(100vw-320px)] md:max-h-none md:rounded-none md:rounded-l-2xl
+          /* Animation */
+          animate-in slide-in-responsive duration-300"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="external-preview-title"
+      >
+        {/* Mobile drag handle */}
+        <div className="md:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-[var(--site-border)]" />
+        </div>
+
+        {/* Header */}
+        <div className="flex-shrink-0 bg-[var(--site-bg)] border-b border-[var(--site-border)] px-4 py-3 flex items-center justify-between z-10">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+            External Post
+          </span>
+          <button
+            onClick={onClose}
+            className="p-2 -mr-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors rounded-lg hover:bg-[var(--site-bg-secondary)]"
+            aria-label="Close preview"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content transition container — overflow hidden prevents slide animations from leaking */}
+        <div className="relative flex-1 min-h-0 overflow-hidden">
+          {/* Active post — absolutely positioned during transition to avoid layout shift */}
+          <div
+            key={post.uri}
+            className={`flex flex-col ${isTransitioning ? 'absolute inset-0 preview-content-slide-in' : 'h-full'}`}
+          >
+            {renderPostContent(post)}
+          </div>
+
+          {/* Exiting post (fades + slides out to the left, rendered on top) */}
+          {exitingPost && (
+            <div
+              key={exitingPost.uri}
+              className="absolute inset-0 flex flex-col preview-content-slide-out"
+              aria-hidden="true"
+            >
+              {renderPostContent(exitingPost)}
+            </div>
+          )}
         </div>
       </div>
     </>

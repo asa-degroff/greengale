@@ -335,6 +335,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
           type="button"
           onClick={onExternalPostClick}
           className="block w-full text-left rounded-lg overflow-hidden"
+          data-external-post-card
         >
           {cardContent}
         </button>
