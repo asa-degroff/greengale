@@ -465,6 +465,193 @@ describe('API Endpoints', () => {
     })
   })
 
+  describe('getNetworkPosts', () => {
+    it('returns empty posts array when no posts exist', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toEqual([])
+      expect(data.cursor).toBeUndefined()
+    })
+
+    it('returns posts with author data and contentPreview', async () => {
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:ext/site.standard.document/456',
+          author_did: 'did:plc:ext',
+          rkey: '456',
+          title: 'External Post',
+          subtitle: 'A network post',
+          source: 'network',
+          visibility: 'public',
+          created_at: '2024-03-01T00:00:00Z',
+          indexed_at: '2024-03-01T00:00:00Z',
+          external_url: 'https://blog.example.com/post',
+          content_preview: 'This is the content preview text',
+          handle: 'author.bsky.social',
+          display_name: 'External Author',
+          avatar_url: 'https://example.com/avatar.jpg',
+          pds_endpoint: 'https://pds.example.com',
+          icon_cid: null,
+          tags: null,
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+      expect(res.status).toBe(200)
+
+      const data = await res.json()
+      expect(data.posts).toHaveLength(1)
+      expect(data.posts[0].uri).toBe('at://did:plc:ext/site.standard.document/456')
+      expect(data.posts[0].title).toBe('External Post')
+      expect(data.posts[0].externalUrl).toBe('https://blog.example.com/post')
+      expect(data.posts[0].contentPreview).toBe('This is the content preview text')
+      expect(data.posts[0].author.handle).toBe('author.bsky.social')
+      expect(data.posts[0].author.displayName).toBe('External Author')
+      expect(data.posts[0].source).toBe('network')
+    })
+
+    it('returns null contentPreview when column is empty', async () => {
+      const mockPosts = [
+        {
+          uri: 'at://did:plc:ext/site.standard.document/789',
+          author_did: 'did:plc:ext',
+          rkey: '789',
+          title: 'No Preview',
+          source: 'network',
+          visibility: 'public',
+          created_at: '2024-03-01T00:00:00Z',
+          indexed_at: '2024-03-01T00:00:00Z',
+          external_url: 'https://example.com/post',
+          content_preview: null,
+          handle: 'user.bsky.social',
+          icon_cid: null,
+          tags: null,
+        },
+      ]
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+      const data = await res.json()
+
+      expect(data.posts[0].contentPreview).toBeNull()
+    })
+
+    it('respects limit parameter', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts?limit=10')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(11) // limit + 1
+    })
+
+    it('caps limit at 100', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts?limit=500')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith(101) // 100 + 1
+    })
+
+    it('returns cursor when more posts available', async () => {
+      const mockPosts = Array(51).fill(null).map((_, i) => ({
+        uri: `at://did:plc:ext/site.standard.document/${i}`,
+        author_did: 'did:plc:ext',
+        rkey: `${i}`,
+        title: `Post ${i}`,
+        source: 'network',
+        visibility: 'public',
+        created_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        indexed_at: `2024-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        external_url: `https://example.com/${i}`,
+        content_preview: null,
+        handle: 'user.bsky.social',
+        icon_cid: null,
+        tags: null,
+      }))
+      env.DB._statement.all.mockResolvedValueOnce({ results: mockPosts })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+      const data = await res.json()
+
+      expect(data.posts).toHaveLength(50)
+      expect(data.cursor).toBeDefined()
+    })
+
+    it('uses cursor for pagination', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts?cursor=2024-02-15T00:00:00Z')
+
+      expect(env.DB._statement.bind).toHaveBeenCalledWith('2024-02-15T00:00:00Z', 51)
+    })
+
+    it('returns cached response when available', async () => {
+      const cachedResponse = { posts: [{ uri: 'cached-network' }], cursor: undefined }
+      env.CACHE.get.mockResolvedValueOnce(cachedResponse)
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+      const data = await res.json()
+
+      expect(data.posts[0].uri).toBe('cached-network')
+      expect(env.DB.prepare).not.toHaveBeenCalled()
+    })
+
+    it('caches response after fetching from DB', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+
+      expect(env.CACHE.put).toHaveBeenCalledWith(
+        'network_posts:v3:50:',
+        expect.any(String),
+        expect.objectContaining({ expirationTtl: 1800 })
+      )
+    })
+
+    it('filters to site.standard.document posts only', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+
+      const query = env.DB.prepare.mock.calls[0][0]
+      expect(query).toContain("p.uri LIKE '%/site.standard.document/%'")
+    })
+
+    it('excludes posts with null external_url', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+
+      const query = env.DB.prepare.mock.calls[0][0]
+      expect(query).toContain('p.external_url IS NOT NULL')
+    })
+
+    it('excludes dual-published GreenGale posts', async () => {
+      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+      await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+
+      const query = env.DB.prepare.mock.calls[0][0]
+      expect(query).toContain('NOT EXISTS')
+      expect(query).toContain('app.greengale.document')
+    })
+
+    it('returns 500 on database error', async () => {
+      env.DB._statement.all.mockRejectedValueOnce(new Error('DB failure'))
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
+      expect(res.status).toBe(500)
+
+      const data = await res.json()
+      expect(data.error).toContain('Failed to fetch network posts')
+    })
+  })
+
   describe('getFollowingPosts', () => {
     let mockFetch: ReturnType<typeof vi.fn>
 
