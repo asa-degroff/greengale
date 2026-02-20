@@ -1040,6 +1040,9 @@ html {
 .external-preview-content {
   scrollbar-width: thin;
   scrollbar-color: var(--site-border) transparent;
+  /* Prevent scroll chaining — stops background from scrolling on mobile */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Inline search results scrollbar */

@@ -150,9 +150,14 @@ interface ExternalPreviewPanelProps {
 
 export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const dragZoneRef = useRef<HTMLDivElement>(null)
   const [prevPostUri, setPrevPostUri] = useState<string | null>(null)
   const [exitingPost, setExitingPost] = useState<PostResultType | null>(null)
   const [prevPostSnapshot, setPrevPostSnapshot] = useState<PostResultType | null>(null)
+
+  // Stable ref for onClose so the drag effect doesn't re-attach listeners on every render
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   // Synchronous state derivation during render (React's "storing information
   // from previous renders" pattern). Only setState calls here — no side effects.
@@ -178,6 +183,106 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
 
   // Check if we're on a wide screen (2xl breakpoint = 1536px)
   const isWideScreen = () => window.matchMedia('(min-width: 1536px)').matches
+  const isMobile = () => !window.matchMedia('(min-width: 768px)').matches
+
+  // Mobile drag-to-close on the drag handle + header area.
+  // Only depends on `post` (not onClose) to avoid tearing down listeners mid-gesture.
+  useEffect(() => {
+    const panel = panelRef.current
+    const dragZone = dragZoneRef.current
+    if (!post || !panel || !dragZone) return
+
+    let startY = 0
+    let offset = 0
+    let dragging = false
+    let moved = false // true once past the 10px dead zone
+    let startTime = 0
+
+    function onTouchStart(e: TouchEvent) {
+      if (!isMobile()) return
+      // Don't start drag if touching the close button
+      if ((e.target as Element).closest('button')) return
+      startY = e.touches[0].clientY
+      offset = 0
+      dragging = true
+      moved = false
+      startTime = Date.now()
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (!dragging || !panel) return
+      const deltaY = e.touches[0].clientY - startY
+
+      // Dead zone: ignore movement < 10px to distinguish taps from drags
+      if (!moved) {
+        if (Math.abs(deltaY) < 10) return
+        moved = true
+        panel.style.transition = 'none'
+      }
+
+      // Only allow dragging downward
+      offset = Math.max(0, deltaY)
+      panel.style.transform = `translateY(${offset}px)`
+      e.preventDefault()
+    }
+
+    function onTouchEnd() {
+      if (!dragging || !panel) return
+      dragging = false
+
+      // If the user never moved past the dead zone, nothing to do
+      if (!moved) {
+        offset = 0
+        return
+      }
+
+      const panelHeight = panel.offsetHeight
+      const elapsed = Date.now() - startTime
+      const velocity = offset / Math.max(elapsed, 1) // px per ms
+
+      // Close if dragged far enough, or if swiped fast enough
+      const shouldClose = offset > 150 || offset > panelHeight * 0.3 || (velocity > 0.5 && offset > 30)
+
+      if (shouldClose) {
+        panel.style.transition = 'transform 250ms ease-out'
+        panel.style.transform = `translateY(${panelHeight}px)`
+        setTimeout(() => {
+          if (!panel) return
+          panel.style.transform = ''
+          panel.style.transition = ''
+          onCloseRef.current()
+        }, 250)
+      } else {
+        // Snap back
+        panel.style.transition = 'transform 200ms ease-out'
+        panel.style.transform = ''
+        setTimeout(() => { if (panel) panel.style.transition = '' }, 200)
+      }
+    }
+
+    dragZone.addEventListener('touchstart', onTouchStart, { passive: true })
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('touchend', onTouchEnd)
+
+    return () => {
+      dragZone.removeEventListener('touchstart', onTouchStart)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('touchend', onTouchEnd)
+    }
+  }, [post])
+
+  // Lock body scroll on mobile to prevent background scrolling
+  useEffect(() => {
+    if (!post) return
+    if (isWideScreen()) return
+
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = prevOverflow
+    }
+  }, [post])
 
   // Close on escape key and handle click outside on wide screens
   useEffect(() => {
@@ -209,20 +314,9 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
       document.addEventListener('keydown', handleKeyDown)
       document.addEventListener('mousedown', handleClickOutside)
 
-      // Only prevent body scroll on narrow screens (mobile/tablet)
-      // On wide screens, allow scrolling the main content
-      let previousOverflow: string | undefined
-      if (!isWideScreen()) {
-        previousOverflow = document.body.style.overflow
-        document.body.style.overflow = 'hidden'
-      }
-
       return () => {
         document.removeEventListener('keydown', handleKeyDown)
         document.removeEventListener('mousedown', handleClickOutside)
-        if (previousOverflow !== undefined) {
-          document.body.style.overflow = previousOverflow
-        }
       }
     }
 
@@ -265,36 +359,39 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
         aria-modal="true"
         aria-labelledby="external-preview-title"
       >
-        {/* Mobile drag handle */}
-        <div className="md:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
-          <div className="w-10 h-1 rounded-full bg-[var(--site-border)]" />
+        {/* Drag zone: handle + header — entire area initiates drag-to-close on mobile */}
+        <div ref={dragZoneRef} className="flex-shrink-0">
+          {/* Mobile drag handle */}
+          <div className="md:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-[var(--site-border)]" />
+          </div>
+
+          {/* Header */}
+          <div className="flex-shrink-0 bg-[var(--site-bg)] border-b border-[var(--site-border)] px-4 py-3 flex items-center justify-between z-10">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              External Post
+            </span>
+            <button
+              onClick={onClose}
+              className="p-2 -mr-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors rounded-lg hover:bg-[var(--site-bg-secondary)]"
+              aria-label="Close preview"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Header */}
-        <div className="flex-shrink-0 bg-[var(--site-bg)] border-b border-[var(--site-border)] px-4 py-3 flex items-center justify-between z-10">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-            External Post
-          </span>
-          <button
-            onClick={onClose}
-            className="p-2 -mr-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors rounded-lg hover:bg-[var(--site-bg-secondary)]"
-            aria-label="Close preview"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Content transition container — overflow hidden prevents slide animations from leaking */}
-        <div className="relative flex-1 min-h-0 overflow-hidden">
+        {/* Content transition container — flex col to maintain height chain for scroll */}
+        <div className="relative flex-1 min-h-0 overflow-hidden flex flex-col">
           {/* Active post — absolutely positioned during transition to avoid layout shift */}
           <div
             key={post.uri}
-            className={`flex flex-col ${isTransitioning ? 'absolute inset-0 preview-content-slide-in' : 'h-full'}`}
+            className={`flex flex-col ${isTransitioning ? 'absolute inset-0 preview-content-slide-in' : 'flex-1 min-h-0'}`}
           >
             <PreviewContent post={post} />
           </div>
