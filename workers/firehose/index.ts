@@ -618,7 +618,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Create content preview (first 3000 chars, strip markdown)
       const contentPreview = content
         .replace(/[#*`\[\]()!]/g, '')
-        .replace(/\n+/g, ' ')
+        .replace(/\n{2,}/g, '\n\n')          // Preserve paragraph breaks
+        .replace(/(?<!\n)\n(?!\n)/g, ' ')     // Single newlines → space (soft wraps)
         .trim()
         .slice(0, 3000)
 

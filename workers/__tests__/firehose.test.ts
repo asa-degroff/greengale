@@ -162,7 +162,9 @@ function extractPostData(
 
   const contentPreview = content
     .replace(/[#*`\[\]()!]/g, '')
-    .replace(/\n+/g, ' ')
+    .replace(/\n{2,}/g, '\n\n')
+    .replace(/(?<!\n)\n(?!\n)/g, ' ')
+    .trim()
     .slice(0, 300)
 
   const slug = title
@@ -435,7 +437,7 @@ describe('Firehose Indexer', () => {
         const result = extractPostData(
           baseArgs.uri, baseArgs.did, baseArgs.rkey, baseArgs.source, record, collection
         )
-        expect(result.contentPreview).toBe(' Hello Bold and code here - List item')
+        expect(result.contentPreview).toBe('Hello\n\nBold and code here\n\n- List item')
       })
 
       it('truncates content preview to 300 chars', () => {
@@ -1212,12 +1214,14 @@ describe('Firehose Indexer', () => {
     function generateContentPreview(content: string): string {
       return content
         .replace(/[#*`\[\]()!]/g, '')
-        .replace(/\n+/g, ' ')
+        .replace(/\n{2,}/g, '\n\n')
+        .replace(/(?<!\n)\n(?!\n)/g, ' ')
+        .trim()
         .slice(0, 300)
     }
 
     it('strips markdown formatting', () => {
-      expect(generateContentPreview('# Hello **World**')).toBe(' Hello World')
+      expect(generateContentPreview('# Hello **World**')).toBe('Hello World')
     })
 
     it('removes code backticks', () => {
@@ -1232,8 +1236,9 @@ describe('Firehose Indexer', () => {
       expect(generateContentPreview('![alt](image.png)')).toBe('altimage.png')
     })
 
-    it('collapses newlines to spaces', () => {
-      expect(generateContentPreview('Line 1\n\nLine 2\n\n\nLine 3')).toBe('Line 1 Line 2 Line 3')
+    it('preserves paragraph breaks and collapses single newlines', () => {
+      expect(generateContentPreview('Line 1\n\nLine 2\n\n\nLine 3')).toBe('Line 1\n\nLine 2\n\nLine 3')
+      expect(generateContentPreview('Line 1\nLine 2')).toBe('Line 1 Line 2')
     })
 
     it('truncates to 300 characters', () => {

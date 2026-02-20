@@ -45,3 +45,10 @@ dist-ssr
 # Wrangler temporary build directories
 .wrangler-check/
 .wrangler-test/
+
+# Claude
+.claude/
+.mcp.json
+
+# Chainlink
+.chainlink/
