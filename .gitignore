@@ -45,3 +45,6 @@ dist-ssr
 # Wrangler temporary build directories
 .wrangler-check/
 .wrangler-test/
+
+# Chainlink
+.chainlink/
