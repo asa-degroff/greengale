@@ -1380,7 +1380,7 @@ Third.`
     it('full SiteStandardDocument structure with content', () => {
       const fullDoc: SiteStandardDocument = {
         site: 'at://did:plc:abc123/site.standard.publication/tid456',
-        path: '/handle/post-rkey',
+        path: '/post-rkey',
         title: 'Test Post Title',
         description: 'A test post description',
         content: {
@@ -1393,7 +1393,7 @@ Third.`
       }
 
       expect(fullDoc.site).toMatch(/^at:\/\//)
-      expect(fullDoc.path).toBe('/handle/post-rkey')
+      expect(fullDoc.path).toBe('/post-rkey')
       expect(fullDoc.title).toBe('Test Post Title')
       expect(fullDoc.content?.$type).toBe('app.greengale.document#contentRef')
       expect(fullDoc.content?.uri).toMatch(/^at:\/\//)

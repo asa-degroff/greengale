@@ -961,8 +961,8 @@ export function EditorPage() {
             subtitle: subtitle || undefined,
             publishedAt,
             // V2-specific fields
-            url: 'https://greengale.app',
-            path: `/${handle}/${rkey || 'new'}`, // Will be updated with actual rkey after creation
+            url: `https://greengale.app/${handle}`,
+            path: `/${rkey || 'new'}`, // Will be updated with actual rkey after creation
             theme: themeObj,
             visibility: visibilityToUse,
             // Include uploaded blobs for reference
@@ -1031,7 +1031,7 @@ export function EditorPage() {
 
         // Update path with the actual rkey
         if (!isWhiteWind && 'path' in record) {
-          record.path = `/${handle}/${rkey}`
+          record.path = `/${rkey}`
         }
 
         // Create new V2 record with the same rkey
@@ -1076,7 +1076,7 @@ export function EditorPage() {
         // Update existing record using putRecord (V2 or WhiteWind)
         // Update path with the actual rkey for V2
         if (!isWhiteWind && 'path' in record) {
-          record.path = `/${handle}/${rkey}`
+          record.path = `/${rkey}`
         }
 
         response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
@@ -1112,7 +1112,7 @@ export function EditorPage() {
 
         // For new V2 posts, update the path with the actual rkey
         if (!isWhiteWind && 'path' in record && resultRkey) {
-          record.path = `/${handle}/${resultRkey}`
+          record.path = `/${resultRkey}`
 
           // Update the record with the correct path
           await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {

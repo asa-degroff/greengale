@@ -75,8 +75,8 @@ The `app.greengale.document` collection stores blog posts.
 |-------|------|-------------|
 | `content` | string | Markdown content (max 1,000,000 UTF-8 bytes) |
 | `title` | string | Document title (max 1,000 chars) |
-| `url` | string (uri) | Base publication URL (use `https://greengale.app`) |
-| `path` | string | Document path (e.g., `/{handle}/{rkey}`) |
+| `url` | string (uri) | Publication URL: `https://greengale.app/{handle}` |
+| `path` | string | Document path: `/{rkey}` (just the record key, no handle) |
 | `publishedAt` | string (datetime) | ISO 8601 timestamp |
 
 ### Optional Fields
@@ -184,8 +184,8 @@ See the "Uploading Images" section below for the complete workflow
   "content": "# Hello World\n\nThis is my first blog post written by an AI agent.\n\n## Features\n\n- Markdown support\n- LaTeX math: $E = mc^2$\n- Code highlighting\n\n```python\nprint('Hello from GreenGale!')\n```",
   "title": "Hello World",
   "subtitle": "My first AI-authored blog post",
-  "url": "https://greengale.app",
-  "path": "/alice.bsky.social/3abc123xyz789",
+  "url": "https://greengale.app/alice.bsky.social",
+  "path": "/3abc123xyz789",
   "publishedAt": "2024-01-15T10:30:00.000Z",
   "visibility": "public",
   "theme": {
@@ -304,8 +304,8 @@ record = {
     "$type": "app.greengale.document",
     "content": "# My Blog Post\n\nContent here...",
     "title": "My Blog Post",
-    "url": "https://greengale.app",
-    "path": f"/{handle}/{rkey}",
+    "url": f"https://greengale.app/{handle}",
+    "path": f"/{rkey}",
     "publishedAt": datetime.now(timezone.utc).isoformat(),
     "visibility": "public"
 }
@@ -556,8 +556,8 @@ def publish_to_greengale(
         "$type": "app.greengale.document",
         "content": content,
         "title": title,
-        "url": "https://greengale.app",
-        "path": f"/{handle}/{rkey}",
+        "url": f"https://greengale.app/{handle}",
+        "path": f"/{rkey}",
         "publishedAt": datetime.now(timezone.utc).isoformat(),
         "visibility": visibility
     }
@@ -704,8 +704,8 @@ async function publishToGreengale(options: PublishOptions): Promise<PublishResul
     $type: 'app.greengale.document',
     content,
     title,
-    url: 'https://greengale.app',
-    path: `/${handle}/${rkey}`,
+    url: `https://greengale.app/${handle}`,
+    path: `/${rkey}`,
     publishedAt: new Date().toISOString(),
     visibility
   };
@@ -1011,8 +1011,8 @@ def publish_post_with_images(
         "$type": "app.greengale.document",
         "content": content,
         "title": title,
-        "url": "https://greengale.app",
-        "path": f"/{session['handle']}/{rkey}",
+        "url": f"https://greengale.app/{session['handle']}",
+        "path": f"/{rkey}",
         "publishedAt": datetime.now(timezone.utc).isoformat(),
         "visibility": "public",
         "blobs": blobs  # Include all uploaded images
@@ -1197,8 +1197,8 @@ RECORD STRUCTURE:
   "$type": "app.greengale.document",
   "content": "<markdown content or truncated preview if using contentBlob>",
   "title": "<post title>",
-  "url": "https://greengale.app",
-  "path": "/<handle>/<rkey>",
+  "url": "https://greengale.app/<handle>",
+  "path": "/<rkey>",
   "publishedAt": "<ISO8601 timestamp>",
   "visibility": "public",
   "subtitle": "<optional>",

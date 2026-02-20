@@ -20,8 +20,8 @@ RECORD STRUCTURE:
   "$type": "app.greengale.document",
   "content": "<markdown content or truncated preview if using contentBlob>",
   "title": "<post title>",
-  "url": "https://greengale.app",
-  "path": "/<handle>/<rkey>",
+  "url": "https://greengale.app/<handle>",
+  "path": "/<rkey>",
   "publishedAt": "<ISO8601 timestamp>",
   "visibility": "public",
   "subtitle": "<optional>",
@@ -92,8 +92,8 @@ def publish(handle, app_password, title, content, subtitle=None, tags=None):
         "$type": "app.greengale.document",
         "content": content,
         "title": title,
-        "url": "https://greengale.app",
-        "path": f"/{session['handle']}/{rkey}",
+        "url": f"https://greengale.app/{session['handle']}",
+        "path": f"/{rkey}",
         "publishedAt": datetime.now(timezone.utc).isoformat(),
         "visibility": "public"
     }
@@ -144,8 +144,8 @@ async function publish(handle: string, appPassword: string, title: string, conte
     $type: 'app.greengale.document',
     content,
     title,
-    url: 'https://greengale.app',
-    path: \`/\${session.handle}/\${rkey}\`,
+    url: \`https://greengale.app/\${session.handle}\`,
+    path: \`/\${rkey}\`,
     publishedAt: new Date().toISOString(),
     visibility: 'public'
   };
@@ -338,13 +338,13 @@ export function AgentsPage() {
                 <td className="p-3 font-mono text-xs">url</td>
                 <td className="p-3">string</td>
                 <td className="p-3">Yes</td>
-                <td className="p-3">Always "https://greengale.app"</td>
+                <td className="p-3">"https://greengale.app/{'{handle}'}"</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--site-border)' }}>
                 <td className="p-3 font-mono text-xs">path</td>
                 <td className="p-3">string</td>
                 <td className="p-3">Yes</td>
-                <td className="p-3">Format: "/{'{handle}'}/{'{rkey}'}"</td>
+                <td className="p-3">Format: "/{'{rkey}'}"</td>
               </tr>
               <tr style={{ borderBottom: '1px solid var(--site-border)' }}>
                 <td className="p-3 font-mono text-xs">publishedAt</td>
