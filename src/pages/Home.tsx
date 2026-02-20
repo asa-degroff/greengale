@@ -17,6 +17,7 @@ const ExternalPreviewPanel = lazy(() =>
 import {
   type AppViewPost,
   type UnifiedAuthorResult,
+  type PostSearchResult as PostSearchResultType,
 } from '@/lib/appview'
 import { SearchFilters, type CustomDateRange } from '@/components/SearchFilters'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
@@ -106,6 +107,26 @@ function toSearchResult(author: UnifiedAuthorResult) {
   }
 }
 
+// Convert AppViewPost to PostSearchResult format for ExternalPreviewPanel
+function appViewPostToPreviewPost(post: AppViewPost): PostSearchResultType {
+  return {
+    uri: post.uri,
+    authorDid: post.authorDid,
+    handle: post.author?.handle || post.authorDid,
+    displayName: post.author?.displayName || null,
+    avatarUrl: post.author?.avatar || null,
+    rkey: post.rkey,
+    title: post.title || 'Untitled',
+    subtitle: post.subtitle || null,
+    createdAt: post.createdAt || null,
+    contentPreview: post.contentPreview || null,
+    score: 0,
+    matchType: 'keyword',
+    source: post.source,
+    externalUrl: post.externalUrl || null,
+  }
+}
+
 export function HomePage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<FeedTab>(getStoredTab)
@@ -119,6 +140,9 @@ export function HomePage() {
 
   // Search hook
   const search = useHomeSearch(navigate)
+
+  // Feed external post preview state
+  const [feedSelectedExternalPost, setFeedSelectedExternalPost] = useState<PostSearchResultType | null>(null)
 
   // Refresh state
   const [refreshing, setRefreshing] = useState(false)
@@ -214,6 +238,7 @@ export function HomePage() {
       author: toAuthorProfile(post),
       externalUrl: post.externalUrl,
       tags: post.tags,
+      sourcePost: post,
     })),
     [networkFeed.posts]
   )
@@ -225,6 +250,7 @@ export function HomePage() {
       author: toAuthorProfile(post),
       externalUrl: post.externalUrl,
       tags: post.tags,
+      sourcePost: post,
     })),
     [followingFeed.posts]
   )
@@ -239,6 +265,16 @@ export function HomePage() {
     setSearchSelectedIndex,
     handleSelectSearchResult,
   } = search
+
+  // Unified preview panel post: search selection takes priority over feed selection
+  const previewPanelPost = selectedExternalPost || feedSelectedExternalPost
+
+  // Clear feed selection when search becomes active
+  useEffect(() => {
+    if (searchActive) {
+      setFeedSelectedExternalPost(null)
+    }
+  }, [searchActive])
 
   // Page-level keyboard handler for search
   // Uses primitive dependencies to avoid recreating on every search object change
@@ -294,7 +330,7 @@ export function HomePage() {
     <div>
       <div
         className="max-w-4xl mx-auto px-4 py-12 search-content-slide"
-        data-panel-open={search.selectedExternalPost ? 'true' : 'false'}
+        data-panel-open={previewPanelPost ? 'true' : 'false'}
         style={{ '--content-width': '896px' } as React.CSSProperties}
       >
         <div className="text-center mb-12">
@@ -364,6 +400,7 @@ export function HomePage() {
             processedFollowingPosts={processedFollowingPosts}
             onTabChange={handleTabChange}
             onRefresh={handleRefresh}
+            onExternalPostSelect={(post) => setFeedSelectedExternalPost(appViewPostToPreviewPost(post))}
           />
         )}
 
@@ -407,8 +444,11 @@ export function HomePage() {
 
       <Suspense fallback={null}>
         <ExternalPreviewPanel
-          post={search.selectedExternalPost}
-          onClose={() => search.setSelectedExternalPost(null)}
+          post={previewPanelPost}
+          onClose={() => {
+            search.setSelectedExternalPost(null)
+            setFeedSelectedExternalPost(null)
+          }}
         />
       </Suspense>
     </div>
@@ -532,6 +572,7 @@ interface ProcessedPost {
   author: AuthorProfile | undefined
   externalUrl?: string | null
   tags?: string[]
+  sourcePost?: AppViewPost
 }
 
 interface FeedSectionProps {
@@ -548,6 +589,7 @@ interface FeedSectionProps {
   processedFollowingPosts: ProcessedPost[]
   onTabChange: (tab: FeedTab) => void
   onRefresh: () => void
+  onExternalPostSelect: (post: AppViewPost) => void
 }
 
 function FeedSection({
@@ -564,6 +606,7 @@ function FeedSection({
   processedFollowingPosts,
   onTabChange,
   onRefresh,
+  onExternalPostSelect,
 }: FeedSectionProps) {
   // Ref for native scroll-snap based tab switching
   const feedScrollRef = useRef<HTMLDivElement>(null)
@@ -869,8 +912,15 @@ function FeedSection({
               ) : processedFollowingPosts.length > 0 ? (
                 <>
                   <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                    {processedFollowingPosts.map(({ key, entry, author, externalUrl, tags }) => (
-                      <BlogCard key={key} entry={entry} author={author} externalUrl={externalUrl} tags={tags} />
+                    {processedFollowingPosts.map(({ key, entry, author, externalUrl, tags, sourcePost }) => (
+                      <BlogCard
+                        key={key}
+                        entry={entry}
+                        author={author}
+                        externalUrl={externalUrl}
+                        tags={tags}
+                        onExternalPostClick={externalUrl && sourcePost ? () => onExternalPostSelect(sourcePost) : undefined}
+                      />
                     ))}
                   </MasonryGrid>
                   {followingFeed.hasMore && (
@@ -905,8 +955,15 @@ function FeedSection({
             ) : processedNetworkPosts.length > 0 ? (
               <>
                 <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                  {processedNetworkPosts.map(({ key, entry, author, externalUrl, tags }) => (
-                    <BlogCard key={key} entry={entry} author={author} externalUrl={externalUrl} tags={tags} />
+                  {processedNetworkPosts.map(({ key, entry, author, externalUrl, tags, sourcePost }) => (
+                    <BlogCard
+                      key={key}
+                      entry={entry}
+                      author={author}
+                      externalUrl={externalUrl}
+                      tags={tags}
+                      onExternalPostClick={externalUrl && sourcePost ? () => onExternalPostSelect(sourcePost) : undefined}
+                    />
                   ))}
                 </MasonryGrid>
                 {networkFeed.hasMore && (

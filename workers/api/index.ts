@@ -1715,6 +1715,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
         SELECT
           p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
           p.visibility, p.created_at, p.indexed_at, p.external_url,
+          p.content_preview,
           a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
           pub.icon_cid,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
@@ -1742,6 +1743,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
       )
       SELECT uri, author_did, rkey, title, subtitle, source,
              visibility, created_at, indexed_at, external_url,
+             content_preview,
              handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
       FROM ranked_posts
       WHERE author_rank <= 3
@@ -1808,6 +1810,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at, p.external_url,
+        p.content_preview,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
         pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
@@ -1862,6 +1865,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
       createdAt: row.created_at,
       indexedAt: row.indexed_at,
       externalUrl: row.external_url,
+      contentPreview: row.content_preview || null,
     }))
 
     const response = {

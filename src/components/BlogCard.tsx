@@ -13,6 +13,8 @@ interface BlogCardProps {
   contentPreview?: string | null
   firstImageCid?: string | null
   pdsEndpoint?: string | null
+  // Callback for external post click (shows preview panel instead of opening URL)
+  onExternalPostClick?: () => void
   // Pinned post controls (only shown for own profile)
   isPinned?: boolean
   onTogglePin?: (rkey: string) => void
@@ -95,7 +97,7 @@ function CardOptionsMenu({ rkey, isPinned, pinCount, onTogglePin }: {
   )
 }
 
-export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags, contentPreview, firstImageCid, pdsEndpoint, isPinned, onTogglePin, pinCount }: BlogCardProps) {
+export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tags, contentPreview, firstImageCid, pdsEndpoint, onExternalPostClick, isPinned, onTogglePin, pinCount }: BlogCardProps) {
   const navigate = useNavigate()
   // Use indexed preview if available, otherwise extract from content
   const preview = contentPreview ?? extractText(entry.content, 160)
@@ -328,7 +330,15 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
           )}
         </div>
       )}
-      {isNetworkPost ? (
+      {isNetworkPost && onExternalPostClick ? (
+        <button
+          type="button"
+          onClick={onExternalPostClick}
+          className="block w-full text-left rounded-lg overflow-hidden"
+        >
+          {cardContent}
+        </button>
+      ) : isNetworkPost ? (
         <a
           href={externalUrl}
           target="_blank"
