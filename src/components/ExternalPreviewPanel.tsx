@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PostSearchResult, UnifiedPostResult } from '@/lib/appview'
 
 /**
@@ -8,6 +8,140 @@ import type { PostSearchResult, UnifiedPostResult } from '@/lib/appview'
 type PostResultType = PostSearchResult | UnifiedPostResult
 
 const TRANSITION_DURATION = 300
+
+function formatDate(dateString: string | null) {
+  if (!dateString) return null
+  try {
+    const date = new Date(dateString)
+    return date.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  } catch {
+    return null
+  }
+}
+
+function getHostname(url: string) {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
+function processContent(p: PostResultType) {
+  const preview = p.contentPreview
+  const sub = p.subtitle
+  let content: string | null = null
+
+  if (preview) {
+    const trimmed = preview.trim()
+    const subTrimmed = sub?.trim()
+
+    if (subTrimmed && trimmed.startsWith(subTrimmed)) {
+      const remainder = trimmed.slice(subTrimmed.length).trim()
+      if (remainder.length > 20) content = remainder
+    } else {
+      content = trimmed
+    }
+  }
+
+  const isTruncated = !!(content && preview && preview.trim().length >= 2900)
+
+  return { displayContent: content, contentIsTruncated: isTruncated }
+}
+
+function PreviewContent({ post }: { post: PostResultType }) {
+  const { displayContent, contentIsTruncated } = processContent(post)
+  const url = post.externalUrl
+
+  return (
+    <>
+      {/* Scrollable content area */}
+      <div className="external-preview-content flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
+        <h2 id="external-preview-title" className="text-2xl font-bold text-[var(--site-text)] mb-2">
+          {post.title}
+        </h2>
+
+        {post.subtitle && (
+          <p className="text-[var(--site-text-secondary)] mb-4">
+            {post.subtitle}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-[var(--site-border)]">
+          {post.avatarUrl ? (
+            <img
+              src={post.avatarUrl}
+              alt=""
+              className="w-10 h-10 rounded-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-[var(--site-border)] flex items-center justify-center">
+              <svg className="w-5 h-5 text-[var(--site-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+          )}
+          <div>
+            <div className="font-medium text-[var(--site-text)]">
+              {post.displayName || `@${post.handle}`}
+            </div>
+            <div className="text-sm text-[var(--site-text-secondary)]">
+              {post.createdAt && formatDate(post.createdAt)}
+            </div>
+          </div>
+        </div>
+
+        {displayContent && (
+          <div>
+            <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
+              {displayContent}
+              {contentIsTruncated && (
+                <span className="text-[var(--site-text-secondary)]">...</span>
+              )}
+            </p>
+            {contentIsTruncated && (
+              <p className="mt-2 text-sm text-[var(--site-text-secondary)] italic">
+                Continue reading on the original site for the full post.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Fixed footer with CTA */}
+      <div className="flex-shrink-0 p-4 md:px-6 md:pb-6 md:pt-4 border-t border-[var(--site-border)] bg-[var(--site-bg)]">
+        {url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-3 w-full px-5 py-3.5 bg-[var(--site-accent)] text-white rounded-xl hover:opacity-90 transition-opacity font-medium"
+          >
+            <span>Read on {getHostname(url)}</span>
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </a>
+        ) : (
+          <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+            <p className="text-yellow-800 dark:text-yellow-200 text-sm">
+              No external link available for this post.
+            </p>
+          </div>
+        )}
+
+        <p className="text-center text-xs text-[var(--site-text-secondary)] mt-3">
+          Opens in a new tab
+        </p>
+      </div>
+    </>
+  )
+}
 
 interface ExternalPreviewPanelProps {
   post: PostResultType | null
@@ -19,35 +153,28 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
   const [prevPostUri, setPrevPostUri] = useState<string | null>(null)
   const [exitingPost, setExitingPost] = useState<PostResultType | null>(null)
   const [prevPostSnapshot, setPrevPostSnapshot] = useState<PostResultType | null>(null)
-  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Synchronous state derivation during render (React's "storing information
-  // from previous renders" pattern). This fires in the same render cycle as
-  // the post change, so both exitingPost and the new post render together.
+  // from previous renders" pattern). Only setState calls here — no side effects.
   const currentUri = post?.uri ?? null
   if (currentUri !== prevPostUri) {
     if (post && prevPostSnapshot && currentUri && prevPostUri) {
       // Post changed to a different post — trigger transition
-      if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
       setExitingPost(prevPostSnapshot)
-      exitTimerRef.current = setTimeout(() => {
-        setExitingPost(null)
-      }, TRANSITION_DURATION)
     } else if (!post) {
-      // Panel closed
+      // Panel closed — clear immediately (no exit animation needed)
       setExitingPost(null)
-      if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
     }
     setPrevPostUri(currentUri)
     setPrevPostSnapshot(post)
   }
 
-  // Clean up timer on unmount
+  // Clear exiting post after animation completes
   useEffect(() => {
-    return () => {
-      if (exitTimerRef.current) clearTimeout(exitTimerRef.current)
-    }
-  }, [])
+    if (!exitingPost) return
+    const timer = setTimeout(() => setExitingPost(null), TRANSITION_DURATION)
+    return () => clearTimeout(timer)
+  }, [exitingPost])
 
   // Check if we're on a wide screen (2xl breakpoint = 1536px)
   const isWideScreen = () => window.matchMedia('(min-width: 1536px)').matches
@@ -111,142 +238,6 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
     }
   }
 
-  function formatDate(dateString: string | null) {
-    if (!dateString) return null
-    try {
-      const date = new Date(dateString)
-      return date.toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    } catch {
-      return null
-    }
-  }
-
-  function getHostname(url: string) {
-    try {
-      return new URL(url).hostname
-    } catch {
-      return url
-    }
-  }
-
-  // Process a post's content for display
-  const processContent = useCallback((p: PostResultType) => {
-    const preview = p.contentPreview
-    const sub = p.subtitle
-    let content: string | null = null
-
-    if (preview) {
-      const trimmed = preview.trim()
-      const subTrimmed = sub?.trim()
-
-      if (subTrimmed && trimmed.startsWith(subTrimmed)) {
-        const remainder = trimmed.slice(subTrimmed.length).trim()
-        if (remainder.length > 20) content = remainder
-      } else {
-        content = trimmed
-      }
-    }
-
-    const isTruncated = !!(content && preview && preview.trim().length >= 2900)
-
-    return { displayContent: content, contentIsTruncated: isTruncated }
-  }, [])
-
-  // Render a post's content + footer
-  const renderPostContent = useCallback((p: PostResultType) => {
-    const { displayContent, contentIsTruncated } = processContent(p)
-    const url = p.externalUrl
-
-    return (
-      <>
-        {/* Scrollable content area */}
-        <div className="external-preview-content flex-1 overflow-y-auto min-h-0 p-4 md:p-6">
-          <h2 id="external-preview-title" className="text-2xl font-bold text-[var(--site-text)] mb-2">
-            {p.title}
-          </h2>
-
-          {p.subtitle && (
-            <p className="text-[var(--site-text-secondary)] mb-4">
-              {p.subtitle}
-            </p>
-          )}
-
-          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-[var(--site-border)]">
-            {p.avatarUrl ? (
-              <img
-                src={p.avatarUrl}
-                alt=""
-                className="w-10 h-10 rounded-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-[var(--site-border)] flex items-center justify-center">
-                <svg className="w-5 h-5 text-[var(--site-text-secondary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-            )}
-            <div>
-              <div className="font-medium text-[var(--site-text)]">
-                {p.displayName || `@${p.handle}`}
-              </div>
-              <div className="text-sm text-[var(--site-text-secondary)]">
-                {p.createdAt && formatDate(p.createdAt)}
-              </div>
-            </div>
-          </div>
-
-          {displayContent && (
-            <div>
-              <p className="text-base leading-relaxed text-[var(--site-text)] whitespace-pre-wrap">
-                {displayContent}
-                {contentIsTruncated && (
-                  <span className="text-[var(--site-text-secondary)]">...</span>
-                )}
-              </p>
-              {contentIsTruncated && (
-                <p className="mt-2 text-sm text-[var(--site-text-secondary)] italic">
-                  Continue reading on the original site for the full post.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Fixed footer with CTA */}
-        <div className="flex-shrink-0 p-4 md:px-6 md:pb-6 md:pt-4 border-t border-[var(--site-border)] bg-[var(--site-bg)]">
-          {url ? (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-3 w-full px-5 py-3.5 bg-[var(--site-accent)] text-white rounded-xl hover:opacity-90 transition-opacity font-medium"
-            >
-              <span>Read on {getHostname(url)}</span>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          ) : (
-            <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
-              <p className="text-yellow-800 dark:text-yellow-200 text-sm">
-                No external link available for this post.
-              </p>
-            </div>
-          )}
-
-          <p className="text-center text-xs text-[var(--site-text-secondary)] mt-3">
-            Opens in a new tab
-          </p>
-        </div>
-      </>
-    )
-  }, [processContent])
-
   if (!post) return null
 
   const isTransitioning = !!exitingPost
@@ -305,7 +296,7 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
             key={post.uri}
             className={`flex flex-col ${isTransitioning ? 'absolute inset-0 preview-content-slide-in' : 'h-full'}`}
           >
-            {renderPostContent(post)}
+            <PreviewContent post={post} />
           </div>
 
           {/* Exiting post (fades + slides out to the left, rendered on top) */}
@@ -315,7 +306,7 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
               className="absolute inset-0 flex flex-col preview-content-slide-out"
               aria-hidden="true"
             >
-              {renderPostContent(exitingPost)}
+              <PreviewContent post={exitingPost} />
             </div>
           )}
         </div>

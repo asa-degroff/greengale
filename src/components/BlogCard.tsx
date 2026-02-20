@@ -14,7 +14,7 @@ interface BlogCardProps {
   firstImageCid?: string | null
   pdsEndpoint?: string | null
   // Callback for external post click (shows preview panel instead of opening URL)
-  onExternalPostClick?: () => void
+  onExternalPostClick?: (uri: string) => void
   // Pinned post controls (only shown for own profile)
   isPinned?: boolean
   onTogglePin?: (rkey: string) => void
@@ -333,7 +333,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
       {isNetworkPost && onExternalPostClick ? (
         <button
           type="button"
-          onClick={onExternalPostClick}
+          onClick={() => onExternalPostClick(entry.uri)}
           className="block w-full text-left rounded-lg overflow-hidden"
           data-external-post-card
         >

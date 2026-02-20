@@ -144,6 +144,11 @@ export function HomePage() {
   // Feed external post preview state
   const [feedSelectedExternalPost, setFeedSelectedExternalPost] = useState<PostSearchResultType | null>(null)
 
+  // Stable callback for selecting external posts from feed cards
+  const handleFeedExternalPostSelect = useCallback((post: AppViewPost) => {
+    setFeedSelectedExternalPost(appViewPostToPreviewPost(post))
+  }, [])
+
   // Refresh state
   const [refreshing, setRefreshing] = useState(false)
   const [spinning, setSpinning] = useState(false)
@@ -238,7 +243,6 @@ export function HomePage() {
       author: toAuthorProfile(post),
       externalUrl: post.externalUrl,
       tags: post.tags,
-      sourcePost: post,
     })),
     [networkFeed.posts]
   )
@@ -250,7 +254,6 @@ export function HomePage() {
       author: toAuthorProfile(post),
       externalUrl: post.externalUrl,
       tags: post.tags,
-      sourcePost: post,
     })),
     [followingFeed.posts]
   )
@@ -400,7 +403,7 @@ export function HomePage() {
             processedFollowingPosts={processedFollowingPosts}
             onTabChange={handleTabChange}
             onRefresh={handleRefresh}
-            onExternalPostSelect={(post) => setFeedSelectedExternalPost(appViewPostToPreviewPost(post))}
+            onExternalPostSelect={handleFeedExternalPostSelect}
           />
         )}
 
@@ -572,7 +575,6 @@ interface ProcessedPost {
   author: AuthorProfile | undefined
   externalUrl?: string | null
   tags?: string[]
-  sourcePost?: AppViewPost
 }
 
 interface FeedSectionProps {
@@ -608,6 +610,19 @@ function FeedSection({
   onRefresh,
   onExternalPostSelect,
 }: FeedSectionProps) {
+  // Build a URI→post lookup for O(1) access from the stable click handler
+  const postsByUri = useMemo(() => {
+    const map = new Map<string, AppViewPost>()
+    for (const p of networkFeed.posts) map.set(p.uri, p)
+    for (const p of followingFeed.posts) map.set(p.uri, p)
+    return map
+  }, [networkFeed.posts, followingFeed.posts])
+
+  // Stable callback: BlogCard calls this with a URI string
+  const handleExternalPostClick = useCallback((uri: string) => {
+    const post = postsByUri.get(uri)
+    if (post) onExternalPostSelect(post)
+  }, [postsByUri, onExternalPostSelect])
   // Ref for native scroll-snap based tab switching
   const feedScrollRef = useRef<HTMLDivElement>(null)
   // Track if we're programmatically scrolling to avoid feedback loops
@@ -912,14 +927,14 @@ function FeedSection({
               ) : processedFollowingPosts.length > 0 ? (
                 <>
                   <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                    {processedFollowingPosts.map(({ key, entry, author, externalUrl, tags, sourcePost }) => (
+                    {processedFollowingPosts.map(({ key, entry, author, externalUrl, tags }) => (
                       <BlogCard
                         key={key}
                         entry={entry}
                         author={author}
                         externalUrl={externalUrl}
                         tags={tags}
-                        onExternalPostClick={externalUrl && sourcePost ? () => onExternalPostSelect(sourcePost) : undefined}
+                        onExternalPostClick={externalUrl ? handleExternalPostClick : undefined}
                       />
                     ))}
                   </MasonryGrid>
@@ -955,14 +970,14 @@ function FeedSection({
             ) : processedNetworkPosts.length > 0 ? (
               <>
                 <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
-                  {processedNetworkPosts.map(({ key, entry, author, externalUrl, tags, sourcePost }) => (
+                  {processedNetworkPosts.map(({ key, entry, author, externalUrl, tags }) => (
                     <BlogCard
                       key={key}
                       entry={entry}
                       author={author}
                       externalUrl={externalUrl}
                       tags={tags}
-                      onExternalPostClick={externalUrl && sourcePost ? () => onExternalPostSelect(sourcePost) : undefined}
+                      onExternalPostClick={externalUrl ? handleExternalPostClick : undefined}
                     />
                   ))}
                 </MasonryGrid>
