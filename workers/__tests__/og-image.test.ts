@@ -136,9 +136,7 @@ function detectRequiredFonts(text: string): { name: string }[] {
 }
 
 function escapeHtml(text: string): string {
-  return text
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  return text.replace(/<(?=[a-zA-Z/])/g, '\u2039')
 }
 
 function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
@@ -367,16 +365,23 @@ describe('OG Image Generation', () => {
   })
 
   describe('escapeHtml', () => {
-    it('escapes less than sign', () => {
-      expect(escapeHtml('<script>')).toBe('&lt;script&gt;')
+    it('replaces < before tag-like sequences with Unicode left angle', () => {
+      expect(escapeHtml('<script>')).toBe('\u2039script>')
+      expect(escapeHtml('<div>')).toBe('\u2039div>')
+      expect(escapeHtml('</div>')).toBe('\u2039/div>')
     })
 
-    it('escapes greater than sign', () => {
-      expect(escapeHtml('a > b')).toBe('a &gt; b')
+    it('preserves bare < not followed by letter or slash', () => {
+      expect(escapeHtml('<2%')).toBe('<2%')
+      expect(escapeHtml('a < b')).toBe('a < b')
+      expect(escapeHtml('100 <> 200')).toBe('100 <> 200')
+    })
+
+    it('preserves > in all positions', () => {
+      expect(escapeHtml('a > b')).toBe('a > b')
     })
 
     it('does not escape ampersand', () => {
-      // Per the source comment: Satori renders HTML entities literally
       expect(escapeHtml('a & b')).toBe('a & b')
     })
 
@@ -384,12 +389,17 @@ describe('OG Image Generation', () => {
       expect(escapeHtml('"quoted"')).toBe('"quoted"')
     })
 
-    it('handles mixed content', () => {
-      expect(escapeHtml('<div>Hello & World</div>')).toBe('&lt;div&gt;Hello & World&lt;/div&gt;')
+    it('handles mixed content with tags and bare angle brackets', () => {
+      expect(escapeHtml('<div>Hello & World</div>')).toBe('\u2039div>Hello & World\u2039/div>')
     })
 
     it('handles empty string', () => {
       expect(escapeHtml('')).toBe('')
+    })
+
+    it('preserves mathematical expressions', () => {
+      expect(escapeHtml('writes <2% as many bytes')).toBe('writes <2% as many bytes')
+      expect(escapeHtml('x < 5 && y > 3')).toBe('x < 5 && y > 3')
     })
   })
 

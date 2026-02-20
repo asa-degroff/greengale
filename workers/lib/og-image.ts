@@ -499,12 +499,12 @@ interface BuildHtmlOptions {
 }
 
 function escapeHtml(text: string): string {
-  // Only escape < and > to prevent HTML tag injection
-  // Other entities (&, ", ') are NOT escaped because Satori renders
-  // HTML entities literally instead of decoding them
-  return text
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  // Satori renders HTML entities literally (e.g., &lt; shows as "&lt;" not "<"),
+  // so we cannot use entity escaping. Instead, we strip angle brackets only when
+  // they could form HTML tags (< followed by a letter or /). Bare < and > in
+  // text like "<2%" or "a > b" are safe — HTML parsers treat them as text when
+  // they don't form valid tag syntax.
+  return text.replace(/<(?=[a-zA-Z/])/g, '\u2039')
 }
 
 /**
