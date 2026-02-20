@@ -207,6 +207,9 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
       dragging = true
       moved = false
       startTime = Date.now()
+      // Clear the entry animation so its fill-mode (both) doesn't override
+      // the inline transforms we set during the drag gesture
+      panel!.style.animation = 'none'
     }
 
     function onTouchMove(e: TouchEvent) {
