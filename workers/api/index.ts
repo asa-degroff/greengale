@@ -4263,6 +4263,97 @@ app.post('/xrpc/app.greengale.admin.expandContentPreviews', async (c) => {
   }
 })
 
+// Re-index recent posts to refresh content previews (admin only)
+// This regenerates content_preview using the current logic (e.g. paragraph-preserving newlines)
+// Usage: POST /xrpc/app.greengale.admin.refreshContentPreviews?limit=100&concurrency=20
+app.post('/xrpc/app.greengale.admin.refreshContentPreviews', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const limit = Math.min(parseInt(c.req.query('limit') || '1000'), 2000)
+  const concurrency = Math.min(parseInt(c.req.query('concurrency') || '20'), 50)
+  // Optional offset for pagination through large sets
+  const offset = Math.max(parseInt(c.req.query('offset') || '0'), 0)
+
+  try {
+    // Get total post count for context
+    const countResult = await c.env.DB.prepare(`
+      SELECT COUNT(*) as total FROM posts WHERE deleted_at IS NULL
+    `).first()
+    const totalPosts = (countResult?.total as number) || 0
+
+    // Select most recent posts by created_at
+    const posts = await c.env.DB.prepare(`
+      SELECT uri, author_did, rkey
+      FROM posts
+      WHERE deleted_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(limit, offset).all()
+
+    if (!posts.results?.length) {
+      return c.json({ message: 'No posts found', processed: 0, totalPosts })
+    }
+
+    const firehoseId = c.env.FIREHOSE.idFromName('main')
+    const firehose = c.env.FIREHOSE.get(firehoseId)
+
+    let processed = 0
+    let failed = 0
+    const errors: string[] = []
+
+    const reindexPost = async (post: { uri: unknown }) => {
+      try {
+        const response = await firehose.fetch('http://internal/reindex', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uri: post.uri }),
+        })
+
+        if (response.ok) {
+          return { success: true }
+        } else {
+          const errorData = await response.json().catch(() => ({ error: 'Unknown' })) as { error?: string }
+          return { success: false, error: `${post.uri}: ${errorData.error || response.statusText}` }
+        }
+      } catch (err) {
+        return { success: false, error: `${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}` }
+      }
+    }
+
+    // Process in parallel batches
+    for (let i = 0; i < posts.results.length; i += concurrency) {
+      const batch = posts.results.slice(i, i + concurrency)
+      const results = await Promise.all(batch.map(reindexPost))
+
+      for (const result of results) {
+        if (result.success) {
+          processed++
+        } else {
+          failed++
+          if (result.error) errors.push(result.error)
+        }
+      }
+    }
+
+    return c.json({
+      success: true,
+      total: posts.results.length,
+      processed,
+      failed,
+      offset,
+      totalPosts,
+      concurrency,
+      errors: errors.slice(0, 10),
+    })
+  } catch (error) {
+    console.error('Error refreshing content previews:', error)
+    return c.json({ error: 'Failed to refresh previews', details: error instanceof Error ? error.message : 'Unknown' }, 500)
+  }
+})
+
 // Helper function to fetch PDS endpoint from DID document
 // Resolve a DID document for both did:plc and did:web methods
 async function resolveDidDocument(did: string): Promise<{ service?: Array<{ id: string; type: string; serviceEndpoint: string }> } | null> {
@@ -4519,10 +4610,12 @@ async function indexPostsFromPds(
           }
         }
 
-        // Content preview
+        // Content preview (first 3000 chars, strip markdown, preserve paragraph breaks)
         const contentPreview = content
           .replace(/[#*`\[\]()!]/g, '')
-          .replace(/\n+/g, ' ')
+          .replace(/\n{2,}/g, '\n\n')
+          .replace(/(?<!\n)\n(?!\n)/g, ' ')
+          .trim()
           .slice(0, 3000)
 
         // Slug
@@ -4901,10 +4994,12 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
               }
             }
 
-            // Content preview
+            // Content preview (first 3000 chars, strip markdown, preserve paragraph breaks)
             const contentPreview = content
               .replace(/[#*`\[\]()!]/g, '')
-              .replace(/\n+/g, ' ')
+              .replace(/\n{2,}/g, '\n\n')
+              .replace(/(?<!\n)\n(?!\n)/g, ' ')
+              .trim()
               .slice(0, 3000)
 
             // Slug
