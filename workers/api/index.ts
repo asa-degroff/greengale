@@ -1704,11 +1704,10 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
       return jsonWithCache(c, emptyResponse, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
     }
 
-    // Build SQL query with dynamic IN clause
-    const placeholders = followingDids.map(() => '?').join(',')
     // Order by created_at (original publish date) so editing old posts doesn't push them to top
     const cursorClause = cursor ? 'AND p.created_at < ?' : ''
 
+<<<<<<< Updated upstream
     // Use CTE with window function to limit 3 posts per author
     const query = `
       WITH ranked_posts AS (
@@ -1748,15 +1747,76 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
       ORDER BY created_at DESC
       LIMIT ?
     `
+=======
+    // Batch DIDs to stay under D1's 100 bind parameter limit (98 DIDs + cursor + limit)
+    const didBatchSize = cursor ? 97 : 98
+    const allBatchResults: Record<string, unknown>[] = []
 
-    const params: (string | number)[] = [...followingDids]
-    if (cursor) {
-      params.push(cursor)
+    for (let i = 0; i < followingDids.length; i += didBatchSize) {
+      const batch = followingDids.slice(i, i + didBatchSize)
+      const placeholders = batch.map(() => '?').join(',')
+
+      // Use CTE with window function to limit 3 posts per author
+      const query = `
+        WITH ranked_posts AS (
+          SELECT
+            p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
+            p.visibility, p.created_at, p.indexed_at, p.external_url,
+            p.content_preview,
+            a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+            pub.icon_cid,
+            (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+            ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
+          FROM posts p
+          LEFT JOIN authors a ON p.author_did = a.did
+          LEFT JOIN publications pub ON p.author_did = pub.author_did
+          WHERE p.author_did IN (${placeholders})
+            AND p.visibility = 'public'
+            AND NOT (
+              p.uri LIKE '%/site.standard.document/%'
+              AND (
+                p.external_url IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM posts gg
+                  WHERE gg.author_did = p.author_did
+                    AND gg.rkey = p.rkey
+                    AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                      OR gg.uri LIKE '%/app.greengale.document/%'
+                      OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                )
+              )
+            )
+            ${cursorClause}
+        )
+        SELECT uri, author_did, rkey, title, subtitle, source,
+               visibility, created_at, indexed_at, external_url,
+               content_preview,
+               handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
+        FROM ranked_posts
+        WHERE author_rank <= 3
+        ORDER BY created_at DESC
+        LIMIT ?
+      `
+>>>>>>> Stashed changes
+
+      const params: (string | number)[] = [...batch]
+      if (cursor) {
+        params.push(cursor)
+      }
+      params.push(limit + 1)
+
+      const result = await c.env.DB.prepare(query).bind(...params).all()
+      allBatchResults.push(...(result.results || []))
     }
-    params.push(limit + 1)
 
-    const result = await c.env.DB.prepare(query).bind(...params).all()
-    const posts = result.results || []
+    // Merge and sort all batch results by created_at DESC, then take limit+1
+    const posts = allBatchResults
+      .sort((a, b) => {
+        const dateA = a.created_at as string || ''
+        const dateB = b.created_at as string || ''
+        return dateB.localeCompare(dateA)
+      })
+      .slice(0, limit + 1)
 
     const hasMore = posts.length > limit
     const returnPosts = hasMore ? posts.slice(0, limit) : posts
