@@ -124,14 +124,13 @@ export function ExternalPreviewPanel({ post, onClose }: ExternalPreviewPanelProp
     }
   }
 
-  // Check if content appears truncated (doesn't end with sentence-ending punctuation)
+  // Check if content appears truncated (content_preview is capped at 3000 chars during indexing)
   let contentIsTruncated = false
-  if (displayContent) {
-    const trimmed = displayContent.trim()
-    // If it ends with sentence-ending punctuation, it's probably not truncated
-    // If it's very short, probably not truncated
-    // Otherwise assume it's truncated
-    contentIsTruncated = !/[.!?]$/.test(trimmed) && trimmed.length >= 100
+  if (displayContent && contentPreview) {
+    // If the raw preview is near the 3000-char cap, it was almost certainly truncated
+    const nearCap = contentPreview.trim().length >= 2900
+    // If it's well under the cap, it's the full content — not truncated
+    contentIsTruncated = nearCap
   }
 
   return (
