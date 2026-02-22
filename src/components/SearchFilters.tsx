@@ -311,7 +311,7 @@ export function SearchFilters({
   const hasActiveFilters = author !== '' || dateRange !== 'any' || !isAllSelected || aiAgent !== 'or'
 
   return (
-    <div className="space-y-2">
+    <div>
       {/*
         Layout:
         Row 1: [Mode selector] [Field toggles] [More filters button]

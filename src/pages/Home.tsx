@@ -336,22 +336,19 @@ export function HomePage() {
         data-panel-open={previewPanelPost ? 'true' : 'false'}
         style={{ '--content-width': '896px' } as React.CSSProperties}
       >
-        <div className="text-center mb-12">
+        <div className="text-center mb-8">
           <CubeLogo className="h-8 md:h-10 mx-auto mb-4" />
-          <h2><i>Beta</i></h2>
         </div>
 
-        <div className={`relative bg-[var(--site-bg-secondary)] rounded-lg p-8 border border-[var(--site-border)] overflow-hidden min-h-[180px] ${search.searchActive ? 'mb-4' : 'mb-12'}`}>
+        <div className={`relative bg-[var(--site-bg-secondary)] rounded-lg p-4 md:p-8 border border-[var(--site-border)] overflow-hidden min-h-[130px] md:min-h-[150px] ${search.searchActive ? 'mb-4' : 'mb-8'}`}>
           <CloudField className="text-[var(--site-text-secondary)]" />
 
           <h2 className="relative text-xl font-bold mb-4 text-[var(--site-text)]">
             Find a Blog
           </h2>
-          <p className="relative text-[var(--site-text-secondary)] mb-4">
-            Search the Atmosphere
-          </p>
           <PublicationSearch
             className="relative w-full"
+            placeholder="Search the atmosphere..."
             onQueryChange={search.handleSearchQueryChange}
             onClear={search.handleClearSearch}
             disableDropdown={true}
@@ -882,7 +879,7 @@ function FeedSection({
         }}
       >
           {/* GreenGale feed panel */}
-          <div className="w-full flex-shrink-0 snap-start snap-always">
+          <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden">
             {greengaleFeed.fromCache && (
               <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
                 Offline — showing cached feed
@@ -916,7 +913,7 @@ function FeedSection({
 
           {/* Following feed panel */}
           {isAuthenticated && (
-            <div className="w-full flex-shrink-0 snap-start snap-always">
+            <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden">
               {followingFeed.loading ? (
                 <div className="flex flex-col items-center py-12">
                   <LoadingCube size="md" />
@@ -959,7 +956,7 @@ function FeedSection({
           )}
 
           {/* Network feed panel */}
-          <div className="w-full flex-shrink-0 snap-start snap-always">
+          <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden">
             {networkFeed.loading ? (
               <div className="flex flex-col items-center py-12">
                 <LoadingCube size="md" />

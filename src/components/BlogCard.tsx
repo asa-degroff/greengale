@@ -309,7 +309,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
 
   return (
     <article
-      className="relative border border-[var(--site-border)] rounded-lg hover:shadow-md transition-shadow bg-[var(--site-bg)]"
+      className="relative border border-[var(--site-border)] rounded-lg hover:shadow-lg transition-shadow bg-[var(--site-bg)]"
     >
       {(isPinned || onTogglePin) && (
         <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
