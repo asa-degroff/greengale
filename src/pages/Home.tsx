@@ -879,7 +879,7 @@ function FeedSection({
         }}
       >
           {/* GreenGale feed panel */}
-          <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden">
+          <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden p-1">
             {greengaleFeed.fromCache && (
               <div className="mb-4 text-xs text-[var(--site-text-secondary)] bg-[var(--site-bg-secondary)] border border-[var(--site-border)] rounded px-3 py-1.5 inline-block">
                 Offline — showing cached feed
@@ -913,7 +913,7 @@ function FeedSection({
 
           {/* Following feed panel */}
           {isAuthenticated && (
-            <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden">
+            <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden p-1">
               {followingFeed.loading ? (
                 <div className="flex flex-col items-center py-12">
                   <LoadingCube size="md" />
@@ -956,7 +956,7 @@ function FeedSection({
           )}
 
           {/* Network feed panel */}
-          <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden">
+          <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden p-1">
             {networkFeed.loading ? (
               <div className="flex flex-col items-center py-12">
                 <LoadingCube size="md" />
