@@ -356,16 +356,33 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     })
   }
 
-  // Handle .well-known/site.standard.publication endpoint
-  // This returns the AT-URI of a publication record
+  // Handle .well-known/site.standard.publication endpoints
   // Proxies to worker which looks up the actual TID-based rkey from PDS
-  // See: https://standard.site
+  // See: https://standard.site/docs/verification/#non-root-publications
+
+  // Standard path-based format: /.well-known/site.standard.publication/:handle
+  // This is the canonical format per the standard.site verification spec
+  const wellKnownPublicationMatch = url.pathname.match(/^\/\.well-known\/site\.standard\.publication\/([^/]+)$/)
+  if (wellKnownPublicationMatch) {
+    const handle = wellKnownPublicationMatch[1]
+    const workerUrl = `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication/${encodeURIComponent(handle)}`
+    const workerResponse = await fetch(workerUrl)
+    return new Response(await workerResponse.text(), {
+      status: workerResponse.status,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    })
+  }
+
+  // Root endpoint: /.well-known/site.standard.publication
+  // Without ?handle: returns platform publication
+  // With ?handle: returns user publication (legacy, kept for backwards compatibility)
   if (url.pathname === '/.well-known/site.standard.publication') {
-    // Proxy all requests to worker (handles both platform and per-user lookups)
-    // Worker fetches the actual publication rkey from PDS since site.standard uses TIDs, not 'self'
     const handle = url.searchParams.get('handle')
     const workerUrl = handle
-      ? `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
+      ? `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication/${encodeURIComponent(handle)}`
       : 'https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication'
     const workerResponse = await fetch(workerUrl)
     return new Response(await workerResponse.text(), {
@@ -390,12 +407,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     )
   }
 
-  // Handle /:handle/.well-known/site.standard.publication for user blog verification
-  // e.g., /3fz.org/.well-known/site.standard.publication
+  // Legacy: /:handle/.well-known/site.standard.publication
+  // Kept for backwards compatibility, redirects to canonical path format
   const userPublicationMatch = url.pathname.match(/^\/([^/]+)\/\.well-known\/site\.standard\.publication$/)
   if (userPublicationMatch) {
     const handle = userPublicationMatch[1]
-    const workerUrl = `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication?handle=${encodeURIComponent(handle)}`
+    const workerUrl = `https://greengale.asadegroff.workers.dev/.well-known/site.standard.publication/${encodeURIComponent(handle)}`
     const workerResponse = await fetch(workerUrl)
     return new Response(await workerResponse.text(), {
       status: workerResponse.status,

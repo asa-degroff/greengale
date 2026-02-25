@@ -140,14 +140,46 @@ async function getSiteStandardPublicationRkey(did: string): Promise<string | nul
 
 // site.standard publication verification
 // Returns the AT-URI of a publication record
-// Without ?handle param: returns GreenGale's platform publication
-// With ?handle=user.bsky.social: returns that user's site.standard.publication
-// See: https://standard.site
+// See: https://standard.site/docs/verification/#non-root-publications
+
+// GreenGale platform account DID
+const GREENGALE_PLATFORM_DID = 'did:plc:purpkfw7haimc4zu5a57slza'
+
+// Helper: look up a user's publication AT-URI by handle
+async function getUserPublicationAtUri(db: D1Database, handle: string): Promise<string | null> {
+  const author = await db.prepare(
+    'SELECT did FROM authors WHERE handle = ?'
+  ).bind(handle).first<{ did: string }>()
+
+  if (!author) return null
+
+  const rkey = await getSiteStandardPublicationRkey(author.did)
+  if (!rkey) return null
+
+  return `at://${author.did}/site.standard.publication/${rkey}`
+}
+
+// Standard path-based verification: /.well-known/site.standard.publication/:handle
+// This is the canonical format per the standard.site verification spec
+app.get('/.well-known/site.standard.publication/:handle', async (c) => {
+  const handle = c.req.param('handle')
+
+  try {
+    const atUri = await getUserPublicationAtUri(c.env.DB, handle)
+    if (!atUri) {
+      return c.text('', 404)
+    }
+    return c.text(atUri)
+  } catch {
+    return c.text('', 500)
+  }
+})
+
+// Root well-known endpoint: /.well-known/site.standard.publication
+// Without ?handle: returns GreenGale's platform publication
+// With ?handle param: returns user publication (legacy, kept for backwards compatibility)
 app.get('/.well-known/site.standard.publication', async (c) => {
   const handle = c.req.query('handle')
-
-  // GreenGale platform account DID
-  const GREENGALE_PLATFORM_DID = 'did:plc:purpkfw7haimc4zu5a57slza'
 
   if (!handle) {
     // Return platform publication
@@ -158,23 +190,13 @@ app.get('/.well-known/site.standard.publication', async (c) => {
     return c.text(`at://${GREENGALE_PLATFORM_DID}/site.standard.publication/${rkey}`)
   }
 
-  // Look up user's DID from handle
+  // Legacy: look up user publication via query param
   try {
-    const author = await c.env.DB.prepare(
-      'SELECT did FROM authors WHERE handle = ?'
-    ).bind(handle).first<{ did: string }>()
-
-    if (!author) {
+    const atUri = await getUserPublicationAtUri(c.env.DB, handle)
+    if (!atUri) {
       return c.text('', 404)
     }
-
-    // Get user's site.standard.publication rkey
-    const rkey = await getSiteStandardPublicationRkey(author.did)
-    if (!rkey) {
-      return c.text('', 404)
-    }
-
-    return c.text(`at://${author.did}/site.standard.publication/${rkey}`)
+    return c.text(atUri)
   } catch {
     return c.text('', 500)
   }

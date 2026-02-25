@@ -340,6 +340,40 @@ describe('API Endpoints', () => {
       const res = await makeRequest(env, '/.well-known/site.standard.publication?handle=webuser.example.com')
       expect(res.status).toBe(404)
     })
+
+    // Path-based verification (standard.site spec)
+    it('returns user publication via path-based route', async () => {
+      env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:user123' })
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          records: [{
+            uri: 'at://did:plc:user123/site.standard.publication/3xyzabcdefghi',
+            value: { preferences: { greengale: {} } },
+          }],
+        }),
+      })
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication/test.bsky.social')
+      expect(res.status).toBe(200)
+
+      const text = await res.text()
+      expect(text).toBe('at://did:plc:user123/site.standard.publication/3xyzabcdefghi')
+    })
+
+    it('returns 404 for unknown handle via path-based route', async () => {
+      env.DB._statement.first.mockResolvedValueOnce(null)
+
+      const res = await makeRequest(env, '/.well-known/site.standard.publication/unknown.bsky.social')
+      expect(res.status).toBe(404)
+    })
   })
 
   describe('getRecentPosts', () => {
