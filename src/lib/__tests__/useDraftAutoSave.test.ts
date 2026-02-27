@@ -555,7 +555,7 @@ describe('useDraftAutoSave', () => {
       vi.useRealTimers()
     })
 
-    it('cleans up debounce timer on unmount', () => {
+    it('flushes pending debounced save on unmount', () => {
       vi.useFakeTimers()
 
       const { result, unmount } = renderHook(() => useDraftAutoSave('did:plc:test', undefined))
@@ -568,19 +568,19 @@ describe('useDraftAutoSave', () => {
         result.current.saveDraft(createTestDraft())
       })
 
-      // Unmount before debounce completes
+      // Unmount before debounce completes - should flush the pending save
       unmount()
 
-      // Advance past debounce period
-      act(() => {
-        vi.advanceTimersByTime(3000)
-      })
-
-      // No draft should have been saved (timer was cleaned up)
+      // Pending draft should have been flushed to localStorage on unmount
       const draftCalls = localStorageMock.setItem.mock.calls.filter(
         (call: [string, string]) => call[0].startsWith('greengale-draft:')
       )
-      expect(draftCalls).toHaveLength(0)
+      expect(draftCalls).toHaveLength(1)
+
+      // Verify the saved content matches what was passed to saveDraft
+      const savedDraft = JSON.parse(draftCalls[0][1])
+      expect(savedDraft.title).toBe('Test Title')
+      expect(savedDraft.content).toBe('Test content here')
 
       vi.useRealTimers()
     })

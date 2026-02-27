@@ -207,6 +207,8 @@ export function useDraftAutoSave(
   const [loadedForKey, setLoadedForKey] = useState<string | null>(null)
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Track the latest pending (unsaved) draft state for flushing on unmount/beforeunload
+  const pendingStateRef = useRef<Omit<DraftState, 'savedAt' | 'version'> | null>(null)
 
   // Compute the current key for comparison
   const currentKey = did ? getDraftKey(did, rkey) : null
@@ -227,11 +229,52 @@ export function useDraftAutoSave(
     setIsBannerDismissed(false)
   }, [did, rkey])
 
-  // Cleanup debounce timer on unmount
+  // Keep refs in sync for the beforeunload handler
+  const didRef = useRef(did)
+  const rkeyRef = useRef(rkey)
+  didRef.current = did
+  rkeyRef.current = rkey
+
+  // Flush any pending debounced save immediately (for unmount/beforeunload)
+  const flushPendingSave = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    if (pendingStateRef.current && didRef.current && storageAvailable) {
+      const fullState: DraftState = {
+        ...pendingStateRef.current,
+        savedAt: new Date().toISOString(),
+        version: DRAFT_VERSION,
+      }
+      saveDraftToStorage(didRef.current, rkeyRef.current, fullState)
+      pendingStateRef.current = null
+    }
+  }, [storageAvailable])
+
+  // Flush pending save on beforeunload (page reload, tab close)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      flushPendingSave()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [flushPendingSave])
+
+  // Flush pending save on unmount
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
+      }
+      // Flush rather than discard
+      if (pendingStateRef.current && didRef.current && storageAvailable) {
+        const fullState: DraftState = {
+          ...pendingStateRef.current,
+          savedAt: new Date().toISOString(),
+          version: DRAFT_VERSION,
+        }
+        saveDraftToStorage(didRef.current, rkeyRef.current, fullState)
       }
     }
   }, [])
@@ -248,6 +291,7 @@ export function useDraftAutoSave(
 
       const success = saveDraftToStorage(did, rkey, fullState)
       if (success) {
+        pendingStateRef.current = null
         setSavedDraft(fullState)
       }
     },
@@ -260,6 +304,9 @@ export function useDraftAutoSave(
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
       }
+
+      // Track latest state so it can be flushed on unmount/beforeunload
+      pendingStateRef.current = state
 
       // Schedule new save
       debounceTimerRef.current = setTimeout(() => {
