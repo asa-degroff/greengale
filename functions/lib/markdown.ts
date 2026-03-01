@@ -22,14 +22,27 @@ export function renderMarkdownToHtml(content: string): string {
   // Escape HTML first (we'll unescape our own tags)
   html = escapeHtml(html)
 
-  // Code blocks (must be before other processing)
+  // Extract code blocks and inline code before other processing
+  // so their contents aren't transformed by markdown rules
+  const codeBlocks: string[] = []
+  const placeholder = (i: number) => `\x00CODEBLOCK${i}\x00`
+
+  // Code blocks (fenced)
   html = html.replace(
     /```(\w*)\n([\s\S]*?)```/g,
-    (_, lang, code) => `<pre><code class="language-${lang || 'text'}">${code.trim()}</code></pre>`
+    (_, lang, code) => {
+      const i = codeBlocks.length
+      codeBlocks.push(`<pre><code class="language-${lang || 'text'}">${code.trim()}</code></pre>`)
+      return placeholder(i)
+    }
   )
 
   // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+  html = html.replace(/`([^`]+)`/g, (_, code) => {
+    const i = codeBlocks.length
+    codeBlocks.push(`<code>${code}</code>`)
+    return placeholder(i)
+  })
 
   // Headings
   html = html.replace(/^######\s+(.*)$/gm, '<h6>$1</h6>')
@@ -122,7 +135,14 @@ export function renderMarkdownToHtml(content: string): string {
     result.push('</p>')
   }
 
-  return result.join('\n')
+  html = result.join('\n')
+
+  // Restore code blocks
+  for (let i = 0; i < codeBlocks.length; i++) {
+    html = html.replace(placeholder(i), codeBlocks[i])
+  }
+
+  return html
 }
 
 /**
