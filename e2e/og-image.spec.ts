@@ -161,7 +161,8 @@ test.describe('OG Meta Tags', () => {
     }
     if (ogImageCount > 0) {
       const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content')
-      expect(ogImage).toContain('/og/')
+      // Homepage may use static fallback (/og-image.png) or dynamic endpoint (/og/site.png)
+      expect(ogImage).toMatch(/\/og[-\/]/)
     }
   })
 
