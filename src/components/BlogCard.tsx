@@ -1,4 +1,5 @@
 import { useMemo, memo, useState, useEffect, useCallback } from 'react'
+import { useHaptics } from '@/lib/useHaptics'
 import { Link, useNavigate } from 'react-router-dom'
 import { extractText, extractFirstImage } from '@/lib/markdown'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
@@ -27,6 +28,7 @@ function CardOptionsMenu({ rkey, isPinned, pinCount, onTogglePin }: {
   pinCount: number
   onTogglePin: (rkey: string) => void
 }) {
+  const { trigger: haptic } = useHaptics()
   const [open, setOpen] = useState(false)
   const disabled = !isPinned && pinCount >= 4
 
@@ -71,6 +73,7 @@ function CardOptionsMenu({ rkey, isPinned, pinCount, onTogglePin }: {
               e.stopPropagation()
               if (!disabled) {
                 onTogglePin(rkey)
+                haptic('selection')
                 setOpen(false)
               }
             }}

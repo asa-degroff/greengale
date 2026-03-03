@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useHaptics } from '@/lib/useHaptics'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import { getLabelWarningText } from '@/lib/image-labels'
 
@@ -22,6 +23,7 @@ export function ContentWarningImage({
 }: ContentWarningImageProps) {
   const [revealed, setRevealed] = useState(false)
   const [showAltText, setShowAltText] = useState(false)
+  const { trigger: haptic } = useHaptics()
   const hasAlt = alt && alt.trim().length > 0
   const containerRef = useRef<HTMLSpanElement>(null)
 
@@ -50,6 +52,7 @@ export function ContentWarningImage({
     e.preventDefault()
     e.stopPropagation()
     setRevealed(true)
+    haptic('medium')
     onReveal?.()
   }
 

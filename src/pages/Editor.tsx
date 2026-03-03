@@ -28,6 +28,7 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
 import { getCachedPost, deleteCachedPost } from '@/lib/offline-store'
 import { invalidateFeedCache } from '@/lib/feedCache'
+import { useHaptics } from '@/lib/useHaptics'
 import {
   GREENGALE_CONTENT_MAX_BYTES,
   WHITEWIND_CONTENT_MAX_BYTES,
@@ -81,6 +82,7 @@ export function EditorPage() {
   const { rkey } = useParams<{ rkey?: string }>()
   const navigate = useNavigate()
   const { isAuthenticated, isLoading, session, handle } = useAuth()
+  const { trigger: haptic } = useHaptics()
 
   const [title, setTitle] = useState('')
   const [subtitle, setSubtitle] = useState('')
@@ -1218,6 +1220,7 @@ export function EditorPage() {
     const resultRkey = await savePost()
 
     if (resultRkey) {
+      haptic('success')
       // Clear the draft since we successfully published
       clearDraft()
       // Invalidate caches so updated content is shown
@@ -1243,6 +1246,7 @@ export function EditorPage() {
       // Navigate to the post with a signal to refetch
       navigate(`/${handle}/${resultRkey}`, { replace: true, state: { refetch: Date.now() } })
     } else {
+      haptic('error')
       // Reset justSaved if save failed so blocker works again
       setJustSaved(false)
     }
@@ -1273,6 +1277,7 @@ export function EditorPage() {
 
   function handleDeleteClick() {
     if (!session || !rkey) return
+    haptic('warning')
     setShowDeleteConfirm(true)
   }
 

@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react'
+import { useHaptics } from '@/lib/useHaptics'
 import type { TTSState, PlaybackRate, PitchRate } from '@/lib/tts'
 import { PLAYBACK_RATES, PITCH_RATES, groupVoices } from '@/lib/tts'
 import { LoadingCubeInline } from '@/components/LoadingCube'
@@ -48,6 +49,7 @@ export function AudioPlayer({
   onVoiceChange,
   onAutoScrollChange,
 }: AudioPlayerProps) {
+  const { trigger: haptic } = useHaptics()
   const [settingsExpanded, setSettingsExpanded] = useState(false)
   const voiceCategories = groupVoices(availableVoices)
   const isLoading = state.status === 'loading-model'
@@ -99,7 +101,7 @@ export function AudioPlayer({
       <div className="audio-player-content">
         {/* Play/Pause Button */}
         <button
-          onClick={playbackState.isPlaying ? onPause : onResume}
+          onClick={() => { playbackState.isPlaying ? onPause() : onResume(); haptic('medium') }}
           disabled={!isPlaying && !isPaused && !isGenerating}
           className="audio-player-button audio-player-play"
           title={playbackState.isPlaying ? 'Pause' : 'Play'}
@@ -128,7 +130,7 @@ export function AudioPlayer({
 
         {/* Settings Toggle (mobile only) */}
         <button
-          onClick={() => setSettingsExpanded(!settingsExpanded)}
+          onClick={() => { setSettingsExpanded(!settingsExpanded); haptic('selection') }}
           className="audio-player-button audio-player-settings-toggle"
           title="Settings"
         >
@@ -198,7 +200,7 @@ export function AudioPlayer({
 
           {/* Auto-scroll Toggle */}
           <button
-            onClick={() => onAutoScrollChange(!autoScroll)}
+            onClick={() => { onAutoScrollChange(!autoScroll); haptic('selection') }}
             className={`audio-player-button audio-player-autoscroll ${autoScroll ? 'audio-player-autoscroll--active' : ''}`}
             title={autoScroll ? 'Auto-scroll enabled' : 'Auto-scroll disabled'}
           >
@@ -210,7 +212,7 @@ export function AudioPlayer({
 
         {/* Close Button */}
         <button
-          onClick={onStop}
+          onClick={() => { onStop(); haptic('light') }}
           className="audio-player-button audio-player-close"
           title="Stop and close"
         >

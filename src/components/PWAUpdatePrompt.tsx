@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useHaptics } from '@/lib/useHaptics'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 export function PWAUpdatePrompt() {
@@ -12,6 +13,8 @@ export function PWAUpdatePrompt() {
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [])
+
+  const { trigger: haptic } = useHaptics()
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -28,8 +31,11 @@ export function PWAUpdatePrompt() {
   })
 
   useEffect(() => {
-    if (needRefresh) setDismissed(false)
-  }, [needRefresh])
+    if (needRefresh) {
+      setDismissed(false)
+      haptic('nudge')
+    }
+  }, [needRefresh, haptic])
 
   if (!isStandalone || !needRefresh || dismissed) return null
 

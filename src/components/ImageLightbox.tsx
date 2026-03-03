@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ContentLabelValue } from '@/lib/image-upload'
 import { getLabelWarningText } from '@/lib/image-labels'
+import { useHaptics } from '@/lib/useHaptics'
 
 interface ImageLightboxProps {
   src: string
@@ -11,6 +12,7 @@ interface ImageLightboxProps {
 }
 
 export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps) {
+  const { trigger: haptic } = useHaptics()
   const [acknowledged, setAcknowledged] = useState(false)
   const hasLabels = labels && labels.length > 0
 
@@ -89,13 +91,14 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        haptic('soft')
         onClose()
       } else if (e.key === 'r' || e.key === 'R') {
         setZoom(1)
         setPan({ x: 0, y: 0 })
       }
     },
-    [onClose]
+    [onClose, haptic]
   )
 
   useEffect(() => {
@@ -395,8 +398,9 @@ export function ImageLightbox({ src, alt, labels, onClose }: ImageLightboxProps)
   const handleClose = useCallback(() => {
     setZoom(1)
     setPan({ x: 0, y: 0 })
+    haptic('soft')
     onClose()
-  }, [onClose])
+  }, [onClose, haptic])
 
   // Handle background click (close only if not dragging and zoom is 1)
   const handleBackgroundClick = useCallback((e: React.MouseEvent) => {

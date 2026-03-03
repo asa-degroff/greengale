@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet, useLocation } from 'react-router-dom'
 import { AuthProvider } from '@/lib/auth'
 import { ThemePreferenceProvider } from '@/lib/useThemePreference'
+import { HapticsProvider } from '@/lib/useHaptics'
 import { Sidebar } from '@/components/Sidebar'
 import { HomePage } from '@/pages/Home'
 import { AuthorPage } from '@/pages/Author'
@@ -39,10 +40,12 @@ function RootLayout() {
   return (
     <AuthProvider>
       <ThemePreferenceProvider>
-        <ScrollToTop />
-        <Sidebar>
-          <Outlet />
-        </Sidebar>
+        <HapticsProvider>
+          <ScrollToTop />
+          <Sidebar>
+            <Outlet />
+          </Sidebar>
+        </HapticsProvider>
       </ThemePreferenceProvider>
     </AuthProvider>
   )

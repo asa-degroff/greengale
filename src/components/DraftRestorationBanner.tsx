@@ -3,6 +3,8 @@
  * Offers an "Undo" option to discard the restored draft.
  */
 
+import { useHaptics } from '@/lib/useHaptics'
+
 interface DraftRestorationBannerProps {
   /** When the draft was last saved */
   savedAt: Date
@@ -45,6 +47,7 @@ export function DraftRestorationBanner({
   onUndo,
   onDismiss,
 }: DraftRestorationBannerProps) {
+  const { trigger: haptic } = useHaptics()
   const relativeTime = formatRelativeTime(savedAt)
 
   return (
@@ -54,7 +57,7 @@ export function DraftRestorationBanner({
       </span>
       <div className="flex items-center gap-2 flex-shrink-0">
         <button
-          onClick={onUndo}
+          onClick={() => { onUndo(); haptic('soft') }}
           className="px-2.5 py-1 text-sm rounded border border-[var(--site-border)] text-[var(--site-text-secondary)] hover:bg-[var(--site-bg)] hover:text-[var(--site-text)] transition-colors"
         >
           Undo

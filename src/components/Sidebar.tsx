@@ -12,6 +12,7 @@ import { TextLogo } from '@/components/TextLogo'
 import { SidebarSearch } from '@/components/SidebarSearch'
 import { checkWebGPUSupport, type RGB } from '@/lib/webgpu-grid'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
+import { useHaptics } from '@/lib/useHaptics'
 import logoImage from '/grey-logo.avif?url'
 
 // Icons as inline SVGs
@@ -433,6 +434,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ children }: SidebarProps) {
+  const { trigger: haptic } = useHaptics()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [showLoginForm, setShowLoginForm] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -756,7 +758,7 @@ export function Sidebar({ children }: SidebarProps) {
             {/* Light/Dark Toggle */}
             {effectiveTheme === 'default' && (
               <button
-                onClick={toggleTheme}
+                onClick={() => { toggleTheme(); haptic('rigid') }}
                 className="flex items-center gap-3 w-full px-2 py-1.5 rounded hover:bg-[var(--site-bg)] transition-colors"
                 aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
               >
@@ -943,7 +945,7 @@ export function Sidebar({ children }: SidebarProps) {
             {showSettings && (
               <div className="mt-1 ml-2 space-y-1">
                 <button
-                  onClick={logout}
+                  onClick={() => { logout(); haptic('soft') }}
                   className="flex items-center gap-3 w-full px-3 py-2 rounded-lg sidebar-link hover:bg-[var(--site-bg-secondary)] transition-colors"
                 >
                   <LogoutIcon className="w-5 h-5" />
@@ -1000,7 +1002,7 @@ export function Sidebar({ children }: SidebarProps) {
         {/* Only show theme toggle when effective theme is default (light/dark mode matters) */}
         {effectiveTheme === 'default' && (
           <button
-            onClick={toggleTheme}
+            onClick={() => { toggleTheme(); haptic('rigid') }}
             className="p-2 rounded-lg hover:bg-[var(--site-bg-secondary)] text-[var(--site-text-secondary)]"
             aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >

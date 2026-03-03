@@ -21,6 +21,7 @@ import {
 } from '@/lib/appview'
 import { SearchFilters, type CustomDateRange } from '@/components/SearchFilters'
 import { useNetworkStatus } from '@/lib/useNetworkStatus'
+import { useHaptics } from '@/lib/useHaptics'
 import { useAuth } from '@/lib/auth'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import {
@@ -132,6 +133,7 @@ export function HomePage() {
   const [activeTab, setActiveTab] = useState<FeedTab>(getStoredTab)
   const { isAuthenticated, isLoading: authLoading, session } = useAuth()
   const { isOnline } = useNetworkStatus()
+  const { trigger: haptic } = useHaptics()
 
   // Feed hooks
   const greengaleFeed = useGreengaleFeed()
@@ -172,6 +174,7 @@ export function HomePage() {
   // Persist tab selection to localStorage
   const handleTabChange = useCallback((tab: FeedTab) => {
     setActiveTab(tab)
+    haptic('selection')
     try {
       localStorage.setItem(HOME_TAB_STORAGE_KEY, tab)
     } catch {

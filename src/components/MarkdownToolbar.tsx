@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { useHaptics } from '@/lib/useHaptics'
 
 const STORAGE_KEY = 'markdown-toolbar-collapsed'
 
@@ -163,6 +164,8 @@ export function MarkdownToolbar({
   content,
   onContentChange,
 }: MarkdownToolbarProps) {
+  const { trigger: haptic } = useHaptics()
+
   const applyFormat = useCallback((formatKey: string) => {
     const textarea = textareaRef.current
     if (!textarea) return
@@ -287,7 +290,8 @@ export function MarkdownToolbar({
   const handleMouseDown = useCallback((e: React.MouseEvent, formatKey: string) => {
     e.preventDefault() // Prevents textarea from losing focus
     applyFormat(formatKey)
-  }, [applyFormat])
+    haptic('selection')
+  }, [applyFormat, haptic])
 
   return (
     <div className="markdown-toolbar">

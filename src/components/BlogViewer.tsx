@@ -7,6 +7,7 @@ import { TableOfContentsMobile } from './TableOfContentsMobile'
 import { BlueskyInteractions } from './BlueskyInteractions'
 import { AudioPlayer } from './AudioPlayer'
 import { getCustomColorStyles, correctCustomColorsContrast, type Theme } from '@/lib/themes'
+import { useHaptics } from '@/lib/useHaptics'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { extractHeadings } from '@/lib/extractHeadings'
 import { useScrollSpy } from '@/lib/useScrollSpy'
@@ -132,6 +133,8 @@ export function BlogViewer({
     ttsSettings.setAutoScroll(autoScroll)
   }, [ttsSettings])
 
+  const { trigger: haptic } = useHaptics()
+
   // Copy link handler - extracts primary URL (first in comma-separated list)
   const handleCopyLink = useCallback(async () => {
     if (!postUrl) return
@@ -139,11 +142,12 @@ export function BlogViewer({
     try {
       await navigator.clipboard.writeText(primaryUrl)
       setLinkCopied(true)
+      haptic('light')
       setTimeout(() => setLinkCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy link:', err)
     }
-  }, [postUrl])
+  }, [postUrl, haptic])
 
   // Extract headings for table of contents
   const headings = useMemo(() => extractHeadings(content), [content])
