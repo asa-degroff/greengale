@@ -261,7 +261,7 @@ export function buildAuthorOgImage(handle: string): string {
  * Build the OG image URL for the homepage
  */
 export function buildHomeOgImage(): string {
-  return `${APPVIEW_URL}/og/site.png`
+  return `${BASE_URL}/og-image.png`
 }
 
 /**

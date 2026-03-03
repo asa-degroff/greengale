@@ -79,7 +79,7 @@ describe('useDocumentMeta helper functions', () => {
   describe('buildHomeOgImage', () => {
     it('returns the site OG image URL', () => {
       expect(buildHomeOgImage()).toBe(
-        'https://greengale.asadegroff.workers.dev/og/site.png'
+        'https://greengale.app/og-image.png'
       )
     })
   })

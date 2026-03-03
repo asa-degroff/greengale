@@ -225,7 +225,7 @@ export function renderHomepageHtml(posts: PostSummary[]): string {
   const title = 'GreenGale - Decentralized Blogging'
   const description = 'A decentralized blogging platform built on AT Protocol. Read and share blog posts with the Bluesky ecosystem.'
   const canonicalUrl = 'https://greengale.app'
-  const ogImageUrl = 'https://greengale.asadegroff.workers.dev/og/site.png'
+  const ogImageUrl = 'https://greengale.app/og-image.png'
 
   const jsonLd = {
     '@context': 'https://schema.org',
