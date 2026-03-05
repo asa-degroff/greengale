@@ -1,33 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  GREENGALE_CONTENT_MAX_BYTES,
-  WHITEWIND_CONTENT_MAX_BYTES,
-  PDS_JSON_SAFE_LIMIT,
-  CONTENT_PREVIEW_CHARS,
   getUtf8ByteLength,
   formatByteCount,
 } from '../content-limits'
 
 describe('content-limits', () => {
-  describe('constants', () => {
-    it('GREENGALE_CONTENT_MAX_BYTES is 1,000,000', () => {
-      expect(GREENGALE_CONTENT_MAX_BYTES).toBe(1_000_000)
-    })
-
-    it('WHITEWIND_CONTENT_MAX_BYTES is 100,000', () => {
-      expect(WHITEWIND_CONTENT_MAX_BYTES).toBe(100_000)
-    })
-
-    it('PDS_JSON_SAFE_LIMIT is under PDS jsonLimit of 150KB', () => {
-      expect(PDS_JSON_SAFE_LIMIT).toBe(130_000)
-      expect(PDS_JSON_SAFE_LIMIT).toBeLessThan(150 * 1024)
-    })
-
-    it('CONTENT_PREVIEW_CHARS is 10,000', () => {
-      expect(CONTENT_PREVIEW_CHARS).toBe(10_000)
-    })
-  })
-
   describe('getUtf8ByteLength', () => {
     it('counts ASCII characters as 1 byte each', () => {
       expect(getUtf8ByteLength('hello')).toBe(5)

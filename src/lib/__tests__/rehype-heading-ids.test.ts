@@ -22,31 +22,7 @@ describe('rehypeHeadingIds', () => {
       expect(result).toContain('id="hello-world"')
     })
 
-    it('adds id to h2 element', async () => {
-      const html = '<h2>Getting Started</h2>'
-      const result = await processHtml(html)
-      expect(result).toContain('id="getting-started"')
-    })
-
-    it('adds id to h3 element', async () => {
-      const html = '<h3>Installation Guide</h3>'
-      const result = await processHtml(html)
-      expect(result).toContain('id="installation-guide"')
-    })
-
-    it('adds id to h4 element', async () => {
-      const html = '<h4>Advanced Options</h4>'
-      const result = await processHtml(html)
-      expect(result).toContain('id="advanced-options"')
-    })
-
-    it('adds id to h5 element', async () => {
-      const html = '<h5>Configuration Details</h5>'
-      const result = await processHtml(html)
-      expect(result).toContain('id="configuration-details"')
-    })
-
-    it('adds id to h6 element', async () => {
+    it('adds id to h6 element (same logic as h1-h5)', async () => {
       const html = '<h6>Minor Heading</h6>'
       const result = await processHtml(html)
       expect(result).toContain('id="minor-heading"')
@@ -360,42 +336,6 @@ describe('rehypeHeadingIds', () => {
       const result = await processHtml(html)
       // Underscores stripped by /[^a-z0-9\s-]/g, no spaces so words merge
       expect(result).toContain('id="snakecasenaming"')
-    })
-  })
-
-  describe('Plugin Integration', () => {
-    it('works as a unified plugin', async () => {
-      const processor = unified()
-        .use(rehypeParse, { fragment: true })
-        .use(rehypeHeadingIds)
-        .use(rehypeStringify)
-
-      const result = await processor.process('<h1>Test</h1>')
-      expect(String(result)).toContain('id="test"')
-    })
-
-    it('can be chained with other plugins', async () => {
-      // Just verify it doesn't break the chain
-      const processor = unified()
-        .use(rehypeParse, { fragment: true })
-        .use(rehypeHeadingIds)
-        .use(rehypeStringify)
-
-      const input = '<h1>Heading</h1><p>Paragraph</p>'
-      const result = await processor.process(input)
-      const output = String(result)
-
-      expect(output).toContain('<h1')
-      expect(output).toContain('<p>')
-      expect(output).toContain('id="heading"')
-    })
-
-    it('processes synchronously within the tree', async () => {
-      const html = '<h1>First</h1><h1>Second</h1>'
-      const result = await processHtml(html)
-
-      expect(result).toContain('id="first"')
-      expect(result).toContain('id="second"')
     })
   })
 

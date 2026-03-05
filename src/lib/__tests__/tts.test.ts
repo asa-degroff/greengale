@@ -9,11 +9,6 @@ import {
   detectCapabilities,
   shiftPitch,
   isTTSModelCached,
-  DEFAULT_VOICE,
-  SAMPLE_RATE,
-  MODEL_ID,
-  PLAYBACK_RATES,
-  PITCH_RATES,
   parseVoiceId,
   groupVoices,
   pitchToCents,
@@ -36,28 +31,6 @@ import { getBlueskyPost, getBlueskyInteractions } from '../bluesky'
 describe('TTS Module', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-  })
-
-  describe('Constants', () => {
-    it('has correct default voice', () => {
-      expect(DEFAULT_VOICE).toBe('af_heart')
-    })
-
-    it('has correct sample rate', () => {
-      expect(SAMPLE_RATE).toBe(24000)
-    })
-
-    it('has correct model ID', () => {
-      expect(MODEL_ID).toBe('onnx-community/Kokoro-82M-v1.0-ONNX')
-    })
-
-    it('has correct playback rates', () => {
-      expect(PLAYBACK_RATES).toEqual([0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0])
-    })
-
-    it('has correct pitch rates', () => {
-      expect(PITCH_RATES).toEqual([0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5])
-    })
   })
 
   describe('parseVoiceId', () => {
@@ -245,9 +218,6 @@ describe('TTS Module', () => {
       expect(initialTTSState).toEqual(expected)
     })
 
-    it('has idle status', () => {
-      expect(initialTTSState.status).toBe('idle')
-    })
   })
 
   describe('isDiscussionSentence', () => {

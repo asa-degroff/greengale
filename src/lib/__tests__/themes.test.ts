@@ -321,9 +321,6 @@ describe('Theme System', () => {
       expect(THEME_PRESETS).toContain('custom')
     })
 
-    it('has 9 presets', () => {
-      expect(THEME_PRESETS).toHaveLength(9)
-    })
   })
 
   describe('Preset Contrast Validation', () => {

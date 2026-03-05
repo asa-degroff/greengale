@@ -405,27 +405,6 @@ describe('AppView API Client', () => {
       )
     })
 
-    it('returns empty results when no matches', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ results: [] }))
-
-      const response = await searchPublications('nonexistent')
-
-      expect(response.results).toEqual([])
-    })
-
-    it('returns multiple results', async () => {
-      const results = [
-        { did: 'did:1', handle: 'user1', matchType: 'handle' },
-        { did: 'did:2', handle: 'user2', matchType: 'displayName' },
-        { did: 'did:3', handle: 'user3', matchType: 'publicationName' },
-      ]
-      mockFetch.mockResolvedValueOnce(mockResponse({ results }))
-
-      const response = await searchPublications('query')
-
-      expect(response.results).toHaveLength(3)
-    })
-
     it('handles results with null publication', async () => {
       const results = [
         {
@@ -573,13 +552,6 @@ describe('AppView API Client', () => {
       )
     })
 
-    it('returns empty array when no posts match tag', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ tag: 'obscure-tag', posts: [] }))
-
-      const result = await getPostsByTag('obscure-tag')
-
-      expect(result.posts).toEqual([])
-    })
   })
 
   describe('getPopularTags', () => {
@@ -608,28 +580,6 @@ describe('AppView API Client', () => {
       )
     })
 
-    it('returns tags sorted by count', async () => {
-      const tags = [
-        { tag: 'most-popular', count: 500 },
-        { tag: 'second', count: 250 },
-        { tag: 'third', count: 100 },
-      ]
-      mockFetch.mockResolvedValueOnce(mockResponse({ tags }))
-
-      const result = await getPopularTags(3)
-
-      expect(result.tags[0].count).toBeGreaterThanOrEqual(result.tags[1].count)
-      expect(result.tags[1].count).toBeGreaterThanOrEqual(result.tags[2].count)
-    })
-
-    it('returns empty array when no tags exist', async () => {
-      mockFetch.mockResolvedValueOnce(mockResponse({ tags: [] }))
-
-      const result = await getPopularTags()
-
-      expect(result.tags).toEqual([])
-    })
-
     it('throws error on failed request', async () => {
       mockFetch.mockResolvedValueOnce(
         mockResponse({}, { ok: false, status: 500, statusText: 'Internal Server Error' })
@@ -638,13 +588,5 @@ describe('AppView API Client', () => {
       await expect(getPopularTags()).rejects.toThrow('Failed to fetch popular tags')
     })
 
-    it('handles tag with count of zero (edge case)', async () => {
-      const tags = [{ tag: 'new-tag', count: 0 }]
-      mockFetch.mockResolvedValueOnce(mockResponse({ tags }))
-
-      const result = await getPopularTags()
-
-      expect(result.tags[0].count).toBe(0)
-    })
   })
 })

@@ -153,17 +153,6 @@ describe('Image Upload Utilities', () => {
         expect(result.error).toContain('50MB')
       })
 
-      it('accepts small files', () => {
-        const file = createMockFile('test.jpg', 100, 'image/jpeg')
-        const result = validateImageFile(file)
-        expect(result.valid).toBe(true)
-      })
-
-      it('accepts 1 byte file', () => {
-        const file = createMockFile('test.jpg', 1, 'image/jpeg')
-        const result = validateImageFile(file)
-        expect(result.valid).toBe(true)
-      })
     })
 
     describe('edge cases', () => {

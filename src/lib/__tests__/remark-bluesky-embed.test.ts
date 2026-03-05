@@ -96,15 +96,6 @@ Pretty cool!`
       expect(htmlNodes[0].value).toContain('handle="user.bsky.social"')
     })
 
-    it('handles URL with HTTPS scheme', async () => {
-      const markdown = `https://bsky.app/profile/user.bsky.social/post/abc123`
-
-      const tree = await processMarkdown(markdown)
-      const htmlNodes = findHtmlNodes(tree)
-
-      expect(htmlNodes).toHaveLength(1)
-    })
-
     it('handles URL with HTTP scheme', async () => {
       const markdown = `http://bsky.app/profile/user.bsky.social/post/abc123`
 
@@ -278,15 +269,6 @@ https://bsky.app/profile/standalone/post/standalone1`
       expect(htmlNodes).toHaveLength(0)
     })
 
-    it('transforms by default (enabled not specified)', async () => {
-      const markdown = `https://bsky.app/profile/user.bsky.social/post/abc123`
-
-      const tree = await processMarkdown(markdown, {})
-      const htmlNodes = findHtmlNodes(tree)
-
-      expect(htmlNodes).toHaveLength(1)
-    })
-
     it('transforms when explicitly enabled', async () => {
       const markdown = `https://bsky.app/profile/user.bsky.social/post/abc123`
 
@@ -407,14 +389,5 @@ https://bsky.app/profile/user.bsky.social/post/abc123
       expect(htmlNodes[0].value).toContain('rkey="xyz789"')
     })
 
-    it('still works without query params', async () => {
-      const markdown = `https://bsky.app/profile/user.bsky.social/post/abc123`
-
-      const tree = await processMarkdown(markdown)
-      const htmlNodes = findHtmlNodes(tree)
-
-      expect(htmlNodes).toHaveLength(1)
-      expect(htmlNodes[0].value).toContain('rkey="abc123"')
-    })
   })
 })

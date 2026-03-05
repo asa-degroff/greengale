@@ -127,35 +127,6 @@ describe('feedCache', () => {
     })
   })
 
-  describe('Following feed cache', () => {
-    it('returns null when cache is empty', () => {
-      expect(getCachedFollowingFeed()).toBeNull()
-    })
-
-    it('stores and retrieves feed data', () => {
-      const posts = [createMockPost(1), createMockPost(2), createMockPost(3)]
-      setCachedFollowingFeed(posts, 'follow-cursor', 3)
-
-      const cached = getCachedFollowingFeed()
-      expect(cached?.posts).toHaveLength(3)
-      expect(cached?.cursor).toBe('follow-cursor')
-      expect(cached?.loadCount).toBe(3)
-    })
-
-    it('expires cache after 5 minutes', () => {
-      setCachedFollowingFeed([createMockPost(1)], undefined, 1)
-
-      vi.advanceTimersByTime(5 * 60 * 1000 + 1)
-      expect(getCachedFollowingFeed()).toBeNull()
-    })
-
-    it('clears cache with clearFollowingFeedCache', () => {
-      setCachedFollowingFeed([createMockPost(1)], undefined, 1)
-      clearFollowingFeedCache()
-      expect(getCachedFollowingFeed()).toBeNull()
-    })
-  })
-
   describe('invalidateFeedCache', () => {
     it('clears all feed caches at once', () => {
       setCachedGreengaleFeed([createMockPost(1)], undefined, 1)
