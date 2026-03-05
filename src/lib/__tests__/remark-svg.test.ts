@@ -345,29 +345,3 @@ const x = 1;
   })
 })
 
-describe('remarkSvg Plugin Options', () => {
-  it('uses default options when none provided', async () => {
-    // The plugin should work with no options
-    const processor = unified()
-      .use(remarkParse)
-      .use(remarkSvg)
-
-    expect(processor).toBeDefined()
-  })
-
-  it('accepts empty options object', async () => {
-    const processor = unified()
-      .use(remarkParse)
-      .use(remarkSvg, {})
-
-    expect(processor).toBeDefined()
-  })
-
-  it('accepts wrapInContainer option', async () => {
-    const processor = unified()
-      .use(remarkParse)
-      .use(remarkSvg, { wrapInContainer: false })
-
-    expect(processor).toBeDefined()
-  })
-})

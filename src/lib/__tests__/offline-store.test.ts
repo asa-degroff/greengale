@@ -124,7 +124,7 @@ describe('offline-store', () => {
       await cachePost('test.bsky.social', 'abc123', makeEntry(), makeAuthor(), null, false)
       const second = await getCachedPost('test.bsky.social', 'abc123')
 
-      expect(second!.cachedAt).toBeGreaterThanOrEqual(first!.cachedAt)
+      expect(second!.cachedAt).toBeGreaterThan(first!.cachedAt)
     })
   })
 

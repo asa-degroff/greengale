@@ -1,33 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { AppViewPost } from '../appview'
-import type { PostSearchResult } from '../appview'
-
-/**
- * Tests for the appViewPostToPreviewPost converter function from Home.tsx.
- *
- * This function is module-scoped in Home.tsx. Since it's not exported,
- * we replicate it here for testing. If the implementation drifts,
- * update this copy to match.
- */
-
-function appViewPostToPreviewPost(post: AppViewPost): PostSearchResult {
-  return {
-    uri: post.uri,
-    authorDid: post.authorDid,
-    handle: post.author?.handle || post.authorDid,
-    displayName: post.author?.displayName || null,
-    avatarUrl: post.author?.avatar || null,
-    rkey: post.rkey,
-    title: post.title || 'Untitled',
-    subtitle: post.subtitle || null,
-    createdAt: post.createdAt || null,
-    contentPreview: post.contentPreview || null,
-    score: 0,
-    matchType: 'keyword',
-    source: post.source,
-    externalUrl: post.externalUrl || null,
-  }
-}
+import { appViewPostToPreviewPost } from '@/pages/Home'
 
 // Helper to create a minimal AppViewPost
 function makePost(overrides: Partial<AppViewPost> = {}): AppViewPost {

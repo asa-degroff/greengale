@@ -40,7 +40,7 @@ const UFE0Fg = /\uFE0F/g // Variation Selector
  * Handles surrogate pairs correctly
  * Based on https://github.com/twitter/twemoji
  */
-function toCodePoint(unicodeSurrogates: string): string {
+export function toCodePoint(unicodeSurrogates: string): string {
   const r: string[] = []
   let c = 0
   let p = 0
@@ -64,7 +64,7 @@ function toCodePoint(unicodeSurrogates: string): string {
  * Get emoji codepoint for Twemoji lookup
  * Removes variation selectors unless emoji contains zero-width joiner
  */
-function getIconCode(char: string): string {
+export function getIconCode(char: string): string {
   return toCodePoint(char.indexOf(U200D) < 0 ? char.replace(UFE0Fg, '') : char)
 }
 
@@ -72,7 +72,7 @@ function getIconCode(char: string): string {
  * Convert emoji character to Twemoji CDN URL
  * Based on https://github.com/twitter/twemoji
  */
-function getEmojiUrl(emoji: string): string {
+export function getEmojiUrl(emoji: string): string {
   const code = getIconCode(emoji)
   // Use cdnjs (same as official Satori implementation)
   return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${code.toLowerCase()}.svg`
@@ -81,7 +81,7 @@ function getEmojiUrl(emoji: string): string {
 /**
  * Load emoji as SVG data URL for Satori
  */
-async function loadEmoji(emoji: string): Promise<string | null> {
+export async function loadEmoji(emoji: string): Promise<string | null> {
   // Check cache first (use normalized key)
   const cacheKey = getIconCode(emoji)
   const cached = emojiCache.get(cacheKey)
@@ -120,7 +120,7 @@ const EMOJI_DETECT_REGEX = /\p{Emoji}/u
  * Extract all emoji graphemes from text using Intl.Segmenter
  * This correctly handles compound emojis (skin tones, flags, ZWJ sequences)
  */
-function extractEmojis(text: string): string[] {
+export function extractEmojis(text: string): string[] {
   const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' })
   const emojis: string[] = []
   const seen = new Set<string>()
@@ -142,7 +142,7 @@ function extractEmojis(text: string): string[] {
 /**
  * Build graphemeImages map for all emojis in text
  */
-async function buildEmojiMap(text: string): Promise<Record<string, string>> {
+export async function buildEmojiMap(text: string): Promise<Record<string, string>> {
   const emojis = extractEmojis(text)
   if (emojis.length === 0) return {}
 
@@ -183,13 +183,13 @@ interface BaseFonts {
 }
 
 // Font configuration for different scripts
-interface FontSpec {
+export interface FontSpec {
   name: string
   detect: (text: string) => boolean
 }
 
 // Define script detection patterns and their corresponding Google Fonts
-const SCRIPT_FONTS: FontSpec[] = [
+export const SCRIPT_FONTS: FontSpec[] = [
   {
     // Arabic script (Arabic, Persian, Urdu, etc.)
     // Using Cairo - good Satori compatibility
@@ -248,7 +248,7 @@ const SCRIPT_FONTS: FontSpec[] = [
 /**
  * Extract unique non-ASCII characters from text
  */
-function getNonLatinChars(text: string): string {
+export function getNonLatinChars(text: string): string {
   // Match any character outside basic ASCII printable range
   const nonLatin = text.match(/[^\x20-\x7E]/g)
   if (!nonLatin) return ''
@@ -259,7 +259,7 @@ function getNonLatinChars(text: string): string {
 /**
  * Detect which scripts are present in the text and need fallback fonts
  */
-function detectRequiredFonts(text: string): FontSpec[] {
+export function detectRequiredFonts(text: string): FontSpec[] {
   return SCRIPT_FONTS.filter(font => font.detect(text))
 }
 
@@ -373,6 +373,132 @@ async function buildFontsArray(baseFonts: BaseFonts, text: string): Promise<Font
   fonts.push(...fallbackFonts)
 
   return fonts
+}
+
+// --- Exported helper functions for OG image content ---
+
+/**
+ * Truncate a post title, using a shorter limit when a thumbnail is present
+ */
+export function truncateTitle(title: string, hasThumbnail: boolean): string {
+  const maxLength = hasThumbnail ? 80 : 100
+  return title.length > maxLength ? title.slice(0, maxLength - 3) + '...' : title
+}
+
+/**
+ * Truncate a post subtitle, using a shorter limit when a thumbnail is present
+ */
+export function truncateSubtitle(subtitle: string, hasThumbnail: boolean): string {
+  const maxLength = hasThumbnail ? 120 : 150
+  return subtitle.length > maxLength ? subtitle.slice(0, maxLength - 3) + '...' : subtitle
+}
+
+/**
+ * Calculate title font size based on character count
+ */
+export function calculateTitleFontSize(titleLength: number): number {
+  if (titleLength > 60) return 52
+  if (titleLength > 40) return 58
+  return 66
+}
+
+/**
+ * Get author initial for fallback avatar
+ */
+export function getAuthorInitial(name: string, handle: string): string {
+  return (name || handle).charAt(0).toUpperCase()
+}
+
+/**
+ * Truncate a profile description for OG image display
+ */
+export function truncateDescription(description: string | null): string | null {
+  if (!description) return null
+  return description.length > 120
+    ? description.slice(0, 117) + '...'
+    : description
+}
+
+/**
+ * Format posts count with correct pluralization
+ */
+export function formatPostsCount(count: number): string {
+  return `${count} ${count === 1 ? 'post' : 'posts'}`
+}
+
+/**
+ * Get content area right padding based on whether a thumbnail is present
+ */
+export function getContentRightPadding(hasThumbnail: boolean): string {
+  return hasThumbnail ? '360px' : '60px'
+}
+
+/**
+ * Get display tags (max 4) from a tags array
+ */
+export function getDisplayTags(tags: string[] | null | undefined): string[] {
+  return tags?.slice(0, 4) || []
+}
+
+/**
+ * Check whether a "+N more" indicator should be shown for tags
+ */
+export function hasMoreIndicator(tags: string[] | null | undefined): boolean {
+  return tags !== null && tags !== undefined && tags.length > 4
+}
+
+/**
+ * Get the count of additional tags beyond the first 4
+ */
+export function getMoreCount(tags: string[] | null | undefined): number {
+  if (!tags || tags.length <= 4) return 0
+  return tags.length - 4
+}
+
+export function escapeHtml(text: string): string {
+  // Satori renders HTML entities literally (e.g., &lt; shows as "&lt;" not "<"),
+  // so we cannot use entity escaping. Instead, we strip angle brackets only when
+  // they could form HTML tags (< followed by a letter or /). Bare < and > in
+  // text like "<2%" or "a > b" are safe — HTML parsers treat them as text when
+  // they don't form valid tag syntax.
+  return text.replace(/<(?=[a-zA-Z/])/g, '\u2039')
+}
+
+/**
+ * Build vignette as multiple stacked layers to reduce banding artifacts
+ * Dark themes use pure black to avoid colored banding artifacts
+ */
+export function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
+  // Parse rgba color to extract RGB and alpha
+  const rgbaMatch = vignetteColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
+
+  let r: string, g: string, b: string, maxAlpha: number
+
+  if (!rgbaMatch) {
+    // Fallback
+    r = '0'; g = '0'; b = '0'; maxAlpha = 0.3
+  } else if (isDark) {
+    // For dark themes, use pure black to avoid colored banding
+    r = '0'; g = '0'; b = '0'
+    maxAlpha = 0.25
+  } else {
+    // Light themes can use the theme color
+    r = rgbaMatch[1]
+    g = rgbaMatch[2]
+    b = rgbaMatch[3]
+    maxAlpha = parseFloat(rgbaMatch[4] || '1')
+  }
+
+  // Create multiple stacked layers, each with a simple gradient
+  const layers = [
+    { alpha: maxAlpha * 0.175, start: '55%', end: '100%' },
+    { alpha: maxAlpha * 0.15, start: '45%', end: '95%' },
+    { alpha: maxAlpha * 0.1, start: '35%', end: '90%' },
+  ]
+
+  return layers.map(layer =>
+    `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background: radial-gradient(ellipse at center, transparent ${layer.start}, rgba(${r}, ${g}, ${b}, ${layer.alpha.toFixed(3)}) ${layer.end});"></div>`
+  ).join('\n    ')
 }
 
 /**
@@ -498,66 +624,19 @@ interface BuildHtmlOptions {
   tags?: string[] | null
 }
 
-function escapeHtml(text: string): string {
-  // Satori renders HTML entities literally (e.g., &lt; shows as "&lt;" not "<"),
-  // so we cannot use entity escaping. Instead, we strip angle brackets only when
-  // they could form HTML tags (< followed by a letter or /). Bare < and > in
-  // text like "<2%" or "a > b" are safe — HTML parsers treat them as text when
-  // they don't form valid tag syntax.
-  return text.replace(/<(?=[a-zA-Z/])/g, '\u2039')
-}
-
-/**
- * Build vignette as multiple stacked layers to reduce banding artifacts
- * Dark themes use pure black to avoid colored banding artifacts
- */
-function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
-  // Parse rgba color to extract RGB and alpha
-  const rgbaMatch = vignetteColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
-
-  let r: string, g: string, b: string, maxAlpha: number
-
-  if (!rgbaMatch) {
-    // Fallback
-    r = '0'; g = '0'; b = '0'; maxAlpha = 0.3
-  } else if (isDark) {
-    // For dark themes, use pure black to avoid colored banding
-    r = '0'; g = '0'; b = '0'
-    maxAlpha = 0.25
-  } else {
-    // Light themes can use the theme color
-    r = rgbaMatch[1]
-    g = rgbaMatch[2]
-    b = rgbaMatch[3]
-    maxAlpha = parseFloat(rgbaMatch[4] || '1')
-  }
-
-  // Create multiple stacked layers, each with a simple gradient
-  const layers = [
-    { alpha: maxAlpha * 0.175, start: '55%', end: '100%' },
-    { alpha: maxAlpha * 0.15, start: '45%', end: '95%' },
-    { alpha: maxAlpha * 0.1, start: '35%', end: '90%' },
-  ]
-
-  return layers.map(layer =>
-    `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background: radial-gradient(ellipse at center, transparent ${layer.start}, rgba(${r}, ${g}, ${b}, ${layer.alpha.toFixed(3)}) ${layer.end});"></div>`
-  ).join('\n    ')
-}
-
 function buildImageHtml(options: BuildHtmlOptions): string {
   const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark, thumbnailUrl, tags } = options
 
   // Truncate title if too long (shorter limit when thumbnail is present)
-  const maxTitleLength = thumbnailUrl ? 80 : 100
-  const displayTitle = title.length > maxTitleLength ? title.slice(0, maxTitleLength - 3) + '...' : title
-  const maxSubtitleLength = thumbnailUrl ? 120 : 150
-  const displaySubtitle = subtitle && subtitle.length > maxSubtitleLength ? subtitle.slice(0, maxSubtitleLength - 3) + '...' : subtitle
+  const hasThumbnail = !!thumbnailUrl
+  const displayTitle = truncateTitle(title, hasThumbnail)
+  const displaySubtitle = subtitle ? truncateSubtitle(subtitle, hasThumbnail) : subtitle
 
   // Calculate title font size based on length (increased sizes)
-  const titleFontSize = displayTitle.length > 60 ? 52 : displayTitle.length > 40 ? 58 : 66
+  const titleFontSize = calculateTitleFontSize(displayTitle.length)
 
   // Author initial for fallback avatar
-  const authorInitial = (authorName || authorHandle).charAt(0).toUpperCase()
+  const authorInitial = getAuthorInitial(authorName, authorHandle)
 
   // Font families
   const fontFamily = "'iA Writer Quattro', sans-serif"
@@ -574,13 +653,13 @@ function buildImageHtml(options: BuildHtmlOptions): string {
     : ''
 
   // Build tags element (pill badges, max 4 tags)
-  const displayTags = tags?.slice(0, 4) || []
+  const displayTags = getDisplayTags(tags)
   const tagsHtml = displayTags.length > 0
     ? `<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px;">
         ${displayTags.map(tag =>
           `<div style="display: flex; padding: 6px 14px; border-radius: 9999px; font-size: 20px; background: ${colors.accent}20; color: ${colors.accent}; font-family: ${fontFamily};">${escapeHtml(tag)}</div>`
         ).join('')}
-        ${tags && tags.length > 4 ? `<div style="display: flex; padding: 6px 14px; font-size: 20px; color: ${colors.textSecondary}; font-family: ${fontFamily};">+${tags.length - 4} more</div>` : ''}
+        ${hasMoreIndicator(tags) ? `<div style="display: flex; padding: 6px 14px; font-size: 20px; color: ${colors.textSecondary}; font-family: ${fontFamily};">+${getMoreCount(tags)} more</div>` : ''}
        </div>`
     : ''
 
@@ -594,7 +673,7 @@ function buildImageHtml(options: BuildHtmlOptions): string {
     : ''
 
   // Adjust content area right margin when thumbnail is present (280 + 20 gap + 60 padding = 360)
-  const contentRightPadding = thumbnailUrl ? '360px' : '60px'
+  const contentRightPad = getContentRightPadding(hasThumbnail)
 
   // Build grid pattern using repeating linear gradients (more compatible with Satori)
   const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
@@ -607,7 +686,7 @@ function buildImageHtml(options: BuildHtmlOptions): string {
     ${vignetteHtml}
     <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
     ${thumbnailHtml}
-    <div style="display: flex; flex-direction: column; justify-content: center; position: absolute; top: 60px; left: 60px; right: ${contentRightPadding}; bottom: 160px;">
+    <div style="display: flex; flex-direction: column; justify-content: center; position: absolute; top: 60px; left: 60px; right: ${contentRightPad}; bottom: 160px;">
       <div style="display: flex; font-size: ${titleFontSize}px; font-weight: 700; color: ${colors.text}; line-height: 1.2; margin-bottom: ${subtitle ? '16px' : '0'}; font-family: ${titleFontFamily};">${escapeHtml(displayTitle)}</div>
       ${subtitleHtml}
       ${tagsHtml}
@@ -666,7 +745,7 @@ function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark:
   const titleFontFamily = "'IBM Plex Sans', sans-serif"
 
   // Author initial for fallback avatar
-  const authorInitial = (displayName || handle).charAt(0).toUpperCase()
+  const authorInitial = getAuthorInitial(displayName, handle)
 
   // Build avatar element (120px for profile - larger than post)
   const avatarHtml = avatarUrl
@@ -674,9 +753,7 @@ function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark:
     : `<div style="display: flex; width: 120px; height: 120px; border-radius: 60px; margin-bottom: 24px; background: ${colors.accent}; align-items: center; justify-content: center; color: ${isDark ? colors.background : '#ffffff'}; font-size: 48px; font-weight: 700; font-family: ${fontFamily};">${authorInitial}</div>`
 
   // Truncate description if too long
-  const displayDescription = description && description.length > 120
-    ? description.slice(0, 117) + '...'
-    : description
+  const displayDescription = truncateDescription(description ?? null)
 
   // Build description element
   const descriptionHtml = displayDescription
@@ -685,7 +762,7 @@ function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark:
 
   // Build posts count element
   const postsHtml = postsCount !== undefined
-    ? `<div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-top: 16px;">${postsCount} ${postsCount === 1 ? 'post' : 'posts'}</div>`
+    ? `<div style="display: flex; font-size: 24px; color: ${colors.textSecondary}; font-family: ${fontFamily}; margin-top: 16px;">${formatPostsCount(postsCount)}</div>`
     : ''
 
   // Determine primary title and whether to show "by Display Name" line

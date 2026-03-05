@@ -81,8 +81,8 @@ describe('rehypeHeadingIds', () => {
     it('handles multiple consecutive spaces', async () => {
       const html = '<h1>Word    Another</h1>'
       const result = await processHtml(html)
-      // Should collapse to single hyphen
-      expect(result).toMatch(/id="word-+another"/)
+      // Multiple spaces collapse to a single hyphen
+      expect(result).toContain('id="word-another"')
     })
 
     it('handles leading/trailing whitespace in text', async () => {
@@ -320,14 +320,15 @@ describe('rehypeHeadingIds', () => {
     it('handles emoji in headings', async () => {
       const html = '<h1>Hello 👋 World</h1>'
       const result = await processHtml(html)
-      // Should generate a valid id (emoji handling depends on generateSlug)
-      expect(result).toMatch(/id="[^"]+"/);
+      // Emoji stripped by generateSlug's /[^a-z0-9\s-]/g, spaces become hyphens
+      expect(result).toContain('id="hello-world"')
     })
 
     it('handles accented characters', async () => {
       const html = '<h1>Café Culture</h1>'
       const result = await processHtml(html)
-      expect(result).toMatch(/id="[^"]+"/);
+      // Accented é stripped, leaving "caf" + "culture"
+      expect(result).toContain('id="caf-culture"')
     })
 
     it('handles quotes in headings', async () => {
@@ -357,8 +358,8 @@ describe('rehypeHeadingIds', () => {
     it('handles underscores', async () => {
       const html = '<h1>snake_case_naming</h1>'
       const result = await processHtml(html)
-      // Underscores should be preserved or converted consistently
-      expect(result).toMatch(/id="[^"]+"/);
+      // Underscores stripped by /[^a-z0-9\s-]/g, no spaces so words merge
+      expect(result).toContain('id="snakecasenaming"')
     })
   })
 

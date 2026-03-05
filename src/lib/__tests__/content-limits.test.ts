@@ -78,10 +78,11 @@ describe('content-limits', () => {
     })
 
     it('formats numbers with locale separators', () => {
-      // toLocaleString output varies by locale, so just check it returns a string
       const result = formatByteCount(900000)
-      expect(typeof result).toBe('string')
+      // toLocaleString produces locale-dependent output, but must contain all digits
       expect(result).toContain('900')
+      expect(result).toContain('000')
+      expect(result.length).toBeGreaterThan(3)
     })
   })
 })

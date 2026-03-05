@@ -213,8 +213,10 @@ describe('Image Upload Utilities', () => {
         'did:plc:abc',
         'bafkrei123'
       )
-      // Should work but may have double slash - depends on implementation
-      expect(url).toContain('/xrpc/com.atproto.sync.getBlob')
+      // Implementation does simple string concat, so trailing slash produces double slash
+      expect(url).toBe(
+        'https://pds.example.com//xrpc/com.atproto.sync.getBlob?did=did%3Aplc%3Aabc&cid=bafkrei123'
+      )
     })
 
     it('works with localhost PDS', () => {

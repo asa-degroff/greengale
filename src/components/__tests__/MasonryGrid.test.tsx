@@ -116,28 +116,35 @@ describe('MasonryGrid', () => {
   })
 
   describe('column configuration', () => {
-    it('accepts numeric columns', () => {
+    it('applies numeric columns to item width calc', () => {
       render(
         <MasonryGrid columns={3}>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
-      expect(screen.getByTestId('item')).toBeTruthy()
+      const wrapper = screen.getByTestId('item').parentElement!
+      const width = wrapper.style.width
+      // 3 columns with default gap 24: gap*(cols-1) = 48px
+      expect(width).toContain('48px')
     })
 
-    it('accepts responsive columns object', () => {
+    it('applies responsive columns based on breakpoint', () => {
+      // Default innerWidth is 1024 from beforeEach, md breakpoint matches
       render(
         <MasonryGrid columns={{ default: 1, md: 2 }}>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
-      expect(screen.getByTestId('item')).toBeTruthy()
+      const wrapper = screen.getByTestId('item').parentElement!
+      const width = wrapper.style.width
+      // md=2 columns, gap*(cols-1) = 24px, width involves 0.5 factor
+      expect(width).toContain('24px')
+      expect(width).toContain('0.5')
     })
 
-    it('uses default columns when no md specified', () => {
-      // Set mobile width
+    it('uses default columns at mobile width', () => {
       Object.defineProperty(window, 'innerWidth', {
         writable: true,
         configurable: true,
@@ -150,29 +157,36 @@ describe('MasonryGrid', () => {
         </MasonryGrid>
       )
 
-      expect(screen.getByTestId('item')).toBeTruthy()
+      const wrapper = screen.getByTestId('item').parentElement!
+      const width = wrapper.style.width
+      // 1 column: gap*(cols-1) = 0px, full width
+      expect(width).toContain('0px')
     })
   })
 
   describe('gap configuration', () => {
-    it('accepts custom gap', () => {
+    it('applies custom gap to item width calc', () => {
       render(
         <MasonryGrid gap={16}>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
-      expect(screen.getByTestId('item')).toBeTruthy()
+      const wrapper = screen.getByTestId('item').parentElement!
+      // Custom gap of 16 with default 2 columns: gap*(cols-1) = 16px
+      expect(wrapper.style.width).toContain('16px')
     })
 
-    it('uses default gap of 24', () => {
+    it('applies default gap of 24 to item width calc', () => {
       render(
         <MasonryGrid>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
-      expect(screen.getByTestId('item')).toBeTruthy()
+      const wrapper = screen.getByTestId('item').parentElement!
+      // Default gap of 24 with default 2 columns: gap*(cols-1) = 24px
+      expect(wrapper.style.width).toContain('24px')
     })
   })
 
@@ -245,37 +259,33 @@ describe('MasonryGrid', () => {
 
   describe('responsive behavior', () => {
     it('updates columns on breakpoint change', async () => {
-      // Start at desktop width
-      Object.defineProperty(window, 'innerWidth', {
-        writable: true,
-        configurable: true,
-        value: 1024,
-      })
-
+      // Start at desktop width (1024 from beforeEach, md matches)
       const { rerender } = render(
         <MasonryGrid columns={{ default: 1, md: 2 }}>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
-      // Items should render
-      expect(screen.getByTestId('item')).toBeTruthy()
+      // At desktop: md=2 columns, width uses 0.5 factor
+      const wrapper = screen.getByTestId('item').parentElement!
+      expect(wrapper.style.width).toContain('0.5')
 
-      // Simulate mobile width
+      // Simulate mobile width - md breakpoint no longer matches
       Object.defineProperty(window, 'innerWidth', {
         writable: true,
         configurable: true,
         value: 500,
       })
 
-      // Force re-render to pick up new width
       rerender(
         <MasonryGrid columns={{ default: 1, md: 2 }}>
           <div data-testid="item">Item</div>
         </MasonryGrid>
       )
 
-      expect(screen.getByTestId('item')).toBeTruthy()
+      // At mobile: default=1 column, width uses full width (0px gap factor)
+      const wrapperAfter = screen.getByTestId('item').parentElement!
+      expect(wrapperAfter.style.width).toContain('0px')
     })
   })
 

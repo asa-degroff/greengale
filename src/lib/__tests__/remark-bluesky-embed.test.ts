@@ -253,10 +253,8 @@ https://bsky.app/profile/standalone/post/standalone1`
       const tree = await processMarkdown(markdown)
       const htmlNodes = findHtmlNodes(tree)
 
-      // Leading whitespace becomes part of the text node, URL is not standalone
-      // Actually, markdown parsing may treat this differently
-      // The paragraph has a text child with whitespace + URL
-      expect(htmlNodes.length).toBeGreaterThanOrEqual(0) // Behavior depends on parser
+      // Leading whitespace is trimmed by markdown parser, URL is still standalone
+      expect(htmlNodes).toHaveLength(1)
     })
 
     it('handles URL with trailing whitespace', async () => {

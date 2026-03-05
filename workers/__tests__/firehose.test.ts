@@ -1,4 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  hasSensitiveLabels,
+  extractCidFromBlobref,
+  extractFirstImageCid,
+  extractPostData,
+  extractPublicationData,
+  extractIconCid,
+  routeEvent,
+  fetchAuthorData,
+  generateSlug,
+  generateContentPreview,
+  normalizeTags,
+  resolveDidDocUrl,
+  BLOG_COLLECTIONS,
+  PUBLICATION_COLLECTIONS,
+} from '../lib/firehose-utils'
 
 // Mock D1 Database
 function createMockD1() {
@@ -43,151 +59,6 @@ function createMockStorage() {
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
-// Collections
-const BLOG_COLLECTIONS = [
-  'com.whtwnd.blog.entry',
-  'app.greengale.blog.entry',
-  'app.greengale.document',
-  'site.standard.document',
-]
-
-const PUBLICATION_COLLECTIONS = [
-  'app.greengale.publication',
-  'site.standard.publication',
-]
-
-const SENSITIVE_LABELS = ['nudity', 'sexual', 'porn', 'graphic-media']
-
-// Helper functions extracted from the firehose consumer for testing
-function hasSensitiveLabels(blob: Record<string, unknown>): boolean {
-  const labels = blob.labels as { values?: Array<{ val: string }> } | undefined
-  if (!labels?.values) return false
-  return labels.values.some(l => SENSITIVE_LABELS.includes(l.val))
-}
-
-function extractCidFromBlobref(blobref: unknown): string | null {
-  if (!blobref) return null
-  if (typeof blobref === 'string') return blobref
-  if (typeof blobref !== 'object') return null
-
-  const ref = blobref as Record<string, unknown>
-
-  if (ref.ref && typeof ref.ref === 'object') {
-    const innerRef = ref.ref as Record<string, unknown>
-    if (typeof innerRef.$link === 'string') return innerRef.$link
-    if (typeof innerRef.toString === 'function') {
-      const cidStr = innerRef.toString()
-      if (typeof cidStr === 'string' && cidStr.startsWith('baf')) return cidStr
-    }
-  }
-
-  if (typeof ref.$link === 'string') return ref.$link
-  if (typeof ref.cid === 'string') return ref.cid
-
-  return null
-}
-
-function extractFirstImageCid(record: Record<string, unknown>): string | null {
-  const blobs = record?.blobs
-  if (!blobs || !Array.isArray(blobs)) return null
-
-  for (const blob of blobs) {
-    if (typeof blob !== 'object' || blob === null) continue
-    if (hasSensitiveLabels(blob as Record<string, unknown>)) continue
-
-    const blobRecord = blob as Record<string, unknown>
-    const cid = extractCidFromBlobref(blobRecord.blobref)
-    if (cid) return cid
-  }
-
-  return null
-}
-
-// Simulated indexPost logic for testing (extracted core logic)
-interface IndexedPost {
-  uri: string
-  did: string
-  rkey: string
-  title: string | null
-  subtitle: string | null
-  visibility: string
-  content: string
-  hasLatex: boolean
-  createdAt: string | null
-  themePreset: string | null
-  firstImageCid: string | null
-  source: 'whitewind' | 'greengale'
-  slug: string | null
-  contentPreview: string
-}
-
-function extractPostData(
-  uri: string,
-  did: string,
-  rkey: string,
-  source: 'whitewind' | 'greengale',
-  record: Record<string, unknown> | undefined,
-  collection: string
-): IndexedPost {
-  const isV2Document = collection === 'app.greengale.document'
-  const isSiteStandardDocument = collection === 'site.standard.document'
-
-  const title = (record?.title as string) || null
-  const subtitle = isSiteStandardDocument
-    ? (record?.description as string) || null
-    : (record?.subtitle as string) || null
-  const visibility = (record?.visibility as string) || 'public'
-  const content = isSiteStandardDocument
-    ? (record?.textContent as string) || ''
-    : (record?.content as string) || ''
-  const hasLatex = source === 'greengale' && !isSiteStandardDocument && (record?.latex === true)
-
-  const createdAt = (isV2Document || isSiteStandardDocument)
-    ? (record?.publishedAt as string) || null
-    : (record?.createdAt as string) || null
-
-  let themePreset: string | null = null
-  if (record?.theme) {
-    const themeData = record.theme as Record<string, unknown>
-    if (themeData.custom) {
-      themePreset = JSON.stringify(themeData.custom)
-    } else if (themeData.preset) {
-      themePreset = themeData.preset as string
-    }
-  }
-
-  const firstImageCid = source === 'greengale' && record
-    ? extractFirstImageCid(record)
-    : null
-
-  const contentPreview = content
-    .replace(/[#*`\[\]()!]/g, '')
-    .replace(/\n{2,}/g, '\n\n')
-    .replace(/(?<!\n)\n(?!\n)/g, ' ')
-    .trim()
-    .slice(0, 300)
-
-  const slug = title
-    ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    : null
-
-  return {
-    uri,
-    did,
-    rkey,
-    title,
-    subtitle,
-    visibility,
-    content,
-    hasLatex,
-    createdAt,
-    themePreset,
-    firstImageCid,
-    source,
-    slug,
-    contentPreview,
-  }
-}
 
 describe('Firehose Indexer', () => {
   beforeEach(() => {
@@ -553,44 +424,6 @@ describe('Firehose Indexer', () => {
   })
 
   describe('Publication Indexing', () => {
-    function extractPublicationData(
-      record: Record<string, unknown> | undefined,
-      collection: string
-    ) {
-      const isSiteStandard = collection === 'site.standard.publication'
-
-      const name = (record?.name as string) || null
-      const description = (record?.description as string) || null
-      const url = (record?.url as string) || null
-
-      let themePreset: string | null = null
-      const themeSource = isSiteStandard ? record?.basicTheme : record?.theme
-      if (themeSource) {
-        const themeData = themeSource as Record<string, unknown>
-        if (isSiteStandard) {
-          // site.standard.theme.basic uses RGB objects: foreground, background, accent, accentForeground
-          // Each color is { r: number, g: number, b: number }
-          const rgbToHex = (rgb: unknown): string | undefined => {
-            if (!rgb || typeof rgb !== 'object') return undefined
-            const { r, g, b } = rgb as { r?: number; g?: number; b?: number }
-            if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') return undefined
-            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-          }
-          themePreset = JSON.stringify({
-            background: rgbToHex(themeData.background),
-            text: rgbToHex(themeData.foreground),
-            accent: rgbToHex(themeData.accent),
-          })
-        } else if (themeData.custom) {
-          themePreset = JSON.stringify(themeData.custom)
-        } else if (themeData.preset) {
-          themePreset = themeData.preset as string
-        }
-      }
-
-      return { name, description, url, themePreset }
-    }
-
     describe('app.greengale.publication', () => {
       it('extracts all fields', () => {
         const record = {
@@ -694,19 +527,6 @@ describe('Firehose Indexer', () => {
   })
 
   describe('Publication Icon CID Extraction', () => {
-    // Mirrors the icon CID extraction logic in indexPublication()
-    function extractIconCid(record: Record<string, unknown> | undefined): string | null {
-      let iconCid: string | null = null
-      const icon = record?.icon as Record<string, unknown> | undefined
-      if (icon?.ref && typeof icon.ref === 'object') {
-        const ref = icon.ref as Record<string, unknown>
-        if (ref.$link && typeof ref.$link === 'string') {
-          iconCid = ref.$link
-        }
-      }
-      return iconCid
-    }
-
     it('extracts icon CID from blob reference', () => {
       const record = {
         name: 'My Blog',
@@ -767,30 +587,6 @@ describe('Firehose Indexer', () => {
   })
 
   describe('Event Routing', () => {
-    // Simulated handleMessage routing logic
-    function routeEvent(event: {
-      kind: string
-      commit?: {
-        operation: string
-        collection: string
-      }
-    }): 'ignore' | 'index_post' | 'delete_post' | 'index_pub' | 'delete_pub' {
-      if (event.kind !== 'commit') return 'ignore'
-      if (!event.commit) return 'ignore'
-
-      const { operation, collection } = event.commit
-
-      if (PUBLICATION_COLLECTIONS.includes(collection)) {
-        return operation === 'delete' ? 'delete_pub' : 'index_pub'
-      }
-
-      if (BLOG_COLLECTIONS.includes(collection)) {
-        return operation === 'delete' ? 'delete_post' : 'index_post'
-      }
-
-      return 'ignore'
-    }
-
     it('ignores non-commit events', () => {
       expect(routeEvent({ kind: 'identity' })).toBe('ignore')
       expect(routeEvent({ kind: 'account' })).toBe('ignore')
@@ -843,125 +639,14 @@ describe('Firehose Indexer', () => {
     })
   })
 
-  describe('Cache Invalidation', () => {
-    it('should invalidate all common cache keys on post index', () => {
-      // This tests the expected cache keys that should be invalidated
-      const expectedKeys = [
-        'recent_posts:12:',
-        'recent_posts:24:',
-        'recent_posts:50:',
-        'recent_posts:100:',
-      ]
-
-      // Verify the pattern matches what the code uses
-      for (const key of expectedKeys) {
-        expect(key).toMatch(/^recent_posts:\d+:$/)
-      }
-    })
-
-    it('should invalidate OG cache with correct key format', () => {
-      const handle = 'test.bsky.social'
-      const rkey = 'abc123'
-      const expectedKey = `og:${handle}:${rkey}`
-      expect(expectedKey).toBe('og:test.bsky.social:abc123')
-    })
-
-    it('should invalidate profile OG cache with correct key format', () => {
-      const handle = 'test.bsky.social'
-      const expectedKey = `og:profile:${handle}`
-      expect(expectedKey).toBe('og:profile:test.bsky.social')
-    })
-
-    it('should invalidate feed and RSS caches on publication index', () => {
-      // When a publication is indexed (e.g. icon change), cached feed responses
-      // contain stale avatar URLs and must be invalidated
-      const expectedCacheKeys = [
-        // Feed caches (avatar is embedded in cached responses)
-        'recent_posts:12:',
-        'recent_posts:24:',
-        'recent_posts:50:',
-        'recent_posts:100:',
-        // RSS caches
-        'rss:recent',
-      ]
-
-      // Author-specific RSS cache uses the handle
-      const authorHandle = 'test.bsky.social'
-      expectedCacheKeys.push(`rss:author:${authorHandle}`)
-
-      // Verify all keys match expected patterns
-      const feedKeys = expectedCacheKeys.filter(k => k.startsWith('recent_posts:'))
-      expect(feedKeys).toHaveLength(4)
-      for (const key of feedKeys) {
-        expect(key).toMatch(/^recent_posts:\d+:$/)
-      }
-
-      const rssKeys = expectedCacheKeys.filter(k => k.startsWith('rss:'))
-      expect(rssKeys).toHaveLength(2)
-      expect(rssKeys).toContain('rss:recent')
-      expect(rssKeys).toContain(`rss:author:${authorHandle}`)
-    })
-  })
-
   describe('Author Data Fetching', () => {
-    interface AuthorData {
-      did: string
-      handle: string
-      displayName: string | null
-      description: string | null
-      avatar: string | null
-      banner: string | null
-      pdsEndpoint: string | null
-    }
-
-    // Simulated fetchAuthorData logic (matches firehose implementation)
-    async function fetchAuthorData(did: string): Promise<AuthorData | null> {
-      try {
-        const response = await fetch(
-          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
-        )
-
-        if (!response.ok) return null
-
-        const profile = await response.json() as {
-          did: string
-          handle: string
-          displayName?: string
-          description?: string
-          avatar?: string
-          banner?: string
-        }
-
-        // Also fetch PDS endpoint
-        let pdsEndpoint: string | null = null
-        try {
-          const didDocResponse = await fetch(`https://plc.directory/${did}`)
-          if (didDocResponse.ok) {
-            const didDoc = await didDocResponse.json() as {
-              service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-            }
-            const pdsService = didDoc.service?.find(
-              (s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-            )
-            pdsEndpoint = pdsService?.serviceEndpoint || null
-          }
-        } catch {
-          // PDS lookup failed
-        }
-
-        return {
-          did: profile.did,
-          handle: profile.handle,
-          displayName: profile.displayName || null,
-          description: profile.description || null,
-          avatar: profile.avatar || null,
-          banner: profile.banner || null,
-          pdsEndpoint,
-        }
-      } catch {
-        return null
-      }
-    }
+    // Helper to create a mock response for the AI agent label check (3rd fetch in fetchAuthorData)
+    const mockAiLabelResponse = (isAgent = false) => ({
+      ok: true,
+      json: async () => ({
+        labels: isAgent ? [{ val: 'ai-agent' }] : [],
+      }),
+    })
 
     it('returns null when profile fetch fails', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 404 })
@@ -991,6 +676,7 @@ describe('Firehose Indexer', () => {
             ],
           }),
         })
+        .mockResolvedValueOnce(mockAiLabelResponse())
 
       const result = await fetchAuthorData('did:plc:abc')
 
@@ -1011,6 +697,7 @@ describe('Firehose Indexer', () => {
           }),
         })
         .mockResolvedValueOnce({ ok: false }) // PDS lookup fails
+        .mockResolvedValueOnce(mockAiLabelResponse())
 
       const result = await fetchAuthorData('did:plc:minimal')
 
@@ -1038,6 +725,7 @@ describe('Firehose Indexer', () => {
             ],
           }),
         })
+        .mockResolvedValueOnce(mockAiLabelResponse())
 
       const result = await fetchAuthorData('did:plc:abc')
 
@@ -1054,6 +742,7 @@ describe('Firehose Indexer', () => {
           }),
         })
         .mockRejectedValueOnce(new Error('Network error'))
+        .mockResolvedValueOnce(mockAiLabelResponse())
 
       const result = await fetchAuthorData('did:plc:abc')
 
@@ -1158,29 +847,12 @@ describe('Firehose Indexer', () => {
           // no icon field
         }
 
-        // Extract icon CID using same logic as firehose
-        let iconCid: string | null = null
-        const icon = record as Record<string, unknown>
-        const iconField = icon.icon as Record<string, unknown> | undefined
-        if (iconField?.ref && typeof iconField.ref === 'object') {
-          const ref = iconField.ref as Record<string, unknown>
-          if (ref.$link && typeof ref.$link === 'string') {
-            iconCid = ref.$link
-          }
-        }
-
-        expect(iconCid).toBeNull()
+        expect(extractIconCid(record)).toBeNull()
       })
     })
   })
 
   describe('Slug Generation', () => {
-    function generateSlug(title: string | null): string | null {
-      return title
-        ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-        : null
-    }
-
     it('converts to lowercase', () => {
       expect(generateSlug('Hello World')).toBe('hello-world')
     })
@@ -1211,15 +883,6 @@ describe('Firehose Indexer', () => {
   })
 
   describe('Content Preview', () => {
-    function generateContentPreview(content: string): string {
-      return content
-        .replace(/[#*`\[\]()!]/g, '')
-        .replace(/\n{2,}/g, '\n\n')
-        .replace(/(?<!\n)\n(?!\n)/g, ' ')
-        .trim()
-        .slice(0, 300)
-    }
-
     it('strips markdown formatting', () => {
       expect(generateContentPreview('# Hello **World**')).toBe('Hello World')
     })
@@ -1241,25 +904,18 @@ describe('Firehose Indexer', () => {
       expect(generateContentPreview('Line 1\nLine 2')).toBe('Line 1 Line 2')
     })
 
-    it('truncates to 300 characters', () => {
+    it('truncates to maxLength (default 3000)', () => {
+      const long = 'a'.repeat(5000)
+      expect(generateContentPreview(long).length).toBe(3000)
+    })
+
+    it('truncates to custom maxLength', () => {
       const long = 'a'.repeat(500)
-      expect(generateContentPreview(long).length).toBe(300)
+      expect(generateContentPreview(long, 300).length).toBe(300)
     })
   })
 
   describe('Tag Extraction and Normalization', () => {
-    // Helper function matching firehose implementation
-    function normalizeTags(tags: unknown): string[] {
-      if (!tags || !Array.isArray(tags)) return []
-
-      return tags
-        .filter((t): t is string => typeof t === 'string')
-        .map((t) => t.toLowerCase().trim())
-        .filter((t) => t.length > 0 && t.length <= 100)
-        .filter((_, i) => i < 100) // Max 100 tags
-        .filter((t, i, arr) => arr.indexOf(t) === i) // Dedupe
-    }
-
     it('returns empty array for null/undefined', () => {
       expect(normalizeTags(null)).toEqual([])
       expect(normalizeTags(undefined)).toEqual([])
@@ -1345,76 +1001,7 @@ describe('Firehose Indexer', () => {
     })
   })
 
-  describe('Tag Cache Invalidation', () => {
-    it('should invalidate tag-related cache keys on post index', () => {
-      // Expected cache keys for tag queries
-      const expectedTagKeys = [
-        'popular_tags:50',
-        'popular_tags:100',
-      ]
-
-      for (const key of expectedTagKeys) {
-        expect(key).toMatch(/^popular_tags:\d+$/)
-      }
-    })
-
-    it('should invalidate tag_posts cache with correct key format', () => {
-      const tag = 'javascript'
-      const limit = 50
-      const cursor = ''
-      const expectedKey = `tag_posts:${tag}:${limit}:${cursor}`
-      expect(expectedKey).toBe('tag_posts:javascript:50:')
-    })
-  })
-
-  describe('Post Data with Tags', () => {
-    const baseRecord = {
-      title: 'Test Post',
-      content: 'Hello world',
-      visibility: 'public',
-    }
-
-    it('extracts tags from record', () => {
-      const record = {
-        ...baseRecord,
-        tags: ['javascript', 'react', 'typescript'],
-      }
-
-      const tags = record.tags
-      expect(tags).toEqual(['javascript', 'react', 'typescript'])
-    })
-
-    it('handles record without tags', () => {
-      const tags = baseRecord.tags || []
-      expect(tags).toEqual([])
-    })
-
-    it('extracts tags from site.standard.document', () => {
-      const record = {
-        title: 'Standard Post',
-        description: 'A post',
-        textContent: 'Content here',
-        publishedAt: '2024-01-01T00:00:00Z',
-        tags: ['standardized', 'cross-platform'],
-      }
-
-      const tags = (record as { tags?: string[] }).tags || []
-      expect(tags).toEqual(['standardized', 'cross-platform'])
-    })
-  })
-
   describe('DID Document Resolution', () => {
-    // Extracted from firehose/index.ts - inline DID resolution logic
-    function resolveDidDocUrl(did: string): string {
-      if (did.startsWith('did:web:')) {
-        const parts = did.slice('did:web:'.length).split(':')
-        const host = decodeURIComponent(parts[0])
-        const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
-        return `https://${host}${path}/did.json`
-      }
-      return `https://plc.directory/${did}`
-    }
-
     it('resolves did:plc to plc.directory', () => {
       expect(resolveDidDocUrl('did:plc:abc123')).toBe('https://plc.directory/did:plc:abc123')
     })

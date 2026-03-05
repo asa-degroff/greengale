@@ -61,111 +61,29 @@ vi.mock('../lib/theme-colors', () => ({
   }),
 }))
 
-// Constants matching the source
-const U200D = String.fromCharCode(8205) // Zero Width Joiner
-const UFE0Fg = /\uFE0F/g // Variation Selector
-
-// Pure utility functions extracted for testing
-function toCodePoint(unicodeSurrogates: string): string {
-  const r: string[] = []
-  let c = 0
-  let p = 0
-  let i = 0
-
-  while (i < unicodeSurrogates.length) {
-    c = unicodeSurrogates.charCodeAt(i++)
-    if (p) {
-      r.push((65536 + ((p - 55296) << 10) + (c - 56320)).toString(16))
-      p = 0
-    } else if (55296 <= c && c <= 56319) {
-      p = c
-    } else {
-      r.push(c.toString(16))
-    }
-  }
-  return r.join('-')
-}
-
-function getIconCode(char: string): string {
-  return toCodePoint(char.indexOf(U200D) < 0 ? char.replace(UFE0Fg, '') : char)
-}
-
-function getEmojiUrl(emoji: string): string {
-  const code = getIconCode(emoji)
-  return `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${code.toLowerCase()}.svg`
-}
-
-const EMOJI_DETECT_REGEX = /\p{Emoji}/u
-
-function extractEmojis(text: string): string[] {
-  const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' })
-  const emojis: string[] = []
-  const seen = new Set<string>()
-
-  for (const { segment } of segmenter.segment(text)) {
-    if (EMOJI_DETECT_REGEX.test(segment) && !seen.has(segment)) {
-      if (!/^[0-9#*]$/.test(segment)) {
-        emojis.push(segment)
-        seen.add(segment)
-      }
-    }
-  }
-
-  return emojis
-}
-
-function getNonLatinChars(text: string): string {
-  const nonLatin = text.match(/[^\x20-\x7E]/g)
-  if (!nonLatin) return ''
-  return [...new Set(nonLatin)].join('')
-}
-
-// Script detection patterns
-const SCRIPT_FONTS = [
-  { name: 'Cairo', detect: (text: string) => /[\u0600-\u06FF]/.test(text) },
-  { name: 'Noto Sans Hebrew', detect: (text: string) => /[\u0590-\u05FF]/.test(text) },
-  { name: 'Noto Sans KR', detect: (text: string) => /[\uAC00-\uD7AF]/.test(text) },
-  { name: 'Noto Sans SC', detect: (text: string) => /[\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/.test(text) },
-  { name: 'Noto Sans Thai', detect: (text: string) => /[\u0E00-\u0E7F]/.test(text) },
-  { name: 'Noto Sans Devanagari', detect: (text: string) => /[\u0900-\u097F]/.test(text) },
-  { name: 'Noto Sans', detect: (text: string) => /[\u0400-\u04FF]/.test(text) }, // Cyrillic
-]
-
-function detectRequiredFonts(text: string): { name: string }[] {
-  return SCRIPT_FONTS.filter(font => font.detect(text))
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/<(?=[a-zA-Z/])/g, '\u2039')
-}
-
-function buildVignetteLayers(vignetteColor: string, isDark: boolean): string {
-  const rgbaMatch = vignetteColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/)
-
-  let r: string, g: string, b: string, maxAlpha: number
-
-  if (!rgbaMatch) {
-    r = '0'; g = '0'; b = '0'; maxAlpha = 0.3
-  } else if (isDark) {
-    r = '0'; g = '0'; b = '0'
-    maxAlpha = 0.25
-  } else {
-    r = rgbaMatch[1]
-    g = rgbaMatch[2]
-    b = rgbaMatch[3]
-    maxAlpha = parseFloat(rgbaMatch[4] || '1')
-  }
-
-  const layers = [
-    { alpha: maxAlpha * 0.175, start: '55%', end: '100%' },
-    { alpha: maxAlpha * 0.15, start: '45%', end: '95%' },
-    { alpha: maxAlpha * 0.1, start: '35%', end: '90%' },
-  ]
-
-  return layers.map(layer =>
-    `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background: radial-gradient(ellipse at center, transparent ${layer.start}, rgba(${r}, ${g}, ${b}, ${layer.alpha.toFixed(3)}) ${layer.end});"></div>`
-  ).join('\n    ')
-}
+// Import all functions from the real source module
+import {
+  toCodePoint,
+  getIconCode,
+  getEmojiUrl,
+  extractEmojis,
+  getNonLatinChars,
+  detectRequiredFonts,
+  escapeHtml,
+  buildVignetteLayers,
+  truncateTitle,
+  truncateSubtitle,
+  calculateTitleFontSize,
+  getAuthorInitial,
+  truncateDescription,
+  formatPostsCount,
+  loadEmoji,
+  buildEmojiMap,
+  getContentRightPadding,
+  getDisplayTags,
+  hasMoreIndicator,
+  getMoreCount,
+} from '../lib/og-image'
 
 describe('OG Image Generation', () => {
   beforeEach(() => {
@@ -439,17 +357,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Title and Subtitle Truncation', () => {
-    // Test the truncation logic
-    function truncateTitle(title: string, hasThumbnail: boolean): string {
-      const maxLength = hasThumbnail ? 80 : 100
-      return title.length > maxLength ? title.slice(0, maxLength - 3) + '...' : title
-    }
-
-    function truncateSubtitle(subtitle: string, hasThumbnail: boolean): string {
-      const maxLength = hasThumbnail ? 120 : 150
-      return subtitle.length > maxLength ? subtitle.slice(0, maxLength - 3) + '...' : subtitle
-    }
-
     it('does not truncate short titles', () => {
       expect(truncateTitle('Short Title', false)).toBe('Short Title')
     })
@@ -484,12 +391,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Title Font Size Calculation', () => {
-    function calculateTitleFontSize(titleLength: number): number {
-      if (titleLength > 60) return 52
-      if (titleLength > 40) return 58
-      return 66
-    }
-
     it('uses 66px for short titles (<=40 chars)', () => {
       expect(calculateTitleFontSize(20)).toBe(66)
       expect(calculateTitleFontSize(40)).toBe(66)
@@ -507,10 +408,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Author Initial Extraction', () => {
-    function getAuthorInitial(name: string, handle: string): string {
-      return (name || handle).charAt(0).toUpperCase()
-    }
-
     it('uses first char of name when available', () => {
       expect(getAuthorInitial('John Doe', 'johndoe')).toBe('J')
     })
@@ -529,13 +426,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Profile Description Truncation', () => {
-    function truncateDescription(description: string | null): string | null {
-      if (!description) return null
-      return description.length > 120
-        ? description.slice(0, 117) + '...'
-        : description
-    }
-
     it('returns null for null input', () => {
       expect(truncateDescription(null)).toBeNull()
     })
@@ -553,10 +443,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Posts Count Pluralization', () => {
-    function formatPostsCount(count: number): string {
-      return `${count} ${count === 1 ? 'post' : 'posts'}`
-    }
-
     it('uses singular for 1 post', () => {
       expect(formatPostsCount(1)).toBe('1 post')
     })
@@ -572,21 +458,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Emoji Loading', () => {
-    async function loadEmoji(emoji: string): Promise<string | null> {
-      try {
-        const url = getEmojiUrl(emoji)
-        const response = await fetch(url)
-
-        if (!response.ok) return null
-
-        const svgText = await response.text()
-        const base64 = btoa(svgText)
-        return `data:image/svg+xml;base64,${base64}`
-      } catch {
-        return null
-      }
-    }
-
     it('returns data URL on successful fetch', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -626,24 +497,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Emoji Map Building', () => {
-    async function buildEmojiMap(text: string): Promise<Record<string, string>> {
-      const emojis = extractEmojis(text)
-      if (emojis.length === 0) return {}
-
-      const map: Record<string, string> = {}
-
-      for (const emoji of emojis) {
-        const response = await fetch(getEmojiUrl(emoji))
-        if (response.ok) {
-          const svgText = await response.text()
-          const base64 = btoa(svgText)
-          map[emoji] = `data:image/svg+xml;base64,${base64}`
-        }
-      }
-
-      return map
-    }
-
     it('returns empty object for text without emojis', async () => {
       const result = await buildEmojiMap('Hello World')
       expect(result).toEqual({})
@@ -664,10 +517,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Content Right Padding Calculation', () => {
-    function getContentRightPadding(hasThumbnail: boolean): string {
-      return hasThumbnail ? '360px' : '60px'
-    }
-
     it('uses 60px without thumbnail', () => {
       expect(getContentRightPadding(false)).toBe('60px')
     })
@@ -689,20 +538,6 @@ describe('OG Image Generation', () => {
   })
 
   describe('Tags Display', () => {
-    // Test the tags display logic matching the implementation
-    function getDisplayTags(tags: string[] | null | undefined): string[] {
-      return tags?.slice(0, 4) || []
-    }
-
-    function hasMoreIndicator(tags: string[] | null | undefined): boolean {
-      return tags !== null && tags !== undefined && tags.length > 4
-    }
-
-    function getMoreCount(tags: string[] | null | undefined): number {
-      if (!tags || tags.length <= 4) return 0
-      return tags.length - 4
-    }
-
     it('shows up to 4 tags', () => {
       const tags = ['javascript', 'react', 'typescript', 'web']
       expect(getDisplayTags(tags)).toHaveLength(4)

@@ -109,7 +109,7 @@ function toSearchResult(author: UnifiedAuthorResult) {
 }
 
 // Convert AppViewPost to PostSearchResult format for ExternalPreviewPanel
-function appViewPostToPreviewPost(post: AppViewPost): PostSearchResultType {
+export function appViewPostToPreviewPost(post: AppViewPost): PostSearchResultType {
   return {
     uri: post.uri,
     authorDid: post.authorDid,

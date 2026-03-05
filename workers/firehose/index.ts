@@ -17,6 +17,45 @@ import {
   extractLeafletContent,
   isLeafletContent,
 } from '../lib/leaflet-parser'
+// Re-export pure utility functions from firehose-utils for backwards compatibility
+export {
+  SENSITIVE_LABELS,
+  BLOG_COLLECTIONS,
+  PUBLICATION_COLLECTIONS,
+  hasSensitiveLabels,
+  extractCidFromBlobref,
+  extractFirstImageCid,
+  extractIconCid,
+  generateSlug,
+  generateContentPreview,
+  normalizeTags,
+  resolveDidDocUrl,
+  routeEvent,
+  extractPostData,
+  extractPublicationData,
+  fetchAuthorData,
+  type IndexedPost,
+  type AuthorData,
+} from '../lib/firehose-utils'
+import {
+  SENSITIVE_LABELS,
+  BLOG_COLLECTIONS,
+  PUBLICATION_COLLECTIONS,
+  hasSensitiveLabels,
+  extractCidFromBlobref,
+  extractFirstImageCid,
+  extractIconCid,
+  generateSlug,
+  generateContentPreview,
+  normalizeTags,
+  resolveDidDocUrl,
+  routeEvent,
+  extractPostData,
+  extractPublicationData,
+  fetchAuthorData,
+  type IndexedPost,
+  type AuthorData,
+} from '../lib/firehose-utils'
 
 interface Env {
   DB: D1Database
@@ -25,20 +64,6 @@ interface Env {
   AI: Ai
   VECTORIZE: VectorizeIndex
 }
-
-// Collections we're interested in
-const BLOG_COLLECTIONS = [
-  'com.whtwnd.blog.entry',
-  'app.greengale.blog.entry',
-  'app.greengale.document',
-  'site.standard.document',  // site.standard dual-publish support
-]
-
-// Publication collections (separate from blog posts)
-const PUBLICATION_COLLECTIONS = [
-  'app.greengale.publication',
-  'site.standard.publication',  // site.standard dual-publish support
-]
 
 // All collections to monitor
 const ALL_COLLECTIONS = [...BLOG_COLLECTIONS, ...PUBLICATION_COLLECTIONS]
@@ -84,18 +109,6 @@ interface JetstreamAccount {
 
 type JetstreamEvent = JetstreamCommit | JetstreamIdentity | JetstreamAccount
 
-// Author data fetched from Bluesky API (separated from DB operations for atomic batching)
-interface AuthorData {
-  did: string
-  handle: string
-  displayName: string | null
-  description: string | null
-  avatar: string | null
-  banner: string | null
-  pdsEndpoint: string | null
-  isAiAgent: boolean
-}
-
 // Alarm interval - check connection every 30 seconds
 const ALARM_INTERVAL_MS = 30 * 1000
 
@@ -126,9 +139,6 @@ async function fetchWithTimeout(
   }
 }
 
-// Content labels that indicate sensitive images (should not be used for OG thumbnails)
-const SENSITIVE_LABELS = ['nudity', 'sexual', 'porn', 'graphic-media']
-
 // Handle patterns to block from indexing (spam sources)
 // These are checked as suffix matches (e.g., '.brid.gy' matches 'user.brid.gy')
 const BLOCKED_HANDLE_PATTERNS = [
@@ -158,6 +168,7 @@ const BLOCKED_EXTERNAL_DOMAINS = [
   'cults3d.com',
   'tokyomotion.net',
 ]
+
 
 export class FirehoseConsumer extends DurableObject<Env> {
   private ws: WebSocket | null = null
@@ -902,66 +913,17 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
   }
 
-  /**
-   * Check if a blob has sensitive content labels that should be excluded from OG thumbnails
-   */
+  // Delegate to standalone functions for testability
   private hasSensitiveLabels(blob: Record<string, unknown>): boolean {
-    const labels = blob.labels as { values?: Array<{ val: string }> } | undefined
-    if (!labels?.values) return false
-    return labels.values.some(l => SENSITIVE_LABELS.includes(l.val))
+    return hasSensitiveLabels(blob)
   }
 
-  /**
-   * Extract CID from a blobref object (handles multiple AT Protocol formats)
-   */
   private extractCidFromBlobref(blobref: unknown): string | null {
-    if (!blobref) return null
-
-    // Direct CID string
-    if (typeof blobref === 'string') return blobref
-    if (typeof blobref !== 'object') return null
-
-    const ref = blobref as Record<string, unknown>
-
-    // Structure: { ref: { $link: cid } } or { ref: CID instance }
-    if (ref.ref && typeof ref.ref === 'object') {
-      const innerRef = ref.ref as Record<string, unknown>
-      if (typeof innerRef.$link === 'string') return innerRef.$link
-      if (typeof innerRef.toString === 'function') {
-        const cidStr = innerRef.toString()
-        if (typeof cidStr === 'string' && cidStr.startsWith('baf')) return cidStr
-      }
-    }
-
-    // Structure: { $link: cid }
-    if (typeof ref.$link === 'string') return ref.$link
-
-    // Structure: { cid: string }
-    if (typeof ref.cid === 'string') return ref.cid
-
-    return null
+    return extractCidFromBlobref(blobref)
   }
 
-  /**
-   * Extract the first non-sensitive image CID from a post's blobs array
-   */
   private extractFirstImageCid(record: Record<string, unknown>): string | null {
-    const blobs = record?.blobs
-    if (!blobs || !Array.isArray(blobs)) return null
-
-    for (const blob of blobs) {
-      if (typeof blob !== 'object' || blob === null) continue
-
-      // Skip images with sensitive content labels
-      if (this.hasSensitiveLabels(blob as Record<string, unknown>)) continue
-
-      // Extract CID from blobref
-      const blobRecord = blob as Record<string, unknown>
-      const cid = this.extractCidFromBlobref(blobRecord.blobref)
-      if (cid) return cid // Return the first valid, non-sensitive image
-    }
-
-    return null
+    return extractFirstImageCid(record)
   }
 
   /**
@@ -981,15 +943,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
       const [, pubDid, collection, rkey] = match
 
       // Resolve the DID to find the PDS (supports did:plc and did:web)
-      let didDocUrl: string
-      if (pubDid.startsWith('did:web:')) {
-        const parts = pubDid.slice('did:web:'.length).split(':')
-        const host = decodeURIComponent(parts[0])
-        const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
-        didDocUrl = `https://${host}${path}/did.json`
-      } else {
-        didDocUrl = `https://plc.directory/${pubDid}`
-      }
+      const didDocUrl = resolveDidDocUrl(pubDid)
 
       const didDocResponse = await fetchWithTimeout(didDocUrl)
       if (!didDocResponse || !didDocResponse.ok) {
@@ -1044,87 +998,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
     }
   }
 
-  /**
-   * Fetch author profile data from Bluesky API (network calls only, no DB operations)
-   * Used to separate network calls from atomic DB batch operations
-   */
   private async fetchAuthorData(did: string): Promise<AuthorData | null> {
-    try {
-      const response = await fetch(
-        `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`
-      )
-
-      if (!response.ok) return null
-
-      const profile = await response.json() as {
-        did: string
-        handle: string
-        displayName?: string
-        description?: string
-        avatar?: string
-        banner?: string
-      }
-
-      // Fetch PDS endpoint and AI agent label in parallel
-      const [pdsEndpoint, isAiAgent] = await Promise.all([
-        // PDS endpoint from DID document (needed for OG image thumbnails)
-        (async (): Promise<string | null> => {
-          try {
-            let didDocUrl: string
-            if (did.startsWith('did:web:')) {
-              const parts = did.slice('did:web:'.length).split(':')
-              const host = decodeURIComponent(parts[0])
-              const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
-              didDocUrl = `https://${host}${path}/did.json`
-            } else {
-              didDocUrl = `https://plc.directory/${did}`
-            }
-            const didDocResponse = await fetch(didDocUrl)
-            if (didDocResponse.ok) {
-              const didDoc = await didDocResponse.json() as {
-                service?: Array<{ id: string; type: string; serviceEndpoint: string }>
-              }
-              const pdsService = didDoc.service?.find(
-                s => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer'
-              )
-              return pdsService?.serviceEndpoint || null
-            }
-            return null
-          } catch {
-            return null
-          }
-        })(),
-        // AI agent label from Hailey's Labeler
-        (async (): Promise<boolean> => {
-          try {
-            const labelerDid = 'did:plc:saslbwamakedc4h6c5bmshvz'
-            const labelResponse = await fetch(
-              `https://public.api.bsky.app/xrpc/com.atproto.label.queryLabels?uriPatterns=${encodeURIComponent(did)}&sources=${encodeURIComponent(labelerDid)}`
-            )
-            if (!labelResponse.ok) return false
-            const labelData = await labelResponse.json() as {
-              labels?: Array<{ val: string; neg?: boolean }>
-            }
-            return (labelData.labels || []).some(l => l.val === 'ai-agent' && !l.neg)
-          } catch {
-            return false
-          }
-        })(),
-      ])
-
-      return {
-        did: profile.did,
-        handle: profile.handle,
-        displayName: profile.displayName || null,
-        description: profile.description || null,
-        avatar: profile.avatar || null,
-        banner: profile.banner || null,
-        pdsEndpoint,
-        isAiAgent,
-      }
-    } catch {
-      return null
-    }
+    return fetchAuthorData(did)
   }
 
   /**
@@ -1133,15 +1008,7 @@ export class FirehoseConsumer extends DurableObject<Env> {
    */
   private async resolvePdsEndpoint(did: string): Promise<string | null> {
     try {
-      let didDocUrl: string
-      if (did.startsWith('did:web:')) {
-        const parts = did.slice('did:web:'.length).split(':')
-        const host = decodeURIComponent(parts[0])
-        const path = parts.length > 1 ? `/${parts.slice(1).map(decodeURIComponent).join('/')}` : '/.well-known'
-        didDocUrl = `https://${host}${path}/did.json`
-      } else {
-        didDocUrl = `https://plc.directory/${did}`
-      }
+      const didDocUrl = resolveDidDocUrl(did)
 
       const didDocResponse = await fetch(didDocUrl)
       if (!didDocResponse.ok) {

@@ -394,9 +394,13 @@ describe('useDocumentMeta hook', () => {
         description: '',
       }))
 
-      // Empty strings are falsy, so these should not be set
+      // Empty strings are falsy, so title and description meta tags should not be set
+      expect(document.querySelector('meta[property="og:title"]')).toBeNull()
+      expect(document.querySelector('meta[name="description"]')).toBeNull()
+      expect(document.querySelector('meta[property="og:description"]')).toBeNull()
       // But og:type and og:site_name should still be present
       expect(document.querySelector('meta[property="og:type"]')).not.toBeNull()
+      expect(document.querySelector('meta[property="og:site_name"]')).not.toBeNull()
     })
   })
 })

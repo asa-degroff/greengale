@@ -9,7 +9,7 @@ type PostResultType = PostSearchResult | UnifiedPostResult
 
 const TRANSITION_DURATION = 300
 
-function formatDate(dateString: string | null) {
+export function formatDate(dateString: string | null) {
   if (!dateString) return null
   try {
     const date = new Date(dateString)
@@ -23,7 +23,7 @@ function formatDate(dateString: string | null) {
   }
 }
 
-function getHostname(url: string) {
+export function getHostname(url: string) {
   try {
     return new URL(url).hostname
   } catch {
@@ -31,7 +31,7 @@ function getHostname(url: string) {
   }
 }
 
-function processContent(p: PostResultType) {
+export function processContent(p: Pick<PostResultType, 'contentPreview' | 'subtitle'>) {
   const preview = p.contentPreview
   const sub = p.subtitle
   let content: string | null = null

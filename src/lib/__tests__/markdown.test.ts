@@ -220,7 +220,8 @@ print("code")
 
     it('renders simple markdown to React elements', async () => {
       const result = await renderMarkdown('Hello **world**')
-      expect(result).toBeDefined()
+      expect(result).not.toBeNull()
+      expect(result).not.toBe('')
     })
 
     it('returns cached result for identical content and options', async () => {
@@ -274,25 +275,29 @@ print("code")
 
     it('handles empty content', async () => {
       const result = await renderMarkdown('')
-      expect(result).toBeDefined()
+      // Empty content still produces a valid ReactNode (not undefined)
+      expect(result).not.toBeUndefined()
     })
 
     it('evicts oldest entry when cache exceeds max size', async () => {
-      // Fill cache with 50 entries
+      clearMarkdownCache()
+
+      // Fill cache with 50 entries (0-49), reaching max size
       for (let i = 0; i < 50; i++) {
         await renderMarkdown(`Entry ${i}`)
       }
 
-      // The first entry should still be cached at this point
-      const firstEntry = await renderMarkdown('Entry 0')
+      // Entry 1 should be cached (returns same reference)
+      const entry1 = await renderMarkdown('Entry 1')
+      const entry1Cached = await renderMarkdown('Entry 1')
+      expect(entry1Cached).toBe(entry1) // Same reference = cached
 
-      // Adding one more should trigger eviction of the oldest
+      // Adding a new entry triggers eviction of entry 0 (oldest by timestamp)
       await renderMarkdown('Entry 50 - triggers eviction')
 
-      // Now re-render entry 0 - if it was evicted, we get a new object
-      clearMarkdownCache()
-      const afterEviction = await renderMarkdown('Entry 0')
-      expect(afterEviction).not.toBe(firstEntry)
+      // Entry 1 was recently accessed so it should still be cached
+      const entry1AfterEviction = await renderMarkdown('Entry 1')
+      expect(entry1AfterEviction).toBe(entry1) // Still cached
     })
   })
 })

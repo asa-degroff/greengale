@@ -1003,19 +1003,24 @@ https://bsky.app/profile/user2.bsky.social/post/def`
       expect(blob.size).toBe(expectedSize)
     })
 
-    it('uses default sample rate when not specified', () => {
+    it('uses default sample rate when not specified', async () => {
       const samples = new Float32Array([0])
       const blob = float32ToWavBlob(samples)
 
-      // Just verify it doesn't throw and creates a valid blob
-      expect(blob.size).toBeGreaterThan(44)
+      // WAV header: sample rate is at byte offset 24 as uint32 LE
+      const buffer = await blob.arrayBuffer()
+      const view = new DataView(buffer)
+      expect(view.getUint32(24, true)).toBe(24000) // SAMPLE_RATE default
     })
 
-    it('accepts custom sample rate', () => {
+    it('accepts custom sample rate', async () => {
       const samples = new Float32Array([0])
       const blob = float32ToWavBlob(samples, 44100)
 
-      expect(blob).toBeInstanceOf(Blob)
+      // Verify sample rate is written to WAV header at offset 24
+      const buffer = await blob.arrayBuffer()
+      const view = new DataView(buffer)
+      expect(view.getUint32(24, true)).toBe(44100)
     })
 
     it('handles empty samples array', () => {

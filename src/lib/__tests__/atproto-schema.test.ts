@@ -544,66 +544,6 @@ describe('AT Protocol Schema Validation', () => {
       })
     })
 
-    describe('selfLabels', () => {
-      it('validates self labels structure', () => {
-        const labels: SelfLabels = {
-          values: [
-            { val: 'nudity' },
-            { val: 'graphic-media' },
-          ],
-        }
-
-        expect(labels.values.length).toBeLessThanOrEqual(10)
-        for (const label of labels.values) {
-          expect(label.val.length).toBeLessThanOrEqual(128)
-        }
-      })
-
-      it('rejects too many labels', () => {
-        const labels: SelfLabels = {
-          values: Array.from({ length: 11 }, (_, i) => ({ val: `label${i}` })),
-        }
-
-        // maxLength is 10
-        expect(labels.values.length).toBeGreaterThan(10)
-      })
-    })
-
-    describe('blobMetadata', () => {
-      it('validates blob metadata structure', () => {
-        const blob: BlobMetadata = {
-          blobref: {
-            $type: 'blob',
-            ref: { $link: 'bafyreig5m3k3bnv7kbzxzwwqxwqyqzxw' },
-            mimeType: 'image/jpeg',
-            size: 12345,
-          },
-          name: 'photo.jpg',
-          alt: 'A beautiful sunset over the mountains',
-          labels: {
-            values: [{ val: 'nudity' }],
-          },
-        }
-
-        expect(blob.blobref).toBeDefined()
-        expect(blob.alt).toBeDefined()
-        expect(blob.alt!.length).toBeLessThanOrEqual(1000)
-      })
-
-      it('rejects alt text exceeding maxLength', () => {
-        const blob: BlobMetadata = {
-          blobref: {
-            $type: 'blob',
-            ref: { $link: 'bafyreig5m3k3bnv7kbzxzwwqxwqyqzxw' },
-            mimeType: 'image/jpeg',
-            size: 12345,
-          },
-          alt: 'x'.repeat(1001),
-        }
-
-        expect(blob.alt!.length).toBeGreaterThan(1000)
-      })
-    })
   })
 
   describe('Schema Cross-References', () => {
