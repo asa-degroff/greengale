@@ -589,4 +589,40 @@ describe('AppView API Client', () => {
     })
 
   })
+
+  describe('malformed responses', () => {
+    it('throws when JSON parsing fails on getRecentPosts', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      } as unknown as Response)
+
+      await expect(getRecentPosts()).rejects.toThrow()
+    })
+
+    it('throws when JSON parsing fails on getPost', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      } as unknown as Response)
+
+      await expect(getPost('handle', 'rkey')).rejects.toThrow()
+    })
+
+    it('throws when fetch itself rejects on getRecentPosts', async () => {
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(getRecentPosts()).rejects.toThrow('Failed to fetch')
+    })
+
+    it('throws when fetch itself rejects on getAuthorProfile', async () => {
+      mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+      await expect(getAuthorProfile('handle')).rejects.toThrow('Failed to fetch')
+    })
+  })
 })

@@ -948,6 +948,31 @@ https://bsky.app/profile/user2.bsky.social/post/def`
       expect(result).toEqual([''])
     })
 
+    it('splits on abbreviation periods (known limitation)', () => {
+      // splitIntoSentences splits on any period followed by space
+      // This documents the current behavior with abbreviations
+      const text = 'Dr. Smith went to the store.'
+      const result = splitIntoSentences(text)
+      // "Dr." followed by space triggers a split
+      expect(result).toEqual(['Dr.', 'Smith went to the store.'])
+    })
+
+    it('splits on multi-period abbreviations', () => {
+      const text = 'The U.S.A. is a country.'
+      const result = splitIntoSentences(text)
+      // Each period+space boundary triggers a split
+      expect(result.length).toBeGreaterThan(1)
+      // The full text is preserved across all fragments
+      expect(result.join(' ')).toBe('The U.S.A. is a country.')
+    })
+
+    it('handles ellipsis followed by text', () => {
+      const text = 'Wait... what happened next?'
+      const result = splitIntoSentences(text)
+      // "..." has a period followed by space, so it splits
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
     it('handles list items as separate sentences', () => {
       const text = 'Introduction.\nFirst item.\nSecond item.\nConclusion.'
       const result = splitIntoSentences(text)

@@ -338,6 +338,67 @@ describe('Bluesky Utilities', () => {
     })
   })
 
+  describe('renderTextWithFacets edge cases', () => {
+    it('handles overlapping facets by rendering in start order', () => {
+      const text = 'Hello world test'
+      const facets: BlueskyFacet[] = [
+        {
+          index: { byteStart: 0, byteEnd: 11 },
+          features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://a.com' }],
+        },
+        {
+          // Overlaps with first facet (starts at 6, which is inside 0-11)
+          index: { byteStart: 6, byteEnd: 16 },
+          features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://b.com' }],
+        },
+      ]
+      const result = renderTextWithFacets(text, facets)
+      // First facet renders "Hello world", second starts at byte 6 which is < lastEnd=11
+      // so second facet's byteStart < lastEnd, meaning no gap text, but it still renders
+      expect(result.length).toBeGreaterThanOrEqual(2)
+      // First link should be rendered
+      expect(React.isValidElement(result[0])).toBe(true)
+      expect((result[0] as React.ReactElement).props.href).toBe('https://a.com')
+    })
+
+    it('handles out-of-bounds facet gracefully', () => {
+      const text = 'Hi'
+      const facets: BlueskyFacet[] = [{
+        index: { byteStart: 0, byteEnd: 100 },
+        features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://example.com' }],
+      }]
+      // Should not throw - bytes.slice(0, 100) just returns available bytes
+      const result = renderTextWithFacets(text, facets)
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('handles facet with byteStart beyond text length', () => {
+      const text = 'Hi'
+      const facets: BlueskyFacet[] = [{
+        index: { byteStart: 50, byteEnd: 100 },
+        features: [{ $type: 'app.bsky.richtext.facet#link', uri: 'https://example.com' }],
+      }]
+      const result = renderTextWithFacets(text, facets)
+      // Text before facet should include "Hi", facet itself decodes empty bytes
+      expect(result.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('handles unknown facet type as plain text', () => {
+      const text = 'Hello world end'
+      const facets: BlueskyFacet[] = [{
+        index: { byteStart: 6, byteEnd: 11 },
+        features: [{ $type: 'com.example.custom#thing' } as unknown as BlueskyFacet['features'][0]],
+      }]
+      const result = renderTextWithFacets(text, facets)
+      expect(result).toHaveLength(3)
+      expect(result[0]).toBe('Hello ')
+      // Unknown type renders as plain text, not a link
+      expect(result[1]).toBe('world')
+      expect(React.isValidElement(result[1])).toBe(false)
+      expect(result[2]).toBe(' end')
+    })
+  })
+
   describe('linkifyText', () => {
     it('returns text as-is when no URLs present', () => {
       const result = linkifyText('Hello world, no links here!')
@@ -432,6 +493,20 @@ describe('Bluesky Utilities', () => {
       const result = linkifyText('My site is https://blog.subdomain.example.co.uk/posts/123')
       const link = result[1] as React.ReactElement
       expect(link.props.href).toBe('https://blog.subdomain.example.co.uk/posts/123')
+    })
+
+    it('handles Wikipedia-style URLs with parentheses in path', () => {
+      // URL regex stops at trailing ")" so internal parens in paths may be truncated
+      const result = linkifyText('See https://en.wikipedia.org/wiki/Something_(band) for more')
+      const link = result[1] as React.ReactElement
+      // The regex character class excludes ")" at the end, so it stops before the closing paren
+      expect(link.props.href).toBe('https://en.wikipedia.org/wiki/Something_(band')
+    })
+
+    it('handles URLs with encoded characters', () => {
+      const result = linkifyText('Visit https://example.com/path%20with%20spaces')
+      const link = result[1] as React.ReactElement
+      expect(link.props.href).toBe('https://example.com/path%20with%20spaces')
     })
   })
 })

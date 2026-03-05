@@ -2387,6 +2387,77 @@ describe('API Endpoints', () => {
         expect(env.FIREHOSE.idFromName).toHaveBeenCalledWith('main')
       })
     })
+
+    describe('stopFirehose', () => {
+      it('stops the firehose', async () => {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.stopFirehose', {
+          method: 'POST',
+          headers: { 'X-Admin-Secret': 'test-admin-secret' },
+        })
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.status).toBe('stopped')
+        expect(env.FIREHOSE.idFromName).toHaveBeenCalledWith('main')
+      })
+    })
+
+    describe('firehoseStatus', () => {
+      it('returns firehose status', async () => {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.firehoseStatus', {
+          headers: { 'X-Admin-Secret': 'test-admin-secret' },
+        })
+
+        expect(res.status).toBe(200)
+        expect(env.FIREHOSE.idFromName).toHaveBeenCalledWith('main')
+      })
+    })
+
+    describe('invalidateRSSCache', () => {
+      it('invalidates author RSS cache', async () => {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateRSSCache', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Secret': 'test-admin-secret',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ handle: 'test.bsky.social' }),
+        })
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.success).toBe(true)
+        expect(data.invalidated).toContain('rss:author:test.bsky.social')
+      })
+
+      it('invalidates recent RSS cache', async () => {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateRSSCache', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Secret': 'test-admin-secret',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ type: 'recent' }),
+        })
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.invalidated).toContain('rss:recent')
+      })
+
+      it('returns 400 when no valid parameters', async () => {
+        const res = await makeRequest(env, '/xrpc/app.greengale.admin.invalidateRSSCache', {
+          method: 'POST',
+          headers: {
+            'X-Admin-Secret': 'test-admin-secret',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        })
+
+        expect(res.status).toBe(400)
+      })
+    })
   })
 
   describe('Error Handling', () => {
