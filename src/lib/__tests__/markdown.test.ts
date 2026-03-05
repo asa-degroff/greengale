@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { createElement, type ReactNode } from 'react'
 import { extractText, extractTitle, extractFirstImage, renderMarkdown, clearMarkdownCache } from '../markdown'
+
+/** Render a ReactNode to an HTML string for assertion */
+function toHtml(node: ReactNode): string {
+  return renderToStaticMarkup(createElement('div', null, node))
+}
 
 describe('Markdown Utilities', () => {
   describe('extractText', () => {
@@ -298,6 +305,53 @@ print("code")
       // Entry 1 was recently accessed so it should still be cached
       const entry1AfterEviction = await renderMarkdown('Entry 1')
       expect(entry1AfterEviction).toBe(entry1) // Still cached
+    })
+  })
+
+  describe('XSS Prevention', () => {
+    beforeEach(() => {
+      clearMarkdownCache()
+    })
+
+    it('strips script tags from markdown', async () => {
+      const result = await renderMarkdown('<script>alert("xss")</script>')
+      const html = toHtml(result)
+      expect(html).not.toContain('<script')
+      expect(html).not.toContain('alert')
+    })
+
+    it('strips event handlers from HTML in markdown', async () => {
+      const result = await renderMarkdown('<img src=x onerror="alert(1)">')
+      const html = toHtml(result)
+      expect(html).not.toContain('onerror')
+      expect(html).not.toContain('alert')
+    })
+
+    it('strips javascript: URLs from links', async () => {
+      const result = await renderMarkdown('[click me](javascript:alert(1))')
+      const html = toHtml(result)
+      expect(html).not.toContain('javascript:')
+    })
+
+    it('strips iframe elements', async () => {
+      const result = await renderMarkdown('<iframe src="https://evil.com"></iframe>')
+      const html = toHtml(result)
+      expect(html).not.toContain('iframe')
+      expect(html).not.toContain('evil.com')
+    })
+
+    it('allows style tags (needed for SVG stylesheets)', async () => {
+      // <style> is intentionally allowed for SVG internal stylesheets
+      // CSS sanitization happens at the SVG remark plugin level, not rehype-sanitize
+      const result = await renderMarkdown('<style>.cls { fill: red; }</style>')
+      const html = toHtml(result)
+      expect(html).toContain('style')
+    })
+
+    it('strips data: URLs from images', async () => {
+      const result = await renderMarkdown('<img src="data:text/html,<script>alert(1)</script>">')
+      const html = toHtml(result)
+      expect(html).not.toContain('data:text/html')
     })
   })
 })

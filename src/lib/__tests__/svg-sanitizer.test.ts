@@ -63,6 +63,73 @@ describe('SVG Sanitizer', () => {
       expect(result).not.toContain('https://evil.com')
     })
 
+    it('removes iframe elements', () => {
+      const input = '<svg><foreignObject><iframe src="https://evil.com"></iframe></foreignObject></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('iframe')
+      expect(result).not.toContain('foreignObject')
+    })
+
+    it('removes embed elements', () => {
+      const input = '<svg><embed src="https://evil.com/exploit.swf" type="application/x-shockwave-flash"/></svg>'
+      const result = sanitizeSvg(input)
+      // embed is not in ALLOWED_ELEMENTS, so it's stripped entirely
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('embed')
+      expect(result).not.toContain('evil.com')
+    })
+
+    it('removes object elements', () => {
+      const input = '<svg><object data="https://evil.com/malware.swf"></object></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('object')
+      expect(result).not.toContain('evil.com')
+    })
+
+    it('blocks data: URLs in href', () => {
+      const input = '<svg><use href="data:image/svg+xml;base64,PHN2Zz48c2NyaXB0PmFsZXJ0KDEpPC9zY3JpcHQ+PC9zdmc+"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('data:')
+    })
+
+    it('blocks data: URLs in style attributes', () => {
+      const input = '<svg><rect style="background-image: url(data:image/png;base64,abc)" width="10" height="10"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('data:')
+    })
+
+    it('removes onerror event handlers', () => {
+      const input = '<svg><image onerror="alert(1)" href="x"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('onerror')
+    })
+
+    it('removes onfocus event handlers', () => {
+      const input = '<svg><rect onfocus="alert(1)" tabindex="0" width="10" height="10"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('onfocus')
+    })
+
+    it('blocks @import in style elements', () => {
+      const input = '<svg><style>@import url(https://evil.com/steal.css);</style></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('@import')
+    })
+
+    it('blocks -moz-binding in styles', () => {
+      const input = '<svg><rect style="-moz-binding: url(evil.xml#exploit)" width="10" height="10"/></svg>'
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).not.toContain('-moz-binding')
+    })
+
     it('allows internal fragment references in href', () => {
       const input = '<svg><defs><circle id="myCircle" r="10"/></defs><use href="#myCircle"/></svg>'
       const result = sanitizeSvg(input)
@@ -213,7 +280,7 @@ describe('SVG Sanitizer', () => {
       expect(result).toContain('feGaussianBlur')
     })
 
-    it('allows animation elements', () => {
+    it('allows animate elements', () => {
       const input = `<svg>
         <circle cx="50" cy="50" r="10">
           <animate attributeName="r" from="10" to="20" dur="1s" repeatCount="indefinite"/>
@@ -222,6 +289,30 @@ describe('SVG Sanitizer', () => {
       const result = sanitizeSvg(input)
       expect(result).not.toBeNull()
       expect(result).toContain('animate')
+      expect(result).toContain('attributeName')
+    })
+
+    it('allows set animation elements', () => {
+      const input = `<svg>
+        <rect width="10" height="10">
+          <set attributeName="fill" to="red" begin="1s"/>
+        </rect>
+      </svg>`
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).toContain('<set')
+      expect(result).toContain('attributeName="fill"')
+    })
+
+    it('allows animateTransform elements', () => {
+      const input = `<svg>
+        <rect width="10" height="10">
+          <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="2s"/>
+        </rect>
+      </svg>`
+      const result = sanitizeSvg(input)
+      expect(result).not.toBeNull()
+      expect(result).toContain('animateTransform')
     })
   })
 

@@ -402,5 +402,34 @@ describe('useDocumentMeta hook', () => {
       expect(document.querySelector('meta[property="og:type"]')).not.toBeNull()
       expect(document.querySelector('meta[property="og:site_name"]')).not.toBeNull()
     })
+
+    it('safely handles HTML special characters in title', () => {
+      renderHook(() => useDocumentMeta({
+        title: '<script>alert("xss")</script>',
+      }))
+
+      // The title should be set as text content, not parsed as HTML
+      const ogTitle = document.querySelector('meta[property="og:title"]')
+      expect(ogTitle).not.toBeNull()
+      const content = ogTitle!.getAttribute('content')!
+      expect(content).toContain('<script>')
+      // Verify no actual script element was injected
+      expect(document.querySelector('script')).toBeNull()
+    })
+
+    it('safely handles HTML special characters in description', () => {
+      renderHook(() => useDocumentMeta({
+        title: 'Test',
+        description: '"><img src=x onerror=alert(1)>',
+      }))
+
+      const desc = document.querySelector('meta[name="description"]')
+      expect(desc).not.toBeNull()
+      const content = desc!.getAttribute('content')!
+      // The value should be set via setAttribute, not innerHTML
+      expect(content).toContain('onerror')
+      // No img element should be injected into the DOM
+      expect(document.querySelector('img[src="x"]')).toBeNull()
+    })
   })
 })

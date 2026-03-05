@@ -182,11 +182,10 @@ code block 2
     })
 
     it('handles images in heading text', () => {
-      // Note: Due to regex ordering, links are processed before images
-      // so ![alt](url) becomes !alt (link text extracted, ! remains)
       const markdown = '# Logo ![alt](image.png) Title'
       const headings = extractHeadings(markdown)
-      expect(headings[0].text).toBe('Logo !alt Title')
+      // Images are stripped entirely from heading text
+      expect(headings[0].text).toBe('Logo  Title')
     })
 
     it('handles duplicate heading text with unique slugs', () => {

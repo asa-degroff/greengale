@@ -48,10 +48,10 @@ function extractHeadingText(line: string): string {
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
     .replace(/_([^_]+)_/g, '$1')
+    // Remove images (must be before links, since ![alt](url) contains [alt](url))
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
     // Remove links but keep text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    // Remove images
-    .replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
     .trim()
 }
 
