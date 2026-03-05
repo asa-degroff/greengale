@@ -83,6 +83,7 @@ import {
   getDisplayTags,
   hasMoreIndicator,
   getMoreCount,
+  clearEmojiCache,
 } from '../lib/og-image'
 
 describe('OG Image Generation', () => {
@@ -458,6 +459,10 @@ describe('OG Image Generation', () => {
   })
 
   describe('Emoji Loading', () => {
+    beforeEach(() => {
+      clearEmojiCache()
+    })
+
     it('returns data URL on successful fetch', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

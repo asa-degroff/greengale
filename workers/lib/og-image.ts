@@ -31,6 +31,11 @@ let fontTitleData: ArrayBuffer | null = null
 // Emoji cache to avoid re-fetching
 const emojiCache = new Map<string, string>()
 
+/** Clear the emoji cache (for testing) */
+export function clearEmojiCache(): void {
+  emojiCache.clear()
+}
+
 // Constants for emoji handling (from official Twemoji)
 const U200D = String.fromCharCode(8205) // Zero Width Joiner
 const UFE0Fg = /\uFE0F/g // Variation Selector
