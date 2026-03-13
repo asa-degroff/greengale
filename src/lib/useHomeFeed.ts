@@ -1,8 +1,9 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   getRecentPosts,
   getNetworkPosts,
   getFollowingPosts,
+  getSubscriptionPosts,
   type AppViewPost,
 } from '@/lib/appview'
 import { cacheFeed, getCachedFeed } from '@/lib/offline-store'
@@ -16,6 +17,9 @@ import {
   getCachedFollowingFeed,
   setCachedFollowingFeed,
   clearFollowingFeedCache,
+  getCachedSubscriptionsFeed,
+  setCachedSubscriptionsFeed,
+  clearSubscriptionsFeedCache,
 } from '@/lib/feedCache'
 
 interface FeedState {
@@ -265,6 +269,91 @@ export function useFollowingFeed(userDid: string | undefined): UseFeedResult & {
       setLoading(false)
     }
   }, [userDid])
+
+  return {
+    posts,
+    loading,
+    loaded,
+    cursor,
+    loadCount,
+    loadingMore,
+    loadMore,
+    refresh,
+    load,
+    hasMore: !!cursor && loadCount < MAX_LOAD_COUNT,
+    fromCache: false,
+  }
+}
+
+/**
+ * Hook for managing the Subscriptions feed
+ * Takes a list of DIDs from the user's subscriptions
+ */
+export function useSubscriptionFeed(subscriptionDids: string[] | undefined): UseFeedResult & { load: () => Promise<void> } {
+  const [initialCache] = useState(() => getCachedSubscriptionsFeed())
+
+  const [posts, setPosts] = useState<AppViewPost[]>(initialCache?.posts ?? [])
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(!!initialCache)
+  const [cursor, setCursor] = useState<string | undefined>(initialCache?.cursor)
+  const [loadCount, setLoadCount] = useState(initialCache?.loadCount ?? 1)
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  // Track the DIDs we last loaded with, so we can reload when subscriptions change
+  const lastDidsRef = useRef<string>(initialCache ? JSON.stringify(subscriptionDids || []) : '')
+
+  const load = useCallback(async () => {
+    if (!subscriptionDids || subscriptionDids.length === 0 || loading) return
+
+    // Check if DIDs changed since last load
+    const didsKey = JSON.stringify(subscriptionDids)
+    if (loaded && didsKey === lastDidsRef.current) return
+
+    setLoading(true)
+    try {
+      const { posts: newPosts, cursor: nextCursor } = await getSubscriptionPosts(subscriptionDids, PAGE_SIZE)
+      setPosts(newPosts)
+      setCursor(nextCursor)
+      setCachedSubscriptionsFeed(newPosts, nextCursor, 1)
+      lastDidsRef.current = didsKey
+    } catch {
+      // Subscription feed not available
+    } finally {
+      setLoaded(true)
+      setLoading(false)
+    }
+  }, [subscriptionDids, loaded, loading])
+
+  const loadMore = useCallback(async () => {
+    if (!subscriptionDids || !cursor || loadingMore || loadCount >= MAX_LOAD_COUNT) return
+    setLoadingMore(true)
+    try {
+      const { posts: newPosts, cursor: nextCursor } = await getSubscriptionPosts(subscriptionDids, PAGE_SIZE, cursor)
+      const allPosts = [...posts, ...newPosts]
+      const newLoadCount = loadCount + 1
+      setPosts(allPosts)
+      setCursor(nextCursor)
+      setLoadCount(newLoadCount)
+      setCachedSubscriptionsFeed(allPosts, nextCursor, newLoadCount)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [subscriptionDids, cursor, loadingMore, loadCount, posts])
+
+  const refresh = useCallback(async () => {
+    if (!subscriptionDids || subscriptionDids.length === 0) return
+    clearSubscriptionsFeedCache()
+    setLoading(true)
+    try {
+      const { posts: newPosts, cursor: nextCursor } = await getSubscriptionPosts(subscriptionDids, PAGE_SIZE)
+      setPosts(newPosts)
+      setCursor(nextCursor)
+      setLoadCount(1)
+      setCachedSubscriptionsFeed(newPosts, nextCursor, 1)
+    } finally {
+      setLoading(false)
+    }
+  }, [subscriptionDids])
 
   return {
     posts,

@@ -29,25 +29,32 @@ import {
   buildHomeCanonical,
   buildHomeOgImage,
 } from '@/lib/useDocumentMeta'
-import { useGreengaleFeed, useNetworkFeed, useFollowingFeed } from '@/lib/useHomeFeed'
+import { useGreengaleFeed, useNetworkFeed, useFollowingFeed, useSubscriptionFeed } from '@/lib/useHomeFeed'
 import { useHomeSearch } from '@/lib/useHomeSearch'
+import { useSubscriptions } from '@/lib/useSubscriptions'
 
-type FeedTab = 'greengale' | 'following' | 'network'
+type FeedTab = 'greengale' | 'following' | 'subscriptions' | 'network'
 
 const HOME_TAB_STORAGE_KEY = 'greengale:home-tab'
 
 // Calculate scroll position index for a given tab
 function getTabScrollPosition(tab: FeedTab, isAuthenticated: boolean): number {
   if (tab === 'greengale') return 0
+  if (!isAuthenticated) {
+    // Only greengale and network tabs visible
+    return tab === 'network' ? 1 : 0
+  }
+  // Authenticated: greengale, following, subscriptions, network
   if (tab === 'following') return 1
-  // Network tab is at index 2 if authenticated, 1 if not (following panel hidden)
-  return isAuthenticated ? 2 : 1
+  if (tab === 'subscriptions') return 2
+  if (tab === 'network') return 3
+  return 0
 }
 
 function getStoredTab(): FeedTab {
   try {
     const stored = localStorage.getItem(HOME_TAB_STORAGE_KEY)
-    if (stored === 'greengale' || stored === 'following' || stored === 'network') {
+    if (stored === 'greengale' || stored === 'following' || stored === 'subscriptions' || stored === 'network') {
       return stored
     }
   } catch {
@@ -139,6 +146,8 @@ export function HomePage() {
   const greengaleFeed = useGreengaleFeed()
   const networkFeed = useNetworkFeed()
   const followingFeed = useFollowingFeed(session?.did)
+  const subscriptionsState = useSubscriptions(session ? { did: session.did, fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options) } : undefined)
+  const subscriptionFeed = useSubscriptionFeed(subscriptionsState.subscribedDids)
 
   // Search hook
   const search = useHomeSearch(navigate)
@@ -164,9 +173,9 @@ export function HomePage() {
     ogImage: buildHomeOgImage(),
   })
 
-  // Validate stored tab - fall back to 'greengale' if 'following' selected but not authenticated
+  // Validate stored tab - fall back to 'greengale' if auth-only tab selected but not authenticated
   useEffect(() => {
-    if (!authLoading && activeTab === 'following' && !isAuthenticated) {
+    if (!authLoading && (activeTab === 'following' || activeTab === 'subscriptions') && !isAuthenticated) {
       setActiveTab('greengale')
     }
   }, [activeTab, isAuthenticated, authLoading])
@@ -196,6 +205,13 @@ export function HomePage() {
     }
   }, [activeTab, followingFeed.loaded, followingFeed.loading, followingFeed.load, isAuthenticated, session?.did])
 
+  // Lazy-load subscription posts when tab is switched
+  useEffect(() => {
+    if (activeTab === 'subscriptions' && !subscriptionFeed.loaded && !subscriptionFeed.loading && isAuthenticated && subscriptionsState.loaded && subscriptionsState.subscribedDids.length > 0) {
+      subscriptionFeed.load()
+    }
+  }, [activeTab, subscriptionFeed.loaded, subscriptionFeed.loading, subscriptionFeed.load, isAuthenticated, subscriptionsState.loaded, subscriptionsState.subscribedDids.length])
+
   const handleRefresh = useCallback(async () => {
     if (refreshing) return
     setRefreshing(true)
@@ -212,6 +228,8 @@ export function HomePage() {
         await networkFeed.refresh()
       } else if (activeTab === 'following') {
         await followingFeed.refresh()
+      } else if (activeTab === 'subscriptions') {
+        await subscriptionFeed.refresh()
       }
     } catch {
       // Refresh failed silently
@@ -226,7 +244,7 @@ export function HomePage() {
       const remaining = animationDuration - (spinElapsed % animationDuration)
       setTimeout(() => setSpinning(false), remaining)
     }
-  }, [refreshing, activeTab, greengaleFeed, networkFeed, followingFeed])
+  }, [refreshing, activeTab, greengaleFeed, networkFeed, followingFeed, subscriptionFeed])
 
   // Memoize processed posts to avoid recreating on every render
   const processedGreengalePosts = useMemo(() =>
@@ -259,6 +277,17 @@ export function HomePage() {
       tags: post.tags,
     })),
     [followingFeed.posts]
+  )
+
+  const processedSubscriptionPosts = useMemo(() =>
+    subscriptionFeed.posts.map(post => ({
+      key: post.uri,
+      entry: toBlogEntry(post),
+      author: toAuthorProfile(post),
+      externalUrl: post.externalUrl,
+      tags: post.tags,
+    })),
+    [subscriptionFeed.posts]
   )
 
   // Destructure stable functions and primitive values for effect dependencies
@@ -398,9 +427,12 @@ export function HomePage() {
             greengaleFeed={greengaleFeed}
             networkFeed={networkFeed}
             followingFeed={followingFeed}
+            subscriptionFeed={subscriptionFeed}
+            subscriptionsState={subscriptionsState}
             processedGreengalePosts={processedGreengalePosts}
             processedNetworkPosts={processedNetworkPosts}
             processedFollowingPosts={processedFollowingPosts}
+            processedSubscriptionPosts={processedSubscriptionPosts}
             onTabChange={handleTabChange}
             onRefresh={handleRefresh}
             onExternalPostSelect={handleFeedExternalPostSelect}
@@ -415,12 +447,17 @@ export function HomePage() {
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--site-accent)]" />
               </div>
               {isAuthenticated && (
-                <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
-                  Following
-                </div>
+                <>
+                  <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
+                    Following
+                  </div>
+                  <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
+                    Subscriptions
+                  </div>
+                </>
               )}
               <div className="px-4 py-2 font-medium text-[var(--site-text-secondary)]">
-                From the Network
+                Network
               </div>
             </div>
             <div className="flex flex-col items-center py-12">
@@ -586,9 +623,12 @@ interface FeedSectionProps {
   greengaleFeed: ReturnType<typeof useGreengaleFeed>
   networkFeed: ReturnType<typeof useNetworkFeed>
   followingFeed: ReturnType<typeof useFollowingFeed>
+  subscriptionFeed: ReturnType<typeof useSubscriptionFeed>
+  subscriptionsState: ReturnType<typeof useSubscriptions>
   processedGreengalePosts: ProcessedPost[]
   processedNetworkPosts: ProcessedPost[]
   processedFollowingPosts: ProcessedPost[]
+  processedSubscriptionPosts: ProcessedPost[]
   onTabChange: (tab: FeedTab) => void
   onRefresh: () => void
   onExternalPostSelect: (post: AppViewPost) => void
@@ -603,9 +643,12 @@ function FeedSection({
   greengaleFeed,
   networkFeed,
   followingFeed,
+  subscriptionFeed,
+  subscriptionsState,
   processedGreengalePosts,
   processedNetworkPosts,
   processedFollowingPosts,
+  processedSubscriptionPosts,
   onTabChange,
   onRefresh,
   onExternalPostSelect,
@@ -615,8 +658,9 @@ function FeedSection({
     const map = new Map<string, AppViewPost>()
     for (const p of networkFeed.posts) map.set(p.uri, p)
     for (const p of followingFeed.posts) map.set(p.uri, p)
+    for (const p of subscriptionFeed.posts) map.set(p.uri, p)
     return map
-  }, [networkFeed.posts, followingFeed.posts])
+  }, [networkFeed.posts, followingFeed.posts, subscriptionFeed.posts])
 
   // Stable callback: BlogCard calls this with a URI string
   const handleExternalPostClick = useCallback((uri: string) => {
@@ -633,6 +677,7 @@ function FeedSection({
   const tabBarRef = useRef<HTMLDivElement>(null)
   const recentsTabRef = useRef<HTMLButtonElement>(null)
   const followingTabRef = useRef<HTMLButtonElement>(null)
+  const subscriptionsTabRef = useRef<HTMLButtonElement>(null)
   const networkTabRef = useRef<HTMLButtonElement>(null)
   const indicatorRef = useRef<HTMLDivElement>(null)
 
@@ -661,6 +706,12 @@ function FeedSection({
     // Following tab (only if authenticated)
     if (isAuthenticated && followingTabRef.current) {
       const rect = followingTabRef.current.getBoundingClientRect()
+      positions.push({ left: rect.left - barRect.left, width: rect.width })
+    }
+
+    // Subscriptions tab (only if authenticated)
+    if (isAuthenticated && subscriptionsTabRef.current) {
+      const rect = subscriptionsTabRef.current.getBoundingClientRect()
       positions.push({ left: rect.left - barRect.left, width: rect.width })
     }
 
@@ -784,8 +835,12 @@ function FeedSection({
         let newTab: FeedTab
         if (panelIndex === 0) {
           newTab = 'greengale'
-        } else if (isAuthenticated && panelIndex === 1) {
+        } else if (!isAuthenticated) {
+          newTab = 'network'
+        } else if (panelIndex === 1) {
           newTab = 'following'
+        } else if (panelIndex === 2) {
+          newTab = 'subscriptions'
         } else {
           newTab = 'network'
         }
@@ -827,17 +882,30 @@ function FeedSection({
           Recents
         </button>
         {isAuthenticated && (
-          <button
-            ref={followingTabRef}
-            onClick={() => onTabChange('following')}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === 'following'
-                ? 'text-[var(--site-accent)]'
-                : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
-            }`}
-          >
-            Following
-          </button>
+          <>
+            <button
+              ref={followingTabRef}
+              onClick={() => onTabChange('following')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === 'following'
+                  ? 'text-[var(--site-accent)]'
+                  : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+              }`}
+            >
+              Following
+            </button>
+            <button
+              ref={subscriptionsTabRef}
+              onClick={() => onTabChange('subscriptions')}
+              className={`px-4 py-2 font-medium transition-colors ${
+                activeTab === 'subscriptions'
+                  ? 'text-[var(--site-accent)]'
+                  : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
+              }`}
+            >
+              Subscriptions
+            </button>
+          </>
         )}
         <button
           ref={networkTabRef}
@@ -953,6 +1021,59 @@ function FeedSection({
               ) : (
                 <p className="text-center text-[var(--site-text-secondary)] py-8">
                   None of the accounts you follow have blog posts yet.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Subscriptions feed panel */}
+          {isAuthenticated && (
+            <div className="w-full flex-shrink-0 snap-start snap-always overflow-hidden p-1">
+              {(subscriptionFeed.loading || (subscriptionsState.loading && !subscriptionsState.loaded)) ? (
+                <div className="flex flex-col items-center py-12">
+                  <LoadingCube size="md" />
+                  <p className="mt-6 text-sm text-[var(--site-text-secondary)]">
+                    Loading subscription posts...
+                  </p>
+                </div>
+              ) : processedSubscriptionPosts.length > 0 ? (
+                <>
+                  <MasonryGrid columns={{ default: 1, md: 2 }} gap={24}>
+                    {processedSubscriptionPosts.map(({ key, entry, author, externalUrl, tags }) => (
+                      <BlogCard
+                        key={key}
+                        entry={entry}
+                        author={author}
+                        externalUrl={externalUrl}
+                        tags={tags}
+                        onExternalPostClick={externalUrl ? handleExternalPostClick : undefined}
+                      />
+                    ))}
+                  </MasonryGrid>
+                  {subscriptionFeed.hasMore && (
+                    <div className="mt-8 text-center">
+                      <button
+                        onClick={subscriptionFeed.loadMore}
+                        disabled={subscriptionFeed.loadingMore}
+                        className="px-6 py-2 bg-[var(--site-bg-secondary)] text-[var(--site-text)] rounded-lg border border-[var(--site-border)] hover:border-[var(--site-text-secondary)] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {subscriptionFeed.loadingMore ? 'Loading...' : 'More'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : subscriptionsState.subscribedDids.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-[var(--site-text-secondary)]">
+                    You haven't subscribed to any publications yet.
+                  </p>
+                  <p className="text-sm text-[var(--site-text-secondary)] mt-2">
+                    Visit an author's page and click Subscribe to follow their publication.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-center text-[var(--site-text-secondary)] py-8">
+                  No posts from your subscriptions yet.
                 </p>
               )}
             </div>

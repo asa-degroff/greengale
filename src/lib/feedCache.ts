@@ -11,6 +11,7 @@ interface FeedCacheStore {
   greengale: FeedCache | null
   network: FeedCache | null
   following: FeedCache | null
+  subscriptions: FeedCache | null
 }
 
 // Module-level cache that persists across component mounts
@@ -18,6 +19,7 @@ const cache: FeedCacheStore = {
   greengale: null,
   network: null,
   following: null,
+  subscriptions: null,
 }
 
 // Cache expires after 5 minutes
@@ -92,8 +94,32 @@ export function clearFollowingFeedCache(): void {
   cache.following = null
 }
 
+export function getCachedSubscriptionsFeed(): FeedCache | null {
+  const cached = cache.subscriptions
+  if (!cached) return null
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    cache.subscriptions = null
+    return null
+  }
+  return cached
+}
+
+export function setCachedSubscriptionsFeed(posts: AppViewPost[], cursor: string | undefined, loadCount: number): void {
+  cache.subscriptions = {
+    posts,
+    cursor,
+    loadCount,
+    timestamp: Date.now(),
+  }
+}
+
+export function clearSubscriptionsFeedCache(): void {
+  cache.subscriptions = null
+}
+
 export function invalidateFeedCache(): void {
   cache.greengale = null
   cache.network = null
   cache.following = null
+  cache.subscriptions = null
 }

@@ -138,6 +138,30 @@ export async function getFollowingPosts(
 }
 
 /**
+ * Get posts from publications the user is subscribed to
+ */
+export async function getSubscriptionPosts(
+  dids: string[],
+  limit = 50,
+  cursor?: string
+): Promise<RecentPostsResponse> {
+  const response = await fetch(
+    `${API_BASE}/xrpc/app.greengale.feed.getSubscriptionPosts`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dids, limit, cursor }),
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch subscription posts: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
  * Get posts by a specific author
  * @param viewer Optional viewer DID - if matches author, includes private posts
  */

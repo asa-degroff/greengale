@@ -13,9 +13,11 @@ import {
   savePublication,
   getAuthorExternalLinks,
   togglePinnedPost,
+  getAuthorPublicationUris,
   type BlogEntry,
   type Publication,
 } from '@/lib/atproto'
+import { useSubscriptions } from '@/lib/useSubscriptions'
 import { getAuthorPosts, getAuthorProfile, getPost, type AppViewAuthor, type AppViewPost } from '@/lib/appview'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { useThemePreference } from '@/lib/useThemePreference'
@@ -48,6 +50,11 @@ export function AuthorPage() {
   const [showPublicationModal, setShowPublicationModal] = useState(false)
   const [blentoUrl, setBlentoUrl] = useState<string | null>(null)
   const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+
+  // Subscriptions
+  const subscriptionsState = useSubscriptions(session ? { did: session.did, fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options) } : undefined)
+  const [publicationUri, setPublicationUri] = useState<string | null>(null)
+  const [subscribing, setSubscribing] = useState(false)
 
   // Check if current user is the author
   const isOwnProfile = session?.did && author?.did && session.did === author.did
@@ -156,6 +163,16 @@ export function AuthorPage() {
     }
   }, [handle, session?.did, addRecentAuthor, navigate, setActivePostTheme, setActiveCustomColors])
 
+  // Fetch publication URI for subscribe button
+  useEffect(() => {
+    if (!author?.did || isOwnProfile) return
+    getAuthorPublicationUris(author.did).then(pubs => {
+      if (pubs.length > 0) {
+        setPublicationUri(pubs[0].uri)
+      }
+    }).catch(() => {})
+  }, [author?.did, isOwnProfile])
+
   // Load more posts
   const loadMore = useCallback(async () => {
     if (!handle || !cursor || loadingMoreRef.current) return
@@ -179,6 +196,22 @@ export function AuthorPage() {
       setLoadingMore(false)
     }
   }, [handle, cursor, session?.did])
+
+  const handleSubscribeToggle = useCallback(async () => {
+    if (!author?.did || !publicationUri || subscribing) return
+    setSubscribing(true)
+    try {
+      if (subscriptionsState.isSubscribed(author.did)) {
+        await subscriptionsState.unsubscribe(author.did)
+      } else {
+        await subscriptionsState.subscribe(publicationUri, author.did)
+      }
+    } catch (err) {
+      console.error('Subscription error:', err)
+    } finally {
+      setSubscribing(false)
+    }
+  }, [author?.did, publicationUri, subscribing, subscriptionsState])
 
   // Filter out posts from hidden external domains
   const filteredPosts = useMemo(() => {
@@ -310,12 +343,24 @@ export function AuthorPage() {
                       @{author.handle}
                     </p>
                   </div>
-                  {isOwnProfile && (
+                  {isOwnProfile ? (
                     <button
                       onClick={openPublicationEditor}
                       className="flex-shrink-0 px-3 py-1.5 text-sm border border-[var(--site-border)] rounded-md hover:bg-[var(--site-bg-secondary)] text-[var(--site-text)] transition-colors"
                     >
                       {publication ? 'Edit Publication' : 'Set Up Publication'}
+                    </button>
+                  ) : session && publicationUri && (
+                    <button
+                      onClick={handleSubscribeToggle}
+                      disabled={subscribing}
+                      className={`flex-shrink-0 px-3 py-1.5 text-sm rounded-md transition-colors disabled:opacity-50 ${
+                        subscriptionsState.isSubscribed(author.did)
+                          ? 'border border-[var(--site-border)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)]'
+                          : 'bg-[var(--site-accent)] text-white hover:opacity-90'
+                      }`}
+                    >
+                      {subscribing ? '...' : subscriptionsState.isSubscribed(author.did) ? 'Subscribed' : 'Subscribe'}
                     </button>
                   )}
                 </div>

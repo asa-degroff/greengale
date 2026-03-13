@@ -138,6 +138,7 @@ const PUBLICATION_COLLECTION = 'app.greengale.publication'
 // site.standard lexicon namespaces (for dual-publishing)
 const SITE_STANDARD_PUBLICATION = 'site.standard.publication'
 const SITE_STANDARD_DOCUMENT = 'site.standard.document'
+const SITE_STANDARD_SUBSCRIPTION = 'site.standard.graph.subscription'
 
 // Theme presets for validation
 const VALID_PRESETS = new Set<ThemePreset>([
@@ -1875,5 +1876,157 @@ export async function migratePublicationUrls(
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[Migration v2] Failed:', message)
     return { migrated: false, error: message }
+  }
+}
+
+// ============================================================================
+// Standard.site Subscriptions
+// ============================================================================
+
+export interface Subscription {
+  rkey: string
+  publicationUri: string // AT-URI: at://did/site.standard.publication/rkey
+  publicationDid: string // extracted DID from the URI
+}
+
+/**
+ * Get the user's subscriptions from their PDS
+ */
+export async function getSubscriptions(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> }
+): Promise<Subscription[]> {
+  const subscriptions: Subscription[] = []
+  let cursor: string | undefined
+
+  // Paginate through all subscription records
+  do {
+    const params = new URLSearchParams({
+      repo: session.did,
+      collection: SITE_STANDARD_SUBSCRIPTION,
+      limit: '100',
+    })
+    if (cursor) params.set('cursor', cursor)
+
+    const response = await session.fetchHandler(
+      `/xrpc/com.atproto.repo.listRecords?${params}`,
+      { method: 'GET' }
+    )
+
+    if (!response.ok) break
+
+    const data = await response.json() as {
+      records?: Array<{ uri: string; value: Record<string, unknown> }>
+      cursor?: string
+    }
+
+    for (const item of data.records || []) {
+      const rkey = item.uri.split('/').pop() || ''
+      const publicationUri = item.value.publication as string
+      if (!publicationUri) continue
+
+      // Extract DID from AT-URI: at://did:plc:xxx/site.standard.publication/rkey
+      const match = publicationUri.match(/^at:\/\/(did:[^/]+)\//)
+      if (!match) continue
+
+      subscriptions.push({
+        rkey,
+        publicationUri,
+        publicationDid: match[1],
+      })
+    }
+
+    cursor = data.cursor
+  } while (cursor)
+
+  return subscriptions
+}
+
+/**
+ * Subscribe to a publication by creating a site.standard.graph.subscription record
+ */
+export async function subscribeToPublication(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> },
+  publicationUri: string
+): Promise<string> {
+  const rkey = generateTid()
+
+  const response = await session.fetchHandler('/xrpc/com.atproto.repo.putRecord', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repo: session.did,
+      collection: SITE_STANDARD_SUBSCRIPTION,
+      rkey,
+      record: {
+        $type: SITE_STANDARD_SUBSCRIPTION,
+        publication: publicationUri,
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.message || 'Failed to subscribe')
+  }
+
+  return rkey
+}
+
+/**
+ * Unsubscribe from a publication by deleting the subscription record
+ */
+export async function unsubscribeFromPublication(
+  session: { did: string; fetchHandler: (url: string, options: RequestInit) => Promise<Response> },
+  rkey: string
+): Promise<void> {
+  const response = await session.fetchHandler('/xrpc/com.atproto.repo.deleteRecord', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      repo: session.did,
+      collection: SITE_STANDARD_SUBSCRIPTION,
+      rkey,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.message || 'Failed to unsubscribe')
+  }
+}
+
+/**
+ * Get all site.standard.publication AT-URIs for an author (any platform, not just GreenGale)
+ * Used to determine what publication URI to subscribe to
+ */
+export async function getAuthorPublicationUris(
+  identifier: string
+): Promise<Array<{ uri: string; name: string; url: string }>> {
+  const did = await resolveIdentity(identifier)
+  const pdsEndpoint = await getPdsEndpoint(did)
+  const agent = new AtpAgent({ service: pdsEndpoint })
+
+  try {
+    const response = await agent.com.atproto.repo.listRecords({
+      repo: did,
+      collection: SITE_STANDARD_PUBLICATION,
+      limit: 50,
+    })
+
+    return (response.data.records || [])
+      .filter(item => {
+        const rkey = item.uri.split('/').pop() || ''
+        return /^[234567a-z]{13}$/.test(rkey)
+      })
+      .map(item => {
+        const record = item.value as Record<string, unknown>
+        return {
+          uri: item.uri,
+          name: (record.name as string) || '',
+          url: (record.url as string) || '',
+        }
+      })
+  } catch {
+    return []
   }
 }

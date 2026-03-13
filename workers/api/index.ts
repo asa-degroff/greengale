@@ -1923,6 +1923,136 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
   }
 })
 
+// Get posts from publications the user is subscribed to
+// Accepts a POST body with { dids: string[], limit?: number, cursor?: string }
+app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
+  let body: { dids?: string[]; limit?: number; cursor?: string }
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'Invalid request body' }, 400)
+  }
+
+  const { dids, cursor } = body
+  if (!dids || !Array.isArray(dids) || dids.length === 0) {
+    return c.json({ posts: [], cursor: undefined })
+  }
+
+  // Validate and limit DIDs
+  const validDids = dids.filter(d => typeof d === 'string' && d.startsWith('did:')).slice(0, 200)
+  if (validDids.length === 0) {
+    return c.json({ posts: [], cursor: undefined })
+  }
+
+  const limit = Math.min(body.limit || 50, 100)
+
+  // Build cache key from sorted DIDs hash
+  const didsHash = validDids.sort().join(',')
+  const cacheKey = `subscriptions:feed:${didsHash}:${limit}:${cursor || ''}`
+
+  try {
+    // Check cache first
+    const cached = await c.env.CACHE.get(cacheKey, 'json')
+    if (cached) {
+      return jsonWithCache(c, cached, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+    }
+
+    const cursorClause = cursor ? 'AND p.created_at < ?' : ''
+
+    // Batch DIDs to stay under D1's bind parameter limit
+    const didBatchSize = cursor ? 97 : 98
+    const allBatchResults: Record<string, unknown>[] = []
+
+    for (let i = 0; i < validDids.length; i += didBatchSize) {
+      const batch = validDids.slice(i, i + didBatchSize)
+      const placeholders = batch.map(() => '?').join(',')
+
+      const query = `
+        WITH ranked_posts AS (
+          SELECT
+            p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
+            p.visibility, p.created_at, p.indexed_at, p.external_url,
+            p.content_preview,
+            a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+            pub.icon_cid,
+            (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+            ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
+          FROM posts p
+          LEFT JOIN authors a ON p.author_did = a.did
+          LEFT JOIN publications pub ON p.author_did = pub.author_did
+          WHERE p.author_did IN (${placeholders})
+            AND p.visibility = 'public'
+            AND NOT (
+              p.uri LIKE '%/site.standard.document/%'
+              AND (
+                p.external_url IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM posts gg
+                  WHERE gg.author_did = p.author_did
+                    AND gg.rkey = p.rkey
+                    AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
+                      OR gg.uri LIKE '%/app.greengale.document/%'
+                      OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                )
+              )
+            )
+            ${cursorClause}
+        )
+        SELECT uri, author_did, rkey, title, subtitle, source,
+               visibility, created_at, indexed_at, external_url,
+               content_preview,
+               handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
+        FROM ranked_posts
+        WHERE author_rank <= 5
+        ORDER BY created_at DESC
+        LIMIT ?
+      `
+
+      const params: (string | number)[] = [...batch]
+      if (cursor) {
+        params.push(cursor)
+      }
+      params.push(limit + 1)
+
+      const result = await c.env.DB.prepare(query).bind(...params).all()
+      allBatchResults.push(...(result.results || []))
+    }
+
+    // Merge and sort all batch results
+    const posts = allBatchResults
+      .sort((a, b) => {
+        const dateA = a.created_at as string || ''
+        const dateB = b.created_at as string || ''
+        return dateB.localeCompare(dateA)
+      })
+      .slice(0, limit + 1)
+
+    const hasMore = posts.length > limit
+    const returnPosts = hasMore ? posts.slice(0, limit) : posts
+
+    const response = {
+      posts: returnPosts.map(p => {
+        const formatted = formatPost(p)
+        if (formatted.externalUrl) {
+          formatted.source = 'network'
+        }
+        return formatted
+      }),
+      cursor: hasMore ? returnPosts[returnPosts.length - 1].created_at : undefined,
+    }
+
+    // Cache for 5 minutes
+    await c.env.CACHE.put(cacheKey, JSON.stringify(response), {
+      expirationTtl: FOLLOWING_FEED_CACHE_TTL,
+    })
+
+    return jsonWithCache(c, response, FEED_CACHE_MAX_AGE, FEED_CACHE_SWR)
+  } catch (error) {
+    console.error('Error fetching subscription posts:', error)
+    return c.json({ error: 'Failed to fetch posts' }, 500)
+  }
+})
+
 // Get posts by author
 // Optional viewer parameter: if viewer DID matches author DID, includes private posts
 app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
