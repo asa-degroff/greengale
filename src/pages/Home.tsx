@@ -864,7 +864,7 @@ function FeedSection({
   return (
     <div className="mb-12 min-h-[400px] animate-section-fade-in">
       {/* Tab navigation */}
-      <div ref={tabBarRef} className="flex gap-1 mb-6 border-b border-[var(--site-border)] relative">
+      <div ref={tabBarRef} className="flex gap-1 mb-6 border-b border-[var(--site-border)] relative overflow-x-auto scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
         {/* Sliding indicator - position updated via direct DOM manipulation for performance */}
         <div
           ref={indicatorRef}
@@ -873,7 +873,7 @@ function FeedSection({
         <button
           ref={recentsTabRef}
           onClick={() => onTabChange('greengale')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`flex-shrink-0 whitespace-nowrap px-4 py-2 font-medium transition-colors ${
             activeTab === 'greengale'
               ? 'text-[var(--site-accent)]'
               : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
@@ -886,7 +886,7 @@ function FeedSection({
             <button
               ref={followingTabRef}
               onClick={() => onTabChange('following')}
-              className={`px-4 py-2 font-medium transition-colors ${
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-2 font-medium transition-colors ${
                 activeTab === 'following'
                   ? 'text-[var(--site-accent)]'
                   : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
@@ -897,7 +897,7 @@ function FeedSection({
             <button
               ref={subscriptionsTabRef}
               onClick={() => onTabChange('subscriptions')}
-              className={`px-4 py-2 font-medium transition-colors ${
+              className={`flex-shrink-0 whitespace-nowrap px-4 py-2 font-medium transition-colors ${
                 activeTab === 'subscriptions'
                   ? 'text-[var(--site-accent)]'
                   : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
@@ -910,7 +910,7 @@ function FeedSection({
         <button
           ref={networkTabRef}
           onClick={() => onTabChange('network')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          className={`flex-shrink-0 whitespace-nowrap px-4 py-2 font-medium transition-colors ${
             activeTab === 'network'
               ? 'text-[var(--site-accent)]'
               : 'text-[var(--site-text-secondary)] hover:text-[var(--site-text)]'
@@ -921,7 +921,7 @@ function FeedSection({
         <button
           onClick={onRefresh}
           disabled={refreshing}
-          className="ml-auto px-2 py-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors disabled:opacity-50"
+          className="flex-shrink-0 ml-auto px-2 py-2 text-[var(--site-text-secondary)] hover:text-[var(--site-text)] transition-colors disabled:opacity-50"
           title="Refresh feed"
         >
           <svg
