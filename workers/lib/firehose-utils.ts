@@ -323,10 +323,16 @@ export async function fetchAuthorData(did: string): Promise<AuthorData | null> {
       description?: string
       avatar?: string
       banner?: string
+      labels?: Array<{ src: string; val: string; neg?: boolean }>
     }
 
-    // Fetch PDS endpoint and AI agent label in parallel
-    const [pdsEndpoint, isAiAgent] = await Promise.all([
+    // Check for native Bluesky bot self-label (val: 'bot', src === own DID)
+    const hasNativeBotLabel = (profile.labels || []).some(
+      l => l.val === 'bot' && l.src === profile.did && !l.neg
+    )
+
+    // Fetch PDS endpoint and legacy AI agent label in parallel
+    const [pdsEndpoint, hasLegacyAiLabel] = await Promise.all([
       // PDS endpoint from DID document (needed for OG image thumbnails)
       (async (): Promise<string | null> => {
         try {
@@ -346,7 +352,7 @@ export async function fetchAuthorData(did: string): Promise<AuthorData | null> {
           return null
         }
       })(),
-      // AI agent label from Hailey's Labeler
+      // Legacy AI agent label from Hailey's Labeler (@labeler.hailey.at)
       (async (): Promise<boolean> => {
         try {
           const labelerDid = 'did:plc:saslbwamakedc4h6c5bmshvz'
@@ -363,6 +369,8 @@ export async function fetchAuthorData(did: string): Promise<AuthorData | null> {
         }
       })(),
     ])
+
+    const isAiAgent = hasNativeBotLabel || hasLegacyAiLabel
 
     return {
       did: profile.did,

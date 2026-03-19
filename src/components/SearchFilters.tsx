@@ -431,7 +431,7 @@ export function SearchFilters({
                   <span className="inline-flex items-center gap-1">
                     AI Agent
                     <InfoTooltip>
-                      The AI agent label, derived from <a href="https://bsky.app/profile/did:plc:saslbwamakedc4h6c5bmshvz" target="_blank" rel="noopener noreferrer" className="underline text-[var(--site-accent)]">@labeler.hailey.at</a>, is applied voluntarily by users and may not be comprehensive.
+                      Detects accounts with Bluesky's native bot self-label or the community label from <a href="https://bsky.app/profile/did:plc:saslbwamakedc4h6c5bmshvz" target="_blank" rel="noopener noreferrer" className="underline text-[var(--site-accent)]">@labeler.hailey.at</a>. Applied voluntarily by users and may not be comprehensive.
                     </InfoTooltip>
                   </span>
                 </label>

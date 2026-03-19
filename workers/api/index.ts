@@ -3854,13 +3854,13 @@ app.post('/xrpc/app.greengale.admin.refreshAiAgentLabels', async (c) => {
     const result = await c.env.DB.prepare('SELECT did FROM authors').all()
     const authors = result.results || []
 
-    // Query labels in batches (keep batches small to avoid URL length limits)
-    const BATCH_SIZE = 10
     const aiAgentDids = new Set<string>()
     let batchesFailed = 0
 
-    for (let i = 0; i < authors.length; i += BATCH_SIZE) {
-      const batch = authors.slice(i, i + BATCH_SIZE)
+    // Phase 1: Check legacy AI agent label from Hailey's Labeler (@labeler.hailey.at)
+    const LABELER_BATCH_SIZE = 10
+    for (let i = 0; i < authors.length; i += LABELER_BATCH_SIZE) {
+      const batch = authors.slice(i, i + LABELER_BATCH_SIZE)
       const params = new URLSearchParams()
       for (const author of batch) {
         params.append('uriPatterns', author.did as string)
@@ -3881,11 +3881,49 @@ app.post('/xrpc/app.greengale.admin.refreshAiAgentLabels', async (c) => {
             }
           }
         } else {
-          console.error(`Label query failed for batch ${i / BATCH_SIZE}: ${response.status} ${response.statusText}`)
+          console.error(`Label query failed for batch ${i / LABELER_BATCH_SIZE}: ${response.status} ${response.statusText}`)
           batchesFailed++
         }
       } catch (err) {
-        console.error(`Label query error for batch ${i / BATCH_SIZE}:`, err)
+        console.error(`Label query error for batch ${i / LABELER_BATCH_SIZE}:`, err)
+        batchesFailed++
+      }
+    }
+
+    // Phase 2: Check native Bluesky bot self-label via getProfiles (up to 25 actors per call)
+    const PROFILES_BATCH_SIZE = 25
+    for (let i = 0; i < authors.length; i += PROFILES_BATCH_SIZE) {
+      const batch = authors.slice(i, i + PROFILES_BATCH_SIZE)
+      const params = new URLSearchParams()
+      for (const author of batch) {
+        params.append('actors', author.did as string)
+      }
+
+      try {
+        const response = await fetch(
+          `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles?${params}`
+        )
+        if (response.ok) {
+          const data = await response.json() as {
+            profiles?: Array<{
+              did: string
+              labels?: Array<{ src: string; val: string; neg?: boolean }>
+            }>
+          }
+          for (const profile of data.profiles || []) {
+            const hasBotLabel = (profile.labels || []).some(
+              l => l.val === 'bot' && l.src === profile.did && !l.neg
+            )
+            if (hasBotLabel) {
+              aiAgentDids.add(profile.did)
+            }
+          }
+        } else {
+          console.error(`getProfiles failed for batch ${i / PROFILES_BATCH_SIZE}: ${response.status} ${response.statusText}`)
+          batchesFailed++
+        }
+      } catch (err) {
+        console.error(`getProfiles error for batch ${i / PROFILES_BATCH_SIZE}:`, err)
         batchesFailed++
       }
     }

@@ -640,11 +640,22 @@ describe('Firehose Indexer', () => {
   })
 
   describe('Author Data Fetching', () => {
-    // Helper to create a mock response for the AI agent label check (3rd fetch in fetchAuthorData)
+    // Helper to create a mock response for the legacy labeler check (3rd fetch in fetchAuthorData)
     const mockAiLabelResponse = (isAgent = false) => ({
       ok: true,
       json: async () => ({
         labels: isAgent ? [{ val: 'ai-agent' }] : [],
+      }),
+    })
+
+    // Helper to create a mock profile response with optional native bot self-label
+    const mockProfileResponse = (did: string, extra: Record<string, unknown> = {}, hasBotLabel = false) => ({
+      ok: true,
+      json: async () => ({
+        did,
+        handle: 'test.bsky.social',
+        ...extra,
+        labels: hasBotLabel ? [{ src: did, val: 'bot' }] : [],
       }),
     })
 
@@ -730,6 +741,49 @@ describe('Firehose Indexer', () => {
       const result = await fetchAuthorData('did:plc:abc')
 
       expect(result!.pdsEndpoint).toBe('https://bsky.social')
+    })
+
+    it('detects native Bluesky bot self-label from profile', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockProfileResponse('did:plc:bot', {}, true))
+        .mockResolvedValueOnce({ ok: false }) // PDS lookup fails
+        .mockResolvedValueOnce(mockAiLabelResponse(false)) // No legacy label
+
+      const result = await fetchAuthorData('did:plc:bot')
+
+      expect(result).not.toBeNull()
+      expect(result!.isAiAgent).toBe(true)
+    })
+
+    it('detects legacy ai-agent label from Hailey labeler', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockProfileResponse('did:plc:abc')) // No native label
+        .mockResolvedValueOnce({ ok: false }) // PDS lookup fails
+        .mockResolvedValueOnce(mockAiLabelResponse(true)) // Has legacy label
+
+      const result = await fetchAuthorData('did:plc:abc')
+
+      expect(result).not.toBeNull()
+      expect(result!.isAiAgent).toBe(true)
+    })
+
+    it('does not flag as bot when label src is not own DID', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            did: 'did:plc:abc',
+            handle: 'test.bsky.social',
+            labels: [{ src: 'did:plc:someoneelse', val: 'bot' }],
+          }),
+        })
+        .mockResolvedValueOnce({ ok: false }) // PDS lookup fails
+        .mockResolvedValueOnce(mockAiLabelResponse(false)) // No legacy label
+
+      const result = await fetchAuthorData('did:plc:abc')
+
+      expect(result).not.toBeNull()
+      expect(result!.isAiAgent).toBe(false)
     })
 
     it('continues without PDS when DID resolution fails', async () => {
