@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { PostSearchResult as PostSearchResultType, UnifiedPostResult } from '@/lib/appview'
 import { getPlatformInfo } from '@/lib/platform-utils'
+import { BotIcon } from '@/components/BotIcon'
 
 /**
  * Common post result type that works with both legacy PostSearchResult
@@ -128,8 +129,9 @@ export function PostSearchResult({ result, onExternalPostClick, isSelected, onMo
               </svg>
             </div>
           )}
-          <span className="text-sm text-[var(--site-text-secondary)]">
+          <span className="text-sm text-[var(--site-text-secondary)] flex items-center gap-1">
             {result.displayName || `@${result.handle}`}
+            {result.isAiAgent && <BotIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />}
           </span>
           {result.createdAt && (
             <>

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { searchPublications, type SearchResult } from '@/lib/appview'
+import { BotIcon } from '@/components/BotIcon'
 
 interface PublicationSearchProps {
   placeholder?: string
@@ -331,8 +332,9 @@ export function PublicationSearch({ placeholder = 'Search posts, authors, or pub
                     {getMatchTypeLabel(result.matchType)}
                   </span>
                 </div>
-                <div className="text-sm text-[var(--site-text-secondary)] truncate">
+                <div className="text-sm text-[var(--site-text-secondary)] truncate flex items-center gap-1">
                   @{result.handle}
+                  {result.isAiAgent && <BotIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />}
                   {result.publication && (
                     <span className="ml-2">
                       {result.matchType === 'publicationName' && (

@@ -2286,6 +2286,7 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
         avatar: discovered.avatar,
         description: discovered.description,
         postsCount: discovered.postsCount,
+        isAiAgent: discovered.isAiAgent,
         publication: undefined,
       }
       return jsonWithCache(c, response, PROFILE_CACHE_MAX_AGE, PROFILE_CACHE_SWR)
@@ -3804,7 +3805,13 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
             description?: string
             avatar?: string
             banner?: string
+            labels?: Array<{ src: string; val: string; neg?: boolean }>
           }
+
+          // Check for native Bluesky bot self-label
+          const hasNativeBotLabel = (profile.labels || []).some(
+            l => l.val === 'bot' && l.src === profile.did && !l.neg
+          )
 
           // Also fetch PDS endpoint from DID document (supports did:plc and did:web)
           const pdsEndpoint = await fetchPdsEndpoint(did)
@@ -3817,6 +3824,7 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
               avatar_url = ?,
               banner_url = ?,
               pds_endpoint = COALESCE(?, pds_endpoint),
+              is_ai_agent = MAX(COALESCE(is_ai_agent, 0), ?),
               updated_at = datetime('now')
             WHERE did = ?
           `).bind(
@@ -3826,6 +3834,7 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
             profile.avatar || null,
             profile.banner || null,
             pdsEndpoint,
+            hasNativeBotLabel ? 1 : 0,
             did
           ).run()
 
@@ -4868,7 +4877,7 @@ async function indexPostsFromPds(
 async function discoverAndIndexAuthor(
   handle: string,
   env: { DB: D1Database; CACHE: KVNamespace }
-): Promise<{ did: string; handle: string; displayName: string | null; avatar: string | null; description: string | null; postsCount: number } | null> {
+): Promise<{ did: string; handle: string; displayName: string | null; avatar: string | null; description: string | null; postsCount: number; isAiAgent: boolean } | null> {
   // Check negative cache to avoid repeated lookups for non-existent handles
   const negCacheKey = `discover-fail:${handle}`
   const cached = await env.CACHE.get(negCacheKey)
@@ -4890,9 +4899,15 @@ async function discoverAndIndexAuthor(
       displayName?: string
       avatar?: string
       description?: string
+      labels?: Array<{ src: string; val: string; neg?: boolean }>
     }
 
     const did = profile.did
+
+    // Check for native Bluesky bot self-label
+    const hasNativeBotLabel = (profile.labels || []).some(
+      l => l.val === 'bot' && l.src === profile.did && !l.neg
+    )
 
     // Fetch PDS endpoint
     const pdsEndpoint = await fetchPdsEndpoint(did)
@@ -4911,18 +4926,19 @@ async function discoverAndIndexAuthor(
 
     // Upsert author record
     await env.DB.prepare(`
-      INSERT INTO authors (did, handle, display_name, description, avatar_url, pds_endpoint, posts_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO authors (did, handle, display_name, description, avatar_url, pds_endpoint, posts_count, is_ai_agent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(did) DO UPDATE SET
         handle = excluded.handle,
         display_name = excluded.display_name,
         description = excluded.description,
         avatar_url = excluded.avatar_url,
         pds_endpoint = excluded.pds_endpoint,
-        posts_count = excluded.posts_count
+        posts_count = excluded.posts_count,
+        is_ai_agent = MAX(COALESCE(authors.is_ai_agent, 0), excluded.is_ai_agent)
     `).bind(
       did, profile.handle, profile.displayName || null, profile.description || null,
-      profile.avatar || null, pdsEndpoint, totalPosts
+      profile.avatar || null, pdsEndpoint, totalPosts, hasNativeBotLabel ? 1 : 0
     ).run()
 
     return {
@@ -4932,6 +4948,7 @@ async function discoverAndIndexAuthor(
       avatar: profile.avatar || null,
       description: profile.description || null,
       postsCount: totalPosts,
+      isAiAgent: hasNativeBotLabel,
     }
   } catch {
     // Don't cache on network errors - they may be transient

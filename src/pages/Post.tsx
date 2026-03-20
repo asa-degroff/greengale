@@ -142,6 +142,7 @@ export function PostPage() {
           displayName: authorResult.displayName || undefined,
           avatar: authorResult.avatar || undefined,
           description: authorResult.description || undefined,
+          isAiAgent: authorResult.isAiAgent,
         } : null
 
         // Check if handle has changed - redirect to canonical URL
