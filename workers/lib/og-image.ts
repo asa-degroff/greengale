@@ -1,6 +1,7 @@
 // OG image generation using workers-og (Satori + resvg-wasm)
 import { ImageResponse, loadGoogleFont } from 'workers-og'
 import { resolveThemeColors, isDarkTheme, type ThemeColors } from './theme-colors'
+import { buildBackgroundHtml, type BackgroundTexture } from './og-backgrounds'
 
 export interface OGImageData {
   title: string
@@ -14,6 +15,8 @@ export interface OGImageData {
   thumbnailUrl?: string | null
   /** Tags/hashtags for the post */
   tags?: string[] | null
+  /** Background texture for the OG image */
+  backgroundTexture?: BackgroundTexture
 }
 
 // Font URLs (TTF format required by Satori)
@@ -511,7 +514,7 @@ export function buildVignetteLayers(vignetteColor: string, isDark: boolean): str
  * Returns a PNG image response (1200x630)
  */
 export async function generateOGImage(data: OGImageData): Promise<Response> {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors, thumbnailUrl, tags } = data
+  const { title, subtitle, authorName, authorHandle, authorAvatar, themePreset, customColors, thumbnailUrl, tags, backgroundTexture } = data
 
   // Resolve theme colors (supports both presets and custom colors)
   const colors = resolveThemeColors(themePreset, customColors)
@@ -540,6 +543,7 @@ export async function generateOGImage(data: OGImageData): Promise<Response> {
     isDark,
     thumbnailUrl,
     tags,
+    backgroundTexture,
   })
 
   return new ImageResponse(html, {
@@ -581,6 +585,7 @@ export interface ProfileOGImageData {
   themePreset?: string | null
   customColors?: { background?: string; text?: string; accent?: string } | null
   publicationName?: string | null
+  backgroundTexture?: BackgroundTexture
 }
 
 /**
@@ -604,7 +609,7 @@ export async function generateProfileOGImage(data: ProfileOGImageData): Promise<
   // Build emoji map for any emojis in the text
   const graphemeImages = await buildEmojiMap(allText)
 
-  const html = buildProfileHtml(data, colors, isDark)
+  const html = buildProfileHtml(data, colors, isDark, data.backgroundTexture)
 
   return new ImageResponse(html, {
     width: 1200,
@@ -627,10 +632,12 @@ interface BuildHtmlOptions {
   thumbnailUrl?: string | null
   /** Tags/hashtags for the post */
   tags?: string[] | null
+  /** Background texture */
+  backgroundTexture?: BackgroundTexture
 }
 
 function buildImageHtml(options: BuildHtmlOptions): string {
-  const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark, thumbnailUrl, tags } = options
+  const { title, subtitle, authorName, authorHandle, authorAvatar, colors, isDark, thumbnailUrl, tags, backgroundTexture } = options
 
   // Truncate title if too long (shorter limit when thumbnail is present)
   const hasThumbnail = !!thumbnailUrl
@@ -680,14 +687,14 @@ function buildImageHtml(options: BuildHtmlOptions): string {
   // Adjust content area right margin when thumbnail is present (280 + 20 gap + 60 padding = 360)
   const contentRightPad = getContentRightPadding(hasThumbnail)
 
-  // Build grid pattern using repeating linear gradients (more compatible with Satori)
-  const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
+  // Build background texture (grid, floral, or clouds)
+  const backgroundHtml = buildBackgroundHtml(backgroundTexture || 'grid', colors)
 
   // Vignette overlay - use multiple stacked layers for smoother rendering
   const vignetteHtml = buildVignetteLayers(colors.vignetteColor, isDark)
 
   return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; padding: 60px; font-family: ${fontFamily}; position: relative;">
-    ${gridPatternHtml}
+    ${backgroundHtml}
     ${vignetteHtml}
     <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
     ${thumbnailHtml}
@@ -719,14 +726,14 @@ function buildHomepageHtml(colors: ThemeColors, isDark: boolean): string {
   const fontFamily = "'iA Writer Quattro', sans-serif"
   const titleFontFamily = "'IBM Plex Sans', sans-serif"
 
-  // Build grid pattern
-  const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
+  // Build background texture
+  const backgroundHtml = buildBackgroundHtml('grid', colors)
 
   // Vignette overlay
   const vignetteHtml = buildVignetteLayers(colors.vignetteColor, isDark)
 
   return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; font-family: ${fontFamily}; position: relative;">
-    ${gridPatternHtml}
+    ${backgroundHtml}
     ${vignetteHtml}
     <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; top: 0; left: 0; right: 0; bottom: 0;">
@@ -744,7 +751,7 @@ function buildHomepageHtml(colors: ThemeColors, isDark: boolean): string {
 /**
  * Build HTML for user profile OG image
  */
-function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark: boolean): string {
+function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark: boolean, backgroundTexture?: BackgroundTexture): string {
   const { displayName, handle, avatarUrl, description, postsCount, publicationName } = data
   const fontFamily = "'iA Writer Quattro', sans-serif"
   const titleFontFamily = "'IBM Plex Sans', sans-serif"
@@ -774,14 +781,14 @@ function buildProfileHtml(data: ProfileOGImageData, colors: ThemeColors, isDark:
   const primaryTitle = publicationName || displayName || handle
   const showByLine = publicationName && displayName && publicationName !== displayName
 
-  // Build grid pattern
-  const gridPatternHtml = `<div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 630px; background-image: repeating-linear-gradient(0deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px), repeating-linear-gradient(90deg, ${colors.gridColor}, ${colors.gridColor} 1px, transparent 1px, transparent 24px);"></div>`
+  // Build background texture
+  const backgroundHtml = buildBackgroundHtml(backgroundTexture || 'grid', colors)
 
   // Vignette overlay
   const vignetteHtml = buildVignetteLayers(colors.vignetteColor, isDark)
 
   return `<div style="display: flex; flex-direction: column; width: 1200px; height: 630px; background: ${colors.background}; font-family: ${fontFamily}; position: relative;">
-    ${gridPatternHtml}
+    ${backgroundHtml}
     ${vignetteHtml}
     <div style="display: flex; position: absolute; top: 0; left: 0; width: 1200px; height: 16px; background: ${colors.accent};"></div>
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; position: absolute; top: 60px; left: 60px; right: 60px; bottom: 100px;">

@@ -219,6 +219,7 @@ app.get('/og/test', async (c) => {
   const themePreset = c.req.query('theme') || null
   const tagsParam = c.req.query('tags')
   const tags = tagsParam ? tagsParam.split(',').map(t => t.trim()).filter(Boolean) : null
+  const texture = c.req.query('texture') as 'grid' | 'floral' | 'clouds' | undefined
 
   // Support custom colors via query params
   const bg = c.req.query('bg')
@@ -236,6 +237,7 @@ app.get('/og/test', async (c) => {
       themePreset,
       customColors,
       tags,
+      backgroundTexture: texture,
     })
 
     return new Response(await imageResponse.arrayBuffer(), {
@@ -312,7 +314,8 @@ app.get('/og/profile/:handle.png', async (c) => {
              a.pds_endpoint, a.did as author_did, pub.icon_cid,
              pub.theme_preset as publication_theme_preset,
              pub.description as publication_description,
-             pub.name as publication_name
+             pub.name as publication_name,
+             pub.background_texture
       FROM authors a
       LEFT JOIN publications pub ON a.did = pub.author_did
       WHERE a.handle = ?
@@ -359,6 +362,7 @@ app.get('/og/profile/:handle.png', async (c) => {
       themePreset,
       customColors,
       publicationName: (author.publication_name as string) || null,
+      backgroundTexture: (author.background_texture as string as 'grid' | 'floral' | 'clouds') || 'grid',
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -426,7 +430,8 @@ app.get('/og/:handle/:filename', async (c) => {
     const post = await c.env.DB.prepare(`
       SELECT p.uri, p.title, p.subtitle, p.theme_preset, p.first_image_cid,
              p.author_did, a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
-             pub.theme_preset AS publication_theme_preset, pub.icon_cid
+             pub.theme_preset AS publication_theme_preset, pub.icon_cid,
+             pub.background_texture
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
@@ -509,6 +514,7 @@ app.get('/og/:handle/:filename', async (c) => {
       customColors,
       thumbnailUrl,
       tags: tags.length > 0 ? tags : null,
+      backgroundTexture: (post.background_texture as string as 'grid' | 'floral' | 'clouds') || 'grid',
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()

@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS publications (
   enable_site_standard INTEGER DEFAULT 0,
   show_in_discover INTEGER DEFAULT 1,
   icon_cid TEXT,
+  background_texture TEXT DEFAULT 'grid',
   updated_at TEXT DEFAULT (datetime('now'))
 );
 

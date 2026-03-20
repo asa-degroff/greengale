@@ -1073,6 +1073,19 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
+      // Extract background texture preference
+      const validTextures = new Set(['grid', 'floral', 'clouds'])
+      let backgroundTexture = 'grid'
+      if (isSiteStandard) {
+        const preferences = record?.preferences as Record<string, unknown> | undefined
+        const greengale = preferences?.greengale as Record<string, unknown> | undefined
+        const tex = greengale?.backgroundTexture
+        if (typeof tex === 'string' && validTextures.has(tex)) backgroundTexture = tex
+      } else {
+        const tex = record?.backgroundTexture
+        if (typeof tex === 'string' && validTextures.has(tex)) backgroundTexture = tex
+      }
+
       // Store theme data - either preset name or JSON for custom themes
       // site.standard uses 'basicTheme' instead of 'theme'
       let themePreset: string | null = null
@@ -1170,8 +1183,8 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Statement 1: Upsert publication
       statements.push(
         this.env.DB.prepare(`
-          INSERT INTO publications (author_did, name, description, theme_preset, url, show_in_discover, icon_cid)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO publications (author_did, name, description, theme_preset, url, show_in_discover, icon_cid, background_texture)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(author_did) DO UPDATE SET
             name = excluded.name,
             description = excluded.description,
@@ -1179,8 +1192,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
             url = excluded.url,
             show_in_discover = excluded.show_in_discover,
             icon_cid = excluded.icon_cid,
+            background_texture = excluded.background_texture,
             updated_at = datetime('now')
-        `).bind(did, name, description, themePreset, url, showInDiscover ? 1 : 0, iconCid)
+        `).bind(did, name, description, themePreset, url, showInDiscover ? 1 : 0, iconCid, backgroundTexture)
       )
 
       // Statement 2: Upsert author
