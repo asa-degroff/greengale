@@ -52,3 +52,6 @@ dist-ssr
 
 # Chainlink
 .chainlink/
+
+# Letta
+.letta/
