@@ -266,6 +266,7 @@ export function EditorPage() {
     lexicon: LexiconType
     theme: ThemePreset
     customColors: CustomColors
+    backgroundTexture: BackgroundTexture
     visibility: 'public' | 'url' | 'author'
   } | null>(null)
 
@@ -398,15 +399,19 @@ export function EditorPage() {
               accent: publication.theme.custom.accent || '#0969da',
               codeBackground: publication.theme.custom.codeBackground || '',
             }
-            setTheme('custom')
-            setCustomColors(loadedCustomColors)
           } else if (publication.theme.preset) {
             loadedTheme = publication.theme.preset as ThemePreset
+          }
+          // Only apply publication theme to new posts — when editing,
+          // the post's own theme is loaded in loadPost
+          if (!isEditing) {
             setTheme(loadedTheme)
+            if (loadedTheme === 'custom') setCustomColors(loadedCustomColors)
           }
         }
-        // Initialize background texture from publication setting
-        if (publication?.backgroundTexture) {
+        // Initialize background texture from publication setting (new posts only —
+        // when editing, the post's own texture is loaded in loadPost)
+        if (!isEditing && publication?.backgroundTexture) {
           setBackgroundTexture(publication.backgroundTexture)
         }
         // Initialize site.standard publishing from publication setting (default to true)
@@ -434,10 +439,11 @@ export function EditorPage() {
         lexicon: 'greengale',
         theme: theme,
         customColors: customColors,
+        backgroundTexture: backgroundTexture,
         visibility: 'public',
       }
     }
-  }, [isEditing, loadingPost, publicationThemeLoaded, theme, customColors])
+  }, [isEditing, loadingPost, publicationThemeLoaded, theme, customColors, backgroundTexture])
 
   // Detect unsaved changes
   useEffect(() => {
@@ -457,10 +463,11 @@ export function EditorPage() {
       lexicon !== initialValues.current.lexicon ||
       theme !== initialValues.current.theme ||
       customColorsChanged ||
+      backgroundTexture !== initialValues.current.backgroundTexture ||
       visibility !== initialValues.current.visibility
 
     setHasUnsavedChanges(hasChanges)
-  }, [title, subtitle, content, lexicon, theme, customColors, visibility])
+  }, [title, subtitle, content, lexicon, theme, customColors, backgroundTexture, visibility])
 
   // Auto-save draft to localStorage
   useEffect(() => {
@@ -694,13 +701,14 @@ export function EditorPage() {
         lexicon,
         theme,
         customColors,
+        backgroundTexture,
         visibility,
         publishToSiteStandard,
         uploadedBlobsMetadata,
         viewMode,
       })
     }
-  }, [blocker.state, hasUnsavedChanges, title, subtitle, content, tags, tagInput, lexicon, theme, customColors, visibility, publishToSiteStandard, uploadedBlobs, viewMode, saveDraftNow])
+  }, [blocker.state, hasUnsavedChanges, title, subtitle, content, tags, tagInput, lexicon, theme, customColors, backgroundTexture, visibility, publishToSiteStandard, uploadedBlobs, viewMode, saveDraftNow])
 
   // Handle browser beforeunload event
   useEffect(() => {
@@ -842,6 +850,7 @@ export function EditorPage() {
           ? (entry.theme?.custom ? 'custom' : (entry.theme?.preset || 'default'))
           : 'default',
         customColors: loadedCustomColors,
+        backgroundTexture: entry.theme?.backgroundTexture || 'grid',
         visibility: entry.visibility || 'public',
       }
 

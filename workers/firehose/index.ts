@@ -597,16 +597,28 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      // Store theme data - either preset name or JSON for custom themes
+      // Store theme data - either preset name or JSON for custom/composite themes
       let themePreset: string | null = null
       if (record?.theme) {
         const themeData = record.theme as Record<string, unknown>
+        const bgTexture = typeof themeData.backgroundTexture === 'string' ? themeData.backgroundTexture : undefined
         if (themeData.custom) {
-          // Custom theme - store as JSON
-          themePreset = JSON.stringify(themeData.custom)
+          // Custom theme - store as JSON, include backgroundTexture if present
+          const customData = bgTexture && bgTexture !== 'grid'
+            ? { ...themeData.custom as object, backgroundTexture: bgTexture }
+            : themeData.custom
+          themePreset = JSON.stringify(customData)
         } else if (themeData.preset) {
-          // Preset theme - store the preset name
-          themePreset = themeData.preset as string
+          if (bgTexture && bgTexture !== 'grid') {
+            // Preset with non-default texture - store as JSON to preserve both
+            themePreset = JSON.stringify({ preset: themeData.preset, backgroundTexture: bgTexture })
+          } else {
+            // Preset theme only - store the preset name
+            themePreset = themeData.preset as string
+          }
+        } else if (bgTexture && bgTexture !== 'grid') {
+          // Only backgroundTexture, no preset or custom colors
+          themePreset = JSON.stringify({ backgroundTexture: bgTexture })
         }
       }
 

@@ -34,7 +34,7 @@ import { BotIcon } from '@/components/BotIcon'
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
   const navigate = useNavigate()
-  const { session } = useAuth()
+  const { session, isLoading: authLoading } = useAuth()
   const [author, setAuthor] = useState<AppViewAuthor | null>(null)
   const [posts, setPosts] = useState<AppViewPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,7 +78,7 @@ export function AuthorPage() {
   })
 
   useEffect(() => {
-    if (!handle) return
+    if (!handle || authLoading) return
 
     async function load() {
       setLoading(true)
@@ -167,7 +167,7 @@ export function AuthorPage() {
       setActiveCustomColors(null)
       setActivePostTexture(null)
     }
-  }, [handle, session?.did, addRecentAuthor, navigate, setActivePostTheme, setActiveCustomColors, setActivePostTexture])
+  }, [handle, session?.did, authLoading, addRecentAuthor, navigate, setActivePostTheme, setActiveCustomColors, setActivePostTexture])
 
   // Fetch publication URI for subscribe button
   useEffect(() => {

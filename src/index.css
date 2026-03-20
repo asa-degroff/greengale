@@ -505,7 +505,7 @@ body {
   inset: -2rem;
   z-index: -1;
   background-color: var(--site-bg);
-  opacity: 0.75;
+  opacity: 0.5;
   mask-image:
     linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent),
     linear-gradient(to right, transparent, black 3rem, black calc(100% - 3rem), transparent);

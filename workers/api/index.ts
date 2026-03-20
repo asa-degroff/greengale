@@ -362,7 +362,7 @@ app.get('/og/profile/:handle.png', async (c) => {
       themePreset,
       customColors,
       publicationName: (author.publication_name as string) || null,
-      backgroundTexture: (author.background_texture as string as 'grid' | 'floral' | 'clouds') || 'grid',
+      backgroundTexture: ((author.background_texture as string) || 'grid') as 'grid' | 'floral' | 'clouds',
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -458,11 +458,23 @@ app.get('/og/:handle/:filename', async (c) => {
     const publicationThemeData = post.publication_theme_preset as string | null
     const effectiveThemeData = themeData || publicationThemeData
 
+    // Track post-level backgroundTexture extracted from theme_preset JSON
+    let postBackgroundTexture: string | undefined
     if (effectiveThemeData) {
       if (effectiveThemeData.startsWith('{')) {
-        // JSON custom colors
+        // JSON — could be custom colors, preset+texture combo, or texture-only
         try {
-          customColors = JSON.parse(effectiveThemeData)
+          const parsed = JSON.parse(effectiveThemeData)
+          if (parsed.backgroundTexture) {
+            postBackgroundTexture = parsed.backgroundTexture
+          }
+          if (parsed.preset) {
+            // Composite: { preset, backgroundTexture }
+            themePreset = parsed.preset
+          } else if (parsed.background || parsed.text || parsed.accent) {
+            // Custom colors (may also have backgroundTexture mixed in)
+            customColors = parsed
+          }
         } catch {
           // Invalid JSON, ignore
         }
@@ -504,6 +516,8 @@ app.get('/og/:handle/:filename', async (c) => {
     }
 
     // Generate OG image
+    // Post's own texture takes priority, then publication's, then default grid
+    const backgroundTexture = postBackgroundTexture || (post.background_texture as string) || 'grid'
     const imageResponse = await generateOGImage({
       title: (post.title as string) || 'Untitled',
       subtitle: post.subtitle as string | null,
@@ -514,7 +528,7 @@ app.get('/og/:handle/:filename', async (c) => {
       customColors,
       thumbnailUrl,
       tags: tags.length > 0 ? tags : null,
-      backgroundTexture: (post.background_texture as string as 'grid' | 'floral' | 'clouds') || 'grid',
+      backgroundTexture: backgroundTexture as 'grid' | 'floral' | 'clouds',
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -533,7 +547,7 @@ app.get('/og/:handle/:filename', async (c) => {
     })
   } catch (error) {
     console.error('Error generating OG image:', error)
-    return c.json({ error: 'Failed to generate image' }, 500)
+    return c.json({ error: 'Failed to generate image', details: String(error) }, 500)
   }
 })
 
