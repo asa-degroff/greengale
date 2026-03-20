@@ -66,8 +66,12 @@ interface ThemePreferenceState {
   activeCustomColors: CustomColors | null
   /** The effective theme to apply (respects all overrides) */
   effectiveTheme: ThemePreset
-  /** Background texture preference */
+  /** User's preferred background texture (persisted) */
   backgroundTexture: BackgroundTexture
+  /** The current post/publication's background texture (null when not viewing a post) */
+  activePostTexture: BackgroundTexture | null
+  /** The effective background texture to render (respects forceDefaultTheme) */
+  effectiveBackgroundTexture: BackgroundTexture
 }
 
 interface ThemePreferenceContextValue extends ThemePreferenceState {
@@ -77,6 +81,7 @@ interface ThemePreferenceContextValue extends ThemePreferenceState {
   setActivePostTheme: (theme: ThemePreset | null) => void
   setActiveCustomColors: (colors: CustomColors | null) => void
   setBackgroundTexture: (texture: BackgroundTexture) => void
+  setActivePostTexture: (texture: BackgroundTexture | null) => void
 }
 
 const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null)
@@ -115,6 +120,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
 
   const [activePostTheme, setActivePostTheme] = useState<ThemePreset | null>(null)
   const [activeCustomColors, setActiveCustomColors] = useState<CustomColors | null>(null)
+  const [activePostTexture, setActivePostTexture] = useState<BackgroundTexture | null>(null)
 
   const [backgroundTexture, setBackgroundTextureState] = useState<BackgroundTexture>(() => {
     try {
@@ -166,6 +172,16 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       return preferredCustomColors
     }
     return null
+  })()
+
+  // Compute effective background texture, following the same logic as effectiveTheme:
+  // 1. If forceDefaultTheme, use user's preferred texture
+  // 2. If viewing a post with a texture set, use the post's texture
+  // 3. If not viewing a post (or post has no texture), use user's preferred texture
+  const effectiveBackgroundTexture: BackgroundTexture = (() => {
+    if (forceDefaultTheme) return backgroundTexture
+    if (activePostTexture !== null) return activePostTexture
+    return backgroundTexture
   })()
 
   // Apply theme to document and update theme-color meta tag.
@@ -290,7 +306,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         style.setProperty('--sky-tint-top', sky.top)
         style.setProperty('--sky-tint-bottom', sky.bottom)
 
-        if (backgroundTexture === 'floral') {
+        if (effectiveBackgroundTexture === 'floral') {
           const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
           if (pattern) {
             style.setProperty('--texture-image', pattern)
@@ -303,7 +319,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
 
     applyTextureColors()
     customColorProps.push('--cloud-color', '--sky-tint-top', '--sky-tint-bottom')
-    if (backgroundTexture === 'floral') customColorProps.push('--texture-image')
+    if (effectiveBackgroundTexture === 'floral') customColorProps.push('--texture-image')
 
     // If using default theme, watch for site theme (light/dark) changes
     if (effectiveTheme === 'default') {
@@ -341,7 +357,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       document.documentElement.setAttribute('data-active-theme', 'default')
       document.documentElement.removeAttribute('data-theme-dark')
     }
-  }, [effectiveTheme, effectiveCustomColors, backgroundTexture])
+  }, [effectiveTheme, effectiveCustomColors, effectiveBackgroundTexture])
 
   const setPreferredTheme = useCallback((theme: ThemePreset) => {
     setPreferredThemeState(theme)
@@ -405,12 +421,15 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         activeCustomColors,
         effectiveTheme,
         backgroundTexture,
+        activePostTexture,
+        effectiveBackgroundTexture,
         setPreferredTheme,
         setPreferredCustomColors,
         setForceDefaultTheme,
         setActivePostTheme,
         setActiveCustomColors,
         setBackgroundTexture,
+        setActivePostTexture,
       }}
     >
       {children}

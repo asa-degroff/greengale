@@ -437,7 +437,7 @@ export function Sidebar({ children }: SidebarProps) {
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
-  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, activeCustomColors, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme, backgroundTexture, setBackgroundTexture } = useThemePreference()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, activeCustomColors, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme, backgroundTexture, setBackgroundTexture, effectiveBackgroundTexture } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
   const { isOnline } = useNetworkStatus()
 
@@ -992,14 +992,14 @@ export function Sidebar({ children }: SidebarProps) {
   return (
     <div className="min-h-screen">
       {/* Background effects */}
-      {animatedGridEnabled && webGPUSupported && backgroundTexture === 'grid' ? (
+      {animatedGridEnabled && webGPUSupported && effectiveBackgroundTexture === 'grid' ? (
         <AnimatedGridBackground key="animated-grid" gridColor={themeColors.grid} bgColor={themeColors.bg} />
-      ) : backgroundTexture === 'clouds' ? (
+      ) : effectiveBackgroundTexture === 'clouds' ? (
         <div key="clouds" className="bg-texture-clouds" aria-hidden="true">
           <CloudField className="text-[var(--cloud-color,var(--site-text-secondary))]" size="fullscreen" />
         </div>
       ) : (
-        <div key={`texture-${backgroundTexture}`} className="bg-texture" data-texture={backgroundTexture} aria-hidden="true" />
+        <div key={`texture-${effectiveBackgroundTexture}`} className="bg-texture" data-texture={effectiveBackgroundTexture} aria-hidden="true" />
       )}
       <div className="vignette-overlay" aria-hidden="true" />
 

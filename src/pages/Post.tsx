@@ -58,7 +58,7 @@ export function PostPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [fromCache, setFromCache] = useState(false)
-  const { setActivePostTheme, setActiveCustomColors, setBackgroundTexture } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors, setActivePostTexture } = useThemePreference()
   const { addRecentAuthor } = useRecentAuthors()
 
   // Apply post/publication theme to the global theme context
@@ -72,12 +72,14 @@ export function PostPage() {
       setActivePostTheme(themePreset)
       setActiveCustomColors(null)
     }
-    // Apply background texture: post theme > publication setting > user preference (unchanged)
-    const texture = postTheme?.backgroundTexture || publicationBgTexture
-    if (texture) {
-      setBackgroundTexture(texture)
-    }
-  }, [setActivePostTheme, setActiveCustomColors, setBackgroundTexture])
+    // Post's background texture: if the post has its own theme object, use its texture
+    // (defaulting to grid if not specified — the post was saved with grid).
+    // Only inherit from publication when the post has no theme at all.
+    const texture = postTheme
+      ? (postTheme.backgroundTexture || 'grid')
+      : (publicationBgTexture || 'grid')
+    setActivePostTexture(texture)
+  }, [setActivePostTheme, setActiveCustomColors, setActivePostTexture])
 
   // Use the canonical handle from author data, or fall back to URL param
   const canonicalHandle = author?.handle || handle || ''
@@ -220,8 +222,9 @@ export function PostPage() {
     return () => {
       setActivePostTheme(null)
       setActiveCustomColors(null)
+      setActivePostTexture(null)
     }
-  }, [setActivePostTheme, setActiveCustomColors])
+  }, [setActivePostTheme, setActiveCustomColors, setActivePostTexture])
 
   // Add app.greengale document verification link tag
   useEffect(() => {
