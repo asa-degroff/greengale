@@ -2,9 +2,11 @@ interface AnimatedCloudProps {
   className?: string
   variant?: 'large' | 'medium' | 'small'
   seed?: number
+  /** Use sharper rendering for small containers like the search bar */
+  sharp?: boolean
 }
 
-export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }: AnimatedCloudProps) {
+export function AnimatedCloud({ className = '', variant = 'medium', seed = 42, sharp = false }: AnimatedCloudProps) {
   return (
     <svg
       viewBox="0 0 200 120"
@@ -21,7 +23,7 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }:
             seed={seed}
             result="noise"
           />
-          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blurred" />
+          <feGaussianBlur in="SourceGraphic" stdDeviation={sharp ? 4 : 6} result="blurred" />
           <feDisplacementMap
             in="blurred"
             in2="noise"
@@ -30,8 +32,8 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }:
             yChannelSelector="G"
             result="displaced"
           />
-          {/* Post-blur to smooth displacement banding */}
-          <feGaussianBlur in="displaced" stdDeviation="2" />
+          {/* Post-blur to smooth displacement banding (less for sharp/compact) */}
+          <feGaussianBlur in="displaced" stdDeviation={sharp ? 0.8 : 2} />
         </filter>
 
         {/* Wisp filter - extra soft and diffuse */}
@@ -43,7 +45,7 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }:
             seed={seed + 100}
             result="noise"
           />
-          <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blurred" />
+          <feGaussianBlur in="SourceGraphic" stdDeviation={sharp ? 5 : 8} result="blurred" />
           <feDisplacementMap
             in="blurred"
             in2="noise"
@@ -52,33 +54,33 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42 }:
             yChannelSelector="G"
             result="displaced"
           />
-          {/* Post-blur to smooth displacement banding */}
-          <feGaussianBlur in="displaced" stdDeviation="3" />
+          {/* Post-blur to smooth displacement banding (less for sharp/compact) */}
+          <feGaussianBlur in="displaced" stdDeviation={sharp ? 1 : 3} />
         </filter>
 
         {/* Main gradient - smooth falloff with extra stops to prevent banding */}
         <radialGradient id={`cloud-gradient-${seed}`} cx="30%" cy="30%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.35" />
-          <stop offset="20%" stopColor="currentColor" stopOpacity="0.3" />
-          <stop offset="40%" stopColor="currentColor" stopOpacity="0.22" />
-          <stop offset="60%" stopColor="currentColor" stopOpacity="0.12" />
-          <stop offset="80%" stopColor="currentColor" stopOpacity="0.04" />
+          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.55 : 0.35} />
+          <stop offset="20%" stopColor="currentColor" stopOpacity={sharp ? 0.45 : 0.3} />
+          <stop offset="40%" stopColor="currentColor" stopOpacity={sharp ? 0.32 : 0.22} />
+          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.18 : 0.12} />
+          <stop offset="80%" stopColor="currentColor" stopOpacity={sharp ? 0.06 : 0.04} />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </radialGradient>
 
         {/* Inner gradient for core density */}
         <radialGradient id={`cloud-gradient-inner-${seed}`} cx="35%" cy="35%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.3" />
-          <stop offset="30%" stopColor="currentColor" stopOpacity="0.22" />
-          <stop offset="60%" stopColor="currentColor" stopOpacity="0.1" />
+          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.45 : 0.3} />
+          <stop offset="30%" stopColor="currentColor" stopOpacity={sharp ? 0.32 : 0.22} />
+          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.15 : 0.1} />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </radialGradient>
 
         {/* Wisp gradient - extremely soft */}
         <radialGradient id={`wisp-gradient-${seed}`} cx="50%" cy="50%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.15" />
-          <stop offset="30%" stopColor="currentColor" stopOpacity="0.08" />
-          <stop offset="60%" stopColor="currentColor" stopOpacity="0.03" />
+          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.25 : 0.15} />
+          <stop offset="30%" stopColor="currentColor" stopOpacity={sharp ? 0.14 : 0.08} />
+          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.05 : 0.03} />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </radialGradient>
       </defs>
@@ -248,7 +250,7 @@ export function CloudField({ className = '', size = 'compact' }: CloudFieldProps
             animationDelay: `${delays[index]}s`,
           }}
         >
-          <AnimatedCloud variant={cloud.variant} seed={cloud.seed} />
+          <AnimatedCloud variant={cloud.variant} seed={cloud.seed} sharp={size === 'compact'} />
         </div>
       ))}
     </div>
