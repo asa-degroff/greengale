@@ -253,50 +253,53 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       updateThemeColor(effectiveTheme)
     }
 
-    // Apply background texture CSS variables
-    if (backgroundTexture === 'floral' || backgroundTexture === 'clouds') {
-      // Resolve the current colors for texture generation
-      const resolveColors = () => {
-        if (effectiveTheme === 'custom' && effectiveCustomColors) {
-          const colors = deriveFullSiteColors(effectiveCustomColors)
-          if (colors) {
-            return {
-              bg: colors.background,
-              text: colors.text,
-              accent: colors.accent,
-              codeBg: colors.codeBackground,
-            }
+    // Resolve current theme colors for texture generation
+    const resolveTextureColors = () => {
+      if (effectiveTheme === 'custom' && effectiveCustomColors) {
+        const colors = deriveFullSiteColors(effectiveCustomColors)
+        if (colors) {
+          return {
+            bg: colors.background,
+            text: colors.text,
+            accent: colors.accent,
+            codeBg: colors.codeBackground,
           }
         }
-        // For preset themes, read from computed styles
-        const computed = getComputedStyle(document.documentElement)
-        return {
-          bg: computed.getPropertyValue('--site-bg').trim(),
-          text: computed.getPropertyValue('--site-text').trim(),
-          accent: computed.getPropertyValue('--site-accent').trim(),
-          codeBg: computed.getPropertyValue('--theme-code-bg').trim() || computed.getPropertyValue('--site-bg-secondary').trim(),
-        }
       }
-
-      const colors = resolveColors()
-      if (colors.bg) {
-        if (backgroundTexture === 'floral') {
-          const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
-          if (pattern) {
-            style.setProperty('--texture-image', pattern)
-            customColorProps.push('--texture-image')
-          }
-        } else {
-          // Clouds: derive the cloud color for the CloudField component
-          const cloudColor = deriveCloudColor(colors.bg, colors.text)
-          style.setProperty('--cloud-color', cloudColor)
-          customColorProps.push('--cloud-color')
-        }
+      // For preset/default themes, read from computed styles
+      const computed = getComputedStyle(document.documentElement)
+      return {
+        bg: computed.getPropertyValue('--site-bg').trim(),
+        text: computed.getPropertyValue('--site-text').trim(),
+        accent: computed.getPropertyValue('--site-accent').trim(),
+        codeBg: computed.getPropertyValue('--theme-code-bg').trim() || computed.getPropertyValue('--site-bg-secondary').trim(),
       }
-    } else {
-      style.removeProperty('--texture-image')
-      style.removeProperty('--cloud-color')
     }
+
+    // Apply background texture CSS variables (called on mount and on light/dark toggle)
+    const applyTextureColors = () => {
+      if (backgroundTexture === 'floral' || backgroundTexture === 'clouds') {
+        const colors = resolveTextureColors()
+        if (colors.bg) {
+          if (backgroundTexture === 'floral') {
+            const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
+            if (pattern) {
+              style.setProperty('--texture-image', pattern)
+            }
+          } else {
+            const cloudColor = deriveCloudColor(colors.bg, colors.text)
+            style.setProperty('--cloud-color', cloudColor)
+          }
+        }
+      } else {
+        style.removeProperty('--texture-image')
+        style.removeProperty('--cloud-color')
+      }
+    }
+
+    applyTextureColors()
+    if (backgroundTexture === 'floral') customColorProps.push('--texture-image')
+    if (backgroundTexture === 'clouds') customColorProps.push('--cloud-color')
 
     // If using default theme, watch for site theme (light/dark) changes
     if (effectiveTheme === 'default') {
@@ -304,6 +307,9 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         for (const mutation of mutations) {
           if (mutation.attributeName === 'data-site-theme') {
             updateThemeColor('default')
+            // Regenerate texture colors after light/dark switch
+            // Use rAF to ensure computed styles reflect the new theme
+            requestAnimationFrame(() => applyTextureColors())
           }
         }
       })
