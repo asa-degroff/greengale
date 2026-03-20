@@ -184,27 +184,30 @@ export function generateFloralPattern(
     return mixed ? formatHex(mixed) ?? color : color
   }
 
-  // Generate 8 colors from the 4 base colors + OKLCH shifts
+  // Split-complementary palette: 3 hue anchors from the accent color
+  // Anchor A: accent hue, Anchor B: +150°, Anchor C: -150°
+  // Each anchor gets lightness/chroma variants, plus green-ish stem colors
+  const baseChroma = accentOklch.c ?? 0.1
   const palette = [
-    mixTowardBg(deriveVariant(accentOklch, 0, 0)),           // 0: accent base
-    mixTowardBg(deriveVariant(accentOklch, 20, 0.05)),       // 1: accent warm
-    mixTowardBg(deriveVariant(accentOklch, -15, -0.03)),     // 2: accent cool
-    mixTowardBg(deriveVariant(textOklch, 10, 0, -0.02)),     // 3: text variant
-    mixTowardBg(deriveVariant(codeBgOklch, -10, 0.08)),      // 4: codeBg lighter
-    mixTowardBg(deriveVariant(accentOklch, 40, 0.02)),       // 5: accent complement
-    mixTowardBg(deriveVariant(textOklch, -20, 0.05, -0.03)), // 6: text warm
-    mixTowardBg(deriveVariant(codeBgOklch, 15, -0.02)),      // 7: codeBg shifted (stems/leaves)
+    mixTowardBg(deriveVariant(accentOklch, 0, 0)),                           // 0: anchor A base
+    mixTowardBg(deriveVariant(accentOklch, 15, 0.05)),                       // 1: anchor A warm
+    mixTowardBg(deriveVariant(accentOklch, 150, 0, baseChroma * 0.2)),       // 2: anchor B base
+    mixTowardBg(deriveVariant(accentOklch, 165, -0.04)),                     // 3: anchor B shifted
+    mixTowardBg(deriveVariant(accentOklch, -150, 0.03, baseChroma * 0.15)),  // 4: anchor C base
+    mixTowardBg(deriveVariant(accentOklch, -135, -0.02)),                    // 5: anchor C shifted
+    mixTowardBg(deriveVariant(textOklch, 0, 0.03, -0.02)),                   // 6: center/pistil color
+    mixTowardBg(deriveVariant(accentOklch, 140, -0.05, -baseChroma * 0.3)),  // 7: stems/leaves (green-ish)
   ]
 
   const W = 400
   const H = 400
   const rand = seededRandom(31415)
-  const MOTIF_COUNT = 90
+  const MOTIF_COUNT = 200
 
   // Place motifs using Poisson-like rejection: track placed positions and
   // skip if too close to an existing one to avoid overlaps
   const placed: { x: number; y: number; r: number }[] = []
-  const MIN_DIST = 7
+  const MIN_DIST = 5
 
   const elements: string[] = []
 
