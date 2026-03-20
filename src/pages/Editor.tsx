@@ -28,6 +28,7 @@ import { useThemePreference } from '@/lib/useThemePreference'
 import { getBlogEntry } from '@/lib/atproto'
 import { getCachedPost, deleteCachedPost } from '@/lib/offline-store'
 import { invalidateFeedCache } from '@/lib/feedCache'
+import { notifyPostRemoved } from '@/lib/appview'
 import { useHaptics } from '@/lib/useHaptics'
 import {
   GREENGALE_CONTENT_MAX_BYTES,
@@ -1226,6 +1227,10 @@ export function EditorPage() {
       // Invalidate caches so updated content is shown
       if (handle) deleteCachedPost(handle, resultRkey)
       invalidateFeedCache()
+      // If saving as non-public, immediately remove from feeds (don't wait for firehose)
+      if (visibility !== 'public' && session?.did) {
+        notifyPostRemoved(session.did, resultRkey)
+      }
       // Clear service worker PDS cache for this post
       if (session?.did && navigator.serviceWorker?.controller) {
         navigator.serviceWorker.controller.postMessage({
@@ -1324,6 +1329,10 @@ export function EditorPage() {
           // Ignore errors - the site.standard.document may not exist
         }
       }
+
+      // Immediately remove from DB and invalidate caches (don't wait for firehose)
+      notifyPostRemoved(session.did, rkey)
+      invalidateFeedCache()
 
       // Prevent the unsaved changes blocker from triggering
       setJustSaved(true)

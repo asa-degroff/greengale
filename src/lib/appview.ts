@@ -240,6 +240,20 @@ export async function getAuthorProfile(
 }
 
 /**
+ * Notify the backend that a post was deleted or made non-public.
+ * This immediately removes the post from the DB and invalidates caches,
+ * rather than waiting for the firehose to process the change.
+ * Fire-and-forget: errors are logged but not thrown.
+ */
+export function notifyPostRemoved(did: string, rkey: string): void {
+  fetch(`${API_BASE}/xrpc/app.greengale.feed.notifyPostRemoved`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ did, rkey }),
+  }).catch(err => console.error('Failed to notify post removal:', err))
+}
+
+/**
  * Search result from publication search
  */
 export interface SearchResult {

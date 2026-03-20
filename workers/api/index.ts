@@ -11,6 +11,7 @@ import {
   generateEmbedding,
   generateEmbeddings,
   upsertEmbeddings,
+  deletePostEmbeddings,
   querySimilar,
   getPostEmbeddings,
   getVectorId,
@@ -2249,6 +2250,100 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
   } catch (error) {
     console.error('Error fetching post:', error)
     return c.json({ error: 'Failed to fetch post' }, 500)
+  }
+})
+
+// Notify that a post was deleted or made non-public
+// Called by the frontend immediately after delete/visibility-change to avoid waiting for firehose
+app.post('/xrpc/app.greengale.feed.notifyPostRemoved', async (c) => {
+  try {
+    const body = await c.req.json() as { did?: string; rkey?: string }
+    const { did, rkey } = body
+
+    if (!did || !rkey) {
+      return c.json({ error: 'Missing did or rkey' }, 400)
+    }
+
+    // Look up the post by author_did + rkey (works regardless of collection)
+    const post = await c.env.DB.prepare(
+      'SELECT uri, author_did FROM posts WHERE author_did = ? AND rkey = ?'
+    ).bind(did, rkey).first()
+
+    if (!post) {
+      // Post not in DB (already deleted or never indexed) - still invalidate caches
+      const authorRow = await c.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(did).first()
+      const handle = authorRow?.handle as string | undefined
+
+      await Promise.all([
+        c.env.CACHE.delete('recent_posts:12:'),
+        c.env.CACHE.delete('recent_posts:24:'),
+        c.env.CACHE.delete('recent_posts:50:'),
+        c.env.CACHE.delete('recent_posts:100:'),
+        c.env.CACHE.delete('network_posts:v3:24:'),
+        c.env.CACHE.delete('network_posts:v3:50:'),
+        c.env.CACHE.delete('network_posts:v3:100:'),
+        c.env.CACHE.delete('rss:recent'),
+        handle ? c.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
+        handle ? c.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
+      ])
+
+      return c.json({ success: true, found: false })
+    }
+
+    const uri = post.uri as string
+    const authorDid = post.author_did as string
+
+    // Get author handle and post tags before deletion
+    const [authorRow, tagsResult] = await Promise.all([
+      c.env.DB.prepare('SELECT handle FROM authors WHERE did = ?').bind(authorDid).first(),
+      c.env.DB.prepare('SELECT tag FROM post_tags WHERE post_uri = ?').bind(uri).all(),
+    ])
+    const handle = authorRow?.handle as string | undefined
+    const postTags = (tagsResult.results || []).map(r => r.tag as string)
+
+    // Phase 1: Invalidate all caches
+    const cacheInvalidations: Promise<boolean | void>[] = [
+      c.env.CACHE.delete('recent_posts:12:'),
+      c.env.CACHE.delete('recent_posts:24:'),
+      c.env.CACHE.delete('recent_posts:50:'),
+      c.env.CACHE.delete('recent_posts:100:'),
+      c.env.CACHE.delete('network_posts:v3:24:'),
+      c.env.CACHE.delete('network_posts:v3:50:'),
+      c.env.CACHE.delete('network_posts:v3:100:'),
+      c.env.CACHE.delete('popular_tags:20'),
+      c.env.CACHE.delete('popular_tags:50'),
+      c.env.CACHE.delete('popular_tags:100'),
+      c.env.CACHE.delete('rss:recent'),
+      handle ? c.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
+      handle ? c.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
+    ]
+    for (const tag of postTags) {
+      cacheInvalidations.push(c.env.CACHE.delete(`tag_posts:${tag}:50:`))
+    }
+    await Promise.all(cacheInvalidations)
+
+    // Phase 2: Delete post from DB and update author count
+    await c.env.DB.batch([
+      c.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri),
+      c.env.DB.prepare(`
+        UPDATE authors SET posts_count = (
+          SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
+        ), updated_at = datetime('now')
+        WHERE did = ?
+      `).bind(authorDid, authorDid),
+    ])
+
+    // Phase 3: Delete embeddings (async, don't block response)
+    deletePostEmbeddings(c.env.VECTORIZE, uri).catch(err =>
+      console.error(`Failed to delete embeddings for ${uri}:`, err)
+    )
+
+    return c.json({ success: true, found: true })
+  } catch (error) {
+    console.error('Error in notifyPostRemoved:', error)
+    return c.json({ error: 'Failed to process notification' }, 500)
   }
 })
 
