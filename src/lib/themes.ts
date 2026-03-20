@@ -228,6 +228,7 @@ export function correctCustomColorsContrast(colors: CustomColors): CustomColors 
 export interface Theme {
   preset?: ThemePreset
   custom?: CustomColors
+  backgroundTexture?: 'grid' | 'floral' | 'clouds'
 }
 
 export const THEME_PRESETS: ThemePreset[] = [

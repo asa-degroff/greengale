@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ThemePreset, CustomColors } from './themes'
+import type { BackgroundTexture } from './background-textures'
 import type { SelfLabels } from './image-upload'
 
 const DRAFT_VERSION = 1
@@ -40,6 +41,7 @@ export interface DraftState {
   lexicon: 'greengale' | 'whitewind'
   theme: ThemePreset
   customColors: CustomColors
+  backgroundTexture?: BackgroundTexture
   visibility: 'public' | 'url' | 'author'
   publishToSiteStandard: boolean
 

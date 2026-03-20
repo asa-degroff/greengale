@@ -58,11 +58,11 @@ export function PostPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [fromCache, setFromCache] = useState(false)
-  const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors, setBackgroundTexture } = useThemePreference()
   const { addRecentAuthor } = useRecentAuthors()
 
   // Apply post/publication theme to the global theme context
-  const applyTheme = useCallback((postTheme?: Theme, publicationTheme?: Theme) => {
+  const applyTheme = useCallback((postTheme?: Theme, publicationTheme?: Theme, publicationBgTexture?: Publication['backgroundTexture']) => {
     const effectiveTheme = getThemeWithInheritance(postTheme, publicationTheme)
     if (effectiveTheme?.custom) {
       setActivePostTheme('custom')
@@ -72,7 +72,12 @@ export function PostPage() {
       setActivePostTheme(themePreset)
       setActiveCustomColors(null)
     }
-  }, [setActivePostTheme, setActiveCustomColors])
+    // Apply background texture: post theme > publication setting > user preference (unchanged)
+    const texture = postTheme?.backgroundTexture || publicationBgTexture
+    if (texture) {
+      setBackgroundTexture(texture)
+    }
+  }, [setActivePostTheme, setActiveCustomColors, setBackgroundTexture])
 
   // Use the canonical handle from author data, or fall back to URL param
   const canonicalHandle = author?.handle || handle || ''
@@ -156,7 +161,7 @@ export function PostPage() {
         setPublication(publicationResult)
         hasLoadedRef.current = true
 
-        applyTheme(entryResult.theme, publicationResult?.theme)
+        applyTheme(entryResult.theme, publicationResult?.theme, publicationResult?.backgroundTexture)
 
         // Cache for offline reading
         cachePost(
@@ -190,7 +195,7 @@ export function PostPage() {
             setFromCache(true)
             hasLoadedRef.current = true
 
-            applyTheme(cached.entry.theme, cached.publication?.theme)
+            applyTheme(cached.entry.theme, cached.publication?.theme, cached.publication?.backgroundTexture)
             return
           }
         }

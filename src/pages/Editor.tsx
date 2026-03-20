@@ -25,6 +25,7 @@ import {
   validateCustomColors,
 } from '@/lib/themes'
 import { useThemePreference } from '@/lib/useThemePreference'
+import { BACKGROUND_TEXTURES, TEXTURE_LABELS, type BackgroundTexture } from '@/lib/background-textures'
 import { getBlogEntry } from '@/lib/atproto'
 import { getCachedPost, deleteCachedPost } from '@/lib/offline-store'
 import { invalidateFeedCache } from '@/lib/feedCache'
@@ -98,6 +99,7 @@ export function EditorPage() {
     accent: '#0969da',
     codeBackground: '',
   })
+  const [backgroundTexture, setBackgroundTexture] = useState<BackgroundTexture>('grid')
   const [visibility, setVisibility] = useState<'public' | 'url' | 'author'>('public')
   const [publishToSiteStandard, setPublishToSiteStandard] = useState(true) // Default enabled, can be overridden per-post
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode)
@@ -113,7 +115,7 @@ export function EditorPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
   const [recentPalettes, setRecentPalettes] = useState<SavedPalette[]>([])
-  const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors, setBackgroundTexture: setGlobalBackgroundTexture } = useThemePreference()
   const { isCollapsed: isToolbarCollapsed, toggleCollapsed: toggleToolbar } = useToolbarCollapsed()
   const { isOnline } = useNetworkStatus()
 
@@ -349,6 +351,14 @@ export function EditorPage() {
     }
   }, [theme, customColors, isWhiteWind, setActivePostTheme, setActiveCustomColors])
 
+  // Apply background texture while composing
+  useEffect(() => {
+    if (!isWhiteWind) {
+      setGlobalBackgroundTexture(backgroundTexture)
+    }
+    // Note: don't restore on unmount — the texture persists as the user's preference
+  }, [backgroundTexture, isWhiteWind, setGlobalBackgroundTexture])
+
   // Reset GreenGale-specific options when switching to WhiteWind
   useEffect(() => {
     if (isWhiteWind) {
@@ -394,6 +404,10 @@ export function EditorPage() {
             loadedTheme = publication.theme.preset as ThemePreset
             setTheme(loadedTheme)
           }
+        }
+        // Initialize background texture from publication setting
+        if (publication?.backgroundTexture) {
+          setBackgroundTexture(publication.backgroundTexture)
         }
         // Initialize site.standard publishing from publication setting (default to true)
         setPublishToSiteStandard(publication?.enableSiteStandard !== false)
@@ -480,6 +494,7 @@ export function EditorPage() {
       lexicon,
       theme,
       customColors,
+      backgroundTexture,
       visibility,
       publishToSiteStandard,
       uploadedBlobsMetadata,
@@ -494,6 +509,7 @@ export function EditorPage() {
     lexicon,
     theme,
     customColors,
+    backgroundTexture,
     visibility,
     publishToSiteStandard,
     uploadedBlobs,
@@ -551,6 +567,7 @@ export function EditorPage() {
     setLexicon(savedDraft.lexicon)
     setTheme(savedDraft.theme)
     setCustomColors(savedDraft.customColors)
+    if (savedDraft.backgroundTexture) setBackgroundTexture(savedDraft.backgroundTexture)
     setVisibility(savedDraft.visibility)
     setPublishToSiteStandard(savedDraft.publishToSiteStandard)
     setViewMode(savedDraft.viewMode)
@@ -764,6 +781,11 @@ export function EditorPage() {
             setTheme(entry.theme?.preset || 'default')
           }
 
+          // Restore background texture
+          if (entry.theme?.backgroundTexture) {
+            setBackgroundTexture(entry.theme.backgroundTexture)
+          }
+
           // Restore uploaded blobs if present
           if (entry.blobs && entry.blobs.length > 0) {
             const restoredBlobs: UploadedBlob[] = []
@@ -879,6 +901,9 @@ export function EditorPage() {
           } else if (entry.source === 'greengale') {
             setTheme(entry.theme?.preset || 'default')
           }
+          if (entry.source === 'greengale' && entry.theme?.backgroundTexture) {
+            setBackgroundTexture(entry.theme.backgroundTexture)
+          }
 
           setLoadingPost(false)
           return
@@ -928,7 +953,7 @@ export function EditorPage() {
       const publishedAt = isEditing && originalCreatedAt ? originalCreatedAt : new Date().toISOString()
 
       // Build theme object for GreenGale posts
-      let themeObj: { preset?: string; custom?: CustomColors } | undefined = undefined
+      let themeObj: { preset?: string; custom?: CustomColors; backgroundTexture?: string } | undefined = undefined
       if (!isWhiteWind) {
         if (theme === 'custom') {
           // Custom theme - store the colors
@@ -943,6 +968,11 @@ export function EditorPage() {
         } else if (theme !== 'default') {
           // Preset theme
           themeObj = { preset: theme }
+        }
+        // Add background texture if not default
+        if (backgroundTexture !== 'grid') {
+          themeObj = themeObj || {}
+          themeObj.backgroundTexture = backgroundTexture
         }
       }
 
@@ -2387,6 +2417,29 @@ export function EditorPage() {
                         </span>
                       </label>
                     </div>
+                  </div>
+                </div>
+
+                {/* Background Texture */}
+                <div>
+                  <label className="block text-sm font-medium text-[var(--site-text-secondary)] mb-2">
+                    Background Texture
+                  </label>
+                  <div className="flex gap-2">
+                    {BACKGROUND_TEXTURES.map((texture) => (
+                      <button
+                        key={texture}
+                        type="button"
+                        onClick={() => setBackgroundTexture(texture)}
+                        className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                          backgroundTexture === texture
+                            ? 'border-[var(--site-accent)] bg-[var(--site-accent)]/10 text-[var(--site-accent)]'
+                            : 'border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] hover:border-[var(--site-text-secondary)]'
+                        }`}
+                      >
+                        {TEXTURE_LABELS[texture]}
+                      </button>
+                    ))}
                   </div>
                 </div>
 

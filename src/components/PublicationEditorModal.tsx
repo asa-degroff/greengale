@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
 import type { Publication } from '@/lib/atproto'
 import { savePublication } from '@/lib/atproto'
+import { BACKGROUND_TEXTURES, TEXTURE_LABELS, type BackgroundTexture } from '@/lib/background-textures'
 import type { PitchRate, PlaybackRate } from '@/lib/tts'
 import { DEFAULT_VOICE } from '@/lib/tts'
 import { getPlatformInfo, getExternalDomain } from '@/lib/platform-utils'
@@ -57,6 +58,9 @@ export function PublicationEditorModal({
   )
   const [pubCustomColors, setPubCustomColors] = useState<CustomColors>(
     publication?.theme?.custom || DEFAULT_CUSTOM_COLORS
+  )
+  const [pubBackgroundTexture, setPubBackgroundTexture] = useState<BackgroundTexture>(
+    publication?.backgroundTexture || 'grid'
   )
   const [pubEnableSiteStandard, setPubEnableSiteStandard] = useState(
     publication?.enableSiteStandard || false
@@ -204,6 +208,7 @@ export function PublicationEditorModal({
                 preset: pubTheme,
                 custom: pubTheme === 'custom' ? pubCustomColors : undefined,
               },
+        backgroundTexture: pubBackgroundTexture !== 'grid' ? pubBackgroundTexture : undefined,
         enableSiteStandard: pubEnableSiteStandard || undefined,
         showInDiscover: pubShowInDiscover,
         voiceTheme,
@@ -495,6 +500,32 @@ export function PublicationEditorModal({
             </select>
             <p className="text-xs text-[var(--site-text-secondary)] mt-1">
               Your profile and posts without their own theme will use this theme
+            </p>
+          </div>
+
+          {/* Background texture */}
+          <div>
+            <label className="block text-sm font-medium text-[var(--site-text)] mb-1">
+              Background Texture
+            </label>
+            <div className="flex gap-2">
+              {BACKGROUND_TEXTURES.map((texture) => (
+                <button
+                  key={texture}
+                  type="button"
+                  onClick={() => setPubBackgroundTexture(texture)}
+                  className={`px-3 py-2 text-sm rounded-md border transition-colors ${
+                    pubBackgroundTexture === texture
+                      ? 'border-[var(--site-accent)] bg-[var(--site-accent)]/10 text-[var(--site-accent)]'
+                      : 'border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] hover:border-[var(--site-text-secondary)]'
+                  }`}
+                >
+                  {TEXTURE_LABELS[texture]}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-[var(--site-text-secondary)] mt-1">
+              Default background pattern for your posts
             </p>
           </div>
 

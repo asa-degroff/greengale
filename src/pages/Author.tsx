@@ -50,7 +50,7 @@ export function AuthorPage() {
   const [publication, setPublication] = useState<Publication | null>(null)
   const [showPublicationModal, setShowPublicationModal] = useState(false)
   const [blentoUrl, setBlentoUrl] = useState<string | null>(null)
-  const { setActivePostTheme, setActiveCustomColors } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors, setBackgroundTexture } = useThemePreference()
 
   // Subscriptions
   const subscriptionsState = useSubscriptions(session ? { did: session.did, fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options) } : undefined)
@@ -140,6 +140,10 @@ export function AuthorPage() {
             setActivePostTheme(themePreset)
             setActiveCustomColors(null)
           }
+        }
+        // Apply publication background texture
+        if (publicationResult?.backgroundTexture) {
+          setBackgroundTexture(publicationResult.backgroundTexture)
         }
 
         // Track this author as recently viewed

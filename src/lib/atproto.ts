@@ -214,6 +214,11 @@ function parseTheme(rawTheme: unknown): Theme | undefined {
     }
   }
 
+  const validTextures = new Set(['grid', 'floral', 'clouds'])
+  if (typeof theme.backgroundTexture === 'string' && validTextures.has(theme.backgroundTexture)) {
+    result.backgroundTexture = theme.backgroundTexture as Theme['backgroundTexture']
+  }
+
   return Object.keys(result).length > 0 ? result : undefined
 }
 
@@ -289,6 +294,7 @@ export interface Publication {
   url: string
   description?: string
   theme?: Theme
+  backgroundTexture?: 'grid' | 'floral' | 'clouds'
   enableSiteStandard?: boolean
   showInDiscover?: boolean
   voiceTheme?: VoiceTheme
@@ -831,6 +837,9 @@ export async function getPublication(identifier: string): Promise<Publication | 
       url: (record.url as string) || '',
       description: record.description as string | undefined,
       theme: parseTheme(record.theme),
+      backgroundTexture: (['grid', 'floral', 'clouds'].includes(record.backgroundTexture as string)
+        ? record.backgroundTexture as Publication['backgroundTexture']
+        : undefined),
       enableSiteStandard: (record.enableSiteStandard as boolean | undefined) || false,
       showInDiscover: (record.showInDiscover as boolean | undefined) ?? true,
       voiceTheme: parseVoiceTheme(record.voiceTheme),
@@ -867,6 +876,9 @@ export async function savePublication(
     url: publication.url,
     description: publication.description || undefined,
     theme: publication.theme || undefined,
+    backgroundTexture: publication.backgroundTexture && publication.backgroundTexture !== 'grid'
+      ? publication.backgroundTexture
+      : undefined,
     enableSiteStandard: publication.enableSiteStandard || undefined,
     showInDiscover: publication.showInDiscover === false ? false : undefined,
     voiceTheme: voiceThemeToRecord(publication.voiceTheme),
