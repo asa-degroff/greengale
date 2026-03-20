@@ -470,17 +470,38 @@ body {
   --vignette-color: oklch(4% 0.127 159 / 0.5);
 }
 
-/* Graph paper grid background */
-.grid-background {
+/* Background texture layer */
+.bg-texture {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 0;
   background-color: var(--site-bg);
+}
+
+/* Graph paper grid background (default) */
+.bg-texture[data-texture="grid"] {
   background-image:
     linear-gradient(var(--grid-color) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+/* Floral pattern background */
+.bg-texture[data-texture="floral"] {
+  background-image: var(--texture-image);
+  background-size: 400px 400px;
+  background-repeat: repeat;
+}
+
+/* Clouds background - uses CloudField component */
+.bg-texture-clouds {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-color: var(--site-bg);
+  overflow: hidden;
 }
 
 /* Animated WebGPU grid canvas (easter egg) */

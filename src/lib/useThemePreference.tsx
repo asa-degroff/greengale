@@ -8,6 +8,8 @@ import {
 } from 'react'
 import type { ThemePreset, CustomColors } from './themes'
 import { deriveFullSiteColors, getPresetColors, DARK_THEME_PRESETS, isCustomColorsDark } from './themes'
+import type { BackgroundTexture } from './background-textures'
+import { generateFloralPattern, deriveCloudColor } from './background-textures'
 
 // Background colors for each theme preset (used for theme-color meta tag)
 // For 'default', we check the site theme (light/dark) separately
@@ -64,6 +66,8 @@ interface ThemePreferenceState {
   activeCustomColors: CustomColors | null
   /** The effective theme to apply (respects all overrides) */
   effectiveTheme: ThemePreset
+  /** Background texture preference */
+  backgroundTexture: BackgroundTexture
 }
 
 interface ThemePreferenceContextValue extends ThemePreferenceState {
@@ -72,6 +76,7 @@ interface ThemePreferenceContextValue extends ThemePreferenceState {
   setForceDefaultTheme: (force: boolean) => void
   setActivePostTheme: (theme: ThemePreset | null) => void
   setActiveCustomColors: (colors: CustomColors | null) => void
+  setBackgroundTexture: (texture: BackgroundTexture) => void
 }
 
 const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>(null)
@@ -79,6 +84,7 @@ const ThemePreferenceContext = createContext<ThemePreferenceContextValue | null>
 const FORCE_DEFAULT_KEY = 'force-default-theme'
 const PREFERRED_THEME_KEY = 'preferred-theme'
 const PREFERRED_CUSTOM_COLORS_KEY = 'preferred-custom-colors'
+const BACKGROUND_TEXTURE_KEY = 'background-texture'
 
 export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   const [preferredTheme, setPreferredThemeState] = useState<ThemePreset>(() => {
@@ -109,6 +115,15 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
 
   const [activePostTheme, setActivePostTheme] = useState<ThemePreset | null>(null)
   const [activeCustomColors, setActiveCustomColors] = useState<CustomColors | null>(null)
+
+  const [backgroundTexture, setBackgroundTextureState] = useState<BackgroundTexture>(() => {
+    try {
+      const stored = localStorage.getItem(BACKGROUND_TEXTURE_KEY)
+      return (stored as BackgroundTexture) || 'grid'
+    } catch {
+      return 'grid'
+    }
+  })
 
   // Compute effective theme:
   // 1. If forceDefaultTheme is true, use preferredTheme (user's choice)
@@ -238,6 +253,51 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       updateThemeColor(effectiveTheme)
     }
 
+    // Apply background texture CSS variables
+    if (backgroundTexture === 'floral' || backgroundTexture === 'clouds') {
+      // Resolve the current colors for texture generation
+      const resolveColors = () => {
+        if (effectiveTheme === 'custom' && effectiveCustomColors) {
+          const colors = deriveFullSiteColors(effectiveCustomColors)
+          if (colors) {
+            return {
+              bg: colors.background,
+              text: colors.text,
+              accent: colors.accent,
+              codeBg: colors.codeBackground,
+            }
+          }
+        }
+        // For preset themes, read from computed styles
+        const computed = getComputedStyle(document.documentElement)
+        return {
+          bg: computed.getPropertyValue('--site-bg').trim(),
+          text: computed.getPropertyValue('--site-text').trim(),
+          accent: computed.getPropertyValue('--site-accent').trim(),
+          codeBg: computed.getPropertyValue('--theme-code-bg').trim() || computed.getPropertyValue('--site-bg-secondary').trim(),
+        }
+      }
+
+      const colors = resolveColors()
+      if (colors.bg) {
+        if (backgroundTexture === 'floral') {
+          const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
+          if (pattern) {
+            style.setProperty('--texture-image', pattern)
+            customColorProps.push('--texture-image')
+          }
+        } else {
+          // Clouds: derive the cloud color for the CloudField component
+          const cloudColor = deriveCloudColor(colors.bg, colors.text)
+          style.setProperty('--cloud-color', cloudColor)
+          customColorProps.push('--cloud-color')
+        }
+      }
+    } else {
+      style.removeProperty('--texture-image')
+      style.removeProperty('--cloud-color')
+    }
+
     // If using default theme, watch for site theme (light/dark) changes
     if (effectiveTheme === 'default') {
       const observer = new MutationObserver((mutations) => {
@@ -271,7 +331,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       document.documentElement.setAttribute('data-active-theme', 'default')
       document.documentElement.removeAttribute('data-theme-dark')
     }
-  }, [effectiveTheme, effectiveCustomColors])
+  }, [effectiveTheme, effectiveCustomColors, backgroundTexture])
 
   const setPreferredTheme = useCallback((theme: ThemePreset) => {
     setPreferredThemeState(theme)
@@ -293,6 +353,19 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(PREFERRED_CUSTOM_COLORS_KEY, JSON.stringify(colors))
       } else {
         localStorage.removeItem(PREFERRED_CUSTOM_COLORS_KEY)
+      }
+    } catch {
+      // localStorage not available
+    }
+  }, [])
+
+  const setBackgroundTexture = useCallback((texture: BackgroundTexture) => {
+    setBackgroundTextureState(texture)
+    try {
+      if (texture === 'grid') {
+        localStorage.removeItem(BACKGROUND_TEXTURE_KEY)
+      } else {
+        localStorage.setItem(BACKGROUND_TEXTURE_KEY, texture)
       }
     } catch {
       // localStorage not available
@@ -321,11 +394,13 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         activePostTheme,
         activeCustomColors,
         effectiveTheme,
+        backgroundTexture,
         setPreferredTheme,
         setPreferredCustomColors,
         setForceDefaultTheme,
         setActivePostTheme,
         setActiveCustomColors,
+        setBackgroundTexture,
       }}
     >
       {children}

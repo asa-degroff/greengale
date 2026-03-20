@@ -4,9 +4,11 @@ import { useDarkMode } from '@/lib/useDarkMode'
 import { useAuth } from '@/lib/auth'
 import { useThemePreference } from '@/lib/useThemePreference'
 import { THEME_PRESETS, THEME_LABELS, type ThemePreset, getPresetColors, type CustomColors } from '@/lib/themes'
+import { BACKGROUND_TEXTURES, TEXTURE_LABELS } from '@/lib/background-textures'
 import { getRecentPalettes, type SavedPalette } from '@/lib/palettes'
 import { useRecentAuthors } from '@/lib/useRecentAuthors'
 import { AnimatedGridBackground } from '@/components/AnimatedGridBackground'
+import { CloudField } from '@/components/AnimatedCloud'
 import { LoadingCubeInline } from '@/components/LoadingCube'
 import { TextLogo } from '@/components/TextLogo'
 import { SidebarSearch } from '@/components/SidebarSearch'
@@ -435,7 +437,7 @@ export function Sidebar({ children }: SidebarProps) {
   const { isDark, toggleTheme } = useDarkMode()
   const location = useLocation()
   const { isAuthenticated, isLoading, handle, login, logout, error } = useAuth()
-  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, activeCustomColors, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme } = useThemePreference()
+  const { forceDefaultTheme, setForceDefaultTheme, activePostTheme, activeCustomColors, preferredTheme, setPreferredTheme, preferredCustomColors, setPreferredCustomColors, effectiveTheme, backgroundTexture, setBackgroundTexture } = useThemePreference()
   const { recentAuthors } = useRecentAuthors()
   const { isOnline } = useNetworkStatus()
 
@@ -795,7 +797,29 @@ export function Sidebar({ children }: SidebarProps) {
               </p>
             </div>
 
-            {webGPUSupported && (
+            {/* Background Texture */}
+            <div className="mt-3 pt-3 border-t border-[var(--site-border)]">
+              <p className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-[var(--site-text-secondary)]">
+                Background
+              </p>
+              <div className="flex gap-1.5 mt-1 px-2">
+                {BACKGROUND_TEXTURES.map((texture) => (
+                  <button
+                    key={texture}
+                    onClick={() => setBackgroundTexture(texture)}
+                    className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${
+                      backgroundTexture === texture
+                        ? 'bg-[var(--site-accent)] text-white border-[var(--site-accent)]'
+                        : 'border-[var(--site-border)] bg-[var(--site-bg)] text-[var(--site-text)] hover:bg-[var(--site-bg-secondary)]'
+                    }`}
+                  >
+                    {TEXTURE_LABELS[texture]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {webGPUSupported && backgroundTexture === 'grid' && (
               <label className="flex items-center gap-2 px-2 mt-3 cursor-pointer">
                 <span className="relative flex items-center justify-center w-5 h-5">
                   <input
@@ -968,10 +992,14 @@ export function Sidebar({ children }: SidebarProps) {
   return (
     <div className="min-h-screen">
       {/* Background effects */}
-      {animatedGridEnabled && webGPUSupported ? (
+      {animatedGridEnabled && webGPUSupported && backgroundTexture === 'grid' ? (
         <AnimatedGridBackground gridColor={themeColors.grid} bgColor={themeColors.bg} />
+      ) : backgroundTexture === 'clouds' ? (
+        <div className="bg-texture-clouds" aria-hidden="true">
+          <CloudField className="text-[var(--cloud-color,var(--site-text-secondary))]" />
+        </div>
       ) : (
-        <div className="grid-background" aria-hidden="true" />
+        <div className="bg-texture" data-texture={backgroundTexture} aria-hidden="true" />
       )}
       <div className="vignette-overlay" aria-hidden="true" />
 
