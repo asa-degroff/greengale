@@ -185,9 +185,17 @@ export function generateFloralPattern(
   }
 
   // Split-complementary palette: 3 hue anchors from the accent color
+  // Split-complementary palette: 3 hue anchors from the accent color
   // Anchor A: accent hue, Anchor B: +150°, Anchor C: -150°
   // Each anchor gets lightness/chroma variants, plus green-ish stem colors
   const baseChroma = accentOklch.c ?? 0.1
+
+  // For center/pistil: use text color only if it has meaningful chroma,
+  // otherwise derive from accent at 75° (midway between anchors A and B)
+  const textIsChromatic = (textOklch.c ?? 0) > 0.03
+  const centerSource = textIsChromatic ? textOklch : accentOklch
+  const centerHueShift = textIsChromatic ? 0 : 75
+
   const palette = [
     mixTowardBg(deriveVariant(accentOklch, 0, 0)),                           // 0: anchor A base
     mixTowardBg(deriveVariant(accentOklch, 15, 0.05)),                       // 1: anchor A warm
@@ -195,7 +203,7 @@ export function generateFloralPattern(
     mixTowardBg(deriveVariant(accentOklch, 165, -0.04)),                     // 3: anchor B shifted
     mixTowardBg(deriveVariant(accentOklch, -150, 0.03, baseChroma * 0.15)),  // 4: anchor C base
     mixTowardBg(deriveVariant(accentOklch, -135, -0.02)),                    // 5: anchor C shifted
-    mixTowardBg(deriveVariant(textOklch, 0, 0.03, -0.02)),                   // 6: center/pistil color
+    mixTowardBg(deriveVariant(centerSource, centerHueShift, 0.03, -0.02)),   // 6: center/pistil color
     mixTowardBg(deriveVariant(accentOklch, 140, -0.05, -baseChroma * 0.3)),  // 7: stems/leaves (green-ish)
   ]
 
