@@ -173,7 +173,7 @@ export function BlogViewer({
       style={customStyles}
       className="text-[var(--theme-text)]"
     >
-      <div className={`max-w-3xl px-4 py-8 mx-auto ${headings.length > 0 ? 'min-[1350px]:max-[1609px]:mx-0 min-[1350px]:max-[1609px]:ml-[max(1rem,calc((100vw-1344px)/2))] min-[1350px]:max-[1609px]:mr-[320px]' : ''} ${isTTSActive ? 'pb-24' : ''} ${backgroundTexture !== 'grid' ? 'content-backdrop' : ''}`}>
+      <div className={`max-w-3xl px-4 py-8 mx-auto ${headings.length > 0 ? 'min-[1350px]:max-[1609px]:mx-0 min-[1350px]:max-[1609px]:ml-[max(1rem,calc((100vw-1344px)/2))] min-[1350px]:max-[1609px]:mr-[320px]' : ''} ${isTTSActive ? 'pb-24' : ''}`}>
         {/* Header */}
         <header className="mb-8">
           {title && (
@@ -294,33 +294,35 @@ export function BlogViewer({
           </div>
         </div>
 
-        {/* Content */}
-        {showRaw ? (
-          <pre className="whitespace-pre-wrap break-words font-mono text-sm p-4 rounded-lg bg-[var(--theme-code-bg)] text-[var(--theme-text)] overflow-x-auto">
-            {content}
-          </pre>
-        ) : (
-          <div className="prose max-w-none">
-            <MarkdownRenderer
-              content={content}
-              enableLatex={latex}
-              blobs={blobs}
-              currentSentence={inDiscussionsSection ? null : tts.state.currentSentence}
-              onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
-              autoScroll={ttsSettings.settings.autoScroll}
-            />
-          </div>
-        )}
+        {/* Content (with backdrop for busy background textures) */}
+        <div className={backgroundTexture !== 'grid' ? 'content-backdrop' : undefined}>
+          {showRaw ? (
+            <pre className="whitespace-pre-wrap break-words font-mono text-sm p-4 rounded-lg bg-[var(--theme-code-bg)] text-[var(--theme-text)] overflow-x-auto">
+              {content}
+            </pre>
+          ) : (
+            <div className="prose max-w-none">
+              <MarkdownRenderer
+                content={content}
+                enableLatex={latex}
+                blobs={blobs}
+                currentSentence={inDiscussionsSection ? null : tts.state.currentSentence}
+                onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
+                autoScroll={ttsSettings.settings.autoScroll}
+              />
+            </div>
+          )}
 
-        {/* Bluesky Interactions */}
-        {postUrl && (
-          <BlueskyInteractions
-            postUrl={postUrl}
-            postTitle={title}
-            currentSentence={inDiscussionsSection ? tts.state.currentSentence : null}
-            onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
-          />
-        )}
+          {/* Bluesky Interactions */}
+          {postUrl && (
+            <BlueskyInteractions
+              postUrl={postUrl}
+              postTitle={title}
+              currentSentence={inDiscussionsSection ? tts.state.currentSentence : null}
+              onSentenceClick={isTTSActive && !isTTSLoading ? tts.seek : undefined}
+            />
+          )}
+        </div>
       </div>
 
       {/* Desktop Table of Contents - visible at 1350px+ */}

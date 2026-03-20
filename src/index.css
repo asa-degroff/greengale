@@ -497,7 +497,15 @@ body {
 
 /* Semi-transparent backdrop behind post content for busy textures */
 .content-backdrop {
-  background-color: color-mix(in srgb, var(--site-bg) 75%, transparent);
+  position: relative;
+}
+.content-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--site-bg);
+  opacity: 0.75;
   mask-image: linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent);
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent);
 }
