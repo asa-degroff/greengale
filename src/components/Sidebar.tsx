@@ -996,7 +996,7 @@ export function Sidebar({ children }: SidebarProps) {
         <AnimatedGridBackground key="animated-grid" gridColor={themeColors.grid} bgColor={themeColors.bg} />
       ) : backgroundTexture === 'clouds' ? (
         <div key="clouds" className="bg-texture-clouds" aria-hidden="true">
-          <CloudField className="text-[var(--cloud-color,var(--site-text-secondary))]" />
+          <CloudField className="text-[var(--cloud-color,var(--site-text-secondary))]" size="fullscreen" />
         </div>
       ) : (
         <div key={`texture-${backgroundTexture}`} className="bg-texture" data-texture={backgroundTexture} aria-hidden="true" />

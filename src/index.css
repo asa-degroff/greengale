@@ -516,7 +516,13 @@ body {
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  background-color: var(--site-bg);
+  background: linear-gradient(
+    to bottom,
+    var(--sky-tint-top, var(--site-bg)) 0%,
+    var(--site-bg) 40%,
+    var(--site-bg) 60%,
+    var(--sky-tint-bottom, var(--site-bg)) 100%
+  );
   overflow: hidden;
 }
 

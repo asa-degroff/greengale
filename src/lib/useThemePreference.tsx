@@ -9,7 +9,7 @@ import {
 import type { ThemePreset, CustomColors } from './themes'
 import { deriveFullSiteColors, getPresetColors, DARK_THEME_PRESETS, isCustomColorsDark } from './themes'
 import type { BackgroundTexture } from './background-textures'
-import { generateFloralPattern, deriveCloudColor } from './background-textures'
+import { generateFloralPattern, deriveCloudColor, deriveSkyGradient } from './background-textures'
 
 // Background colors for each theme preset (used for theme-color meta tag)
 // For 'default', we check the site theme (light/dark) separately
@@ -285,6 +285,11 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
         const cloudColor = deriveCloudColor(colors.bg, colors.text)
         style.setProperty('--cloud-color', cloudColor)
 
+        // Always derive sky gradient tints for the clouds background
+        const sky = deriveSkyGradient(colors.bg, colors.accent)
+        style.setProperty('--sky-tint-top', sky.top)
+        style.setProperty('--sky-tint-bottom', sky.bottom)
+
         if (backgroundTexture === 'floral') {
           const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
           if (pattern) {
@@ -297,7 +302,7 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     }
 
     applyTextureColors()
-    customColorProps.push('--cloud-color')
+    customColorProps.push('--cloud-color', '--sky-tint-top', '--sky-tint-bottom')
     if (backgroundTexture === 'floral') customColorProps.push('--texture-image')
 
     // If using default theme, watch for site theme (light/dark) changes

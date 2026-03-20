@@ -298,3 +298,49 @@ export function deriveCloudColor(background: string, text: string): string {
   }
   return '#ffffff'
 }
+
+/**
+ * Derive subtle sky gradient tints from the background and accent colors.
+ * Returns two colors: a warm tint (bottom/horizon) and a cool tint (top/zenith),
+ * both very desaturated and close to the background color.
+ */
+export function deriveSkyGradient(
+  background: string,
+  accent: string,
+): { top: string; bottom: string } {
+  const bgParsed = parse(background)
+  const accentParsed = parse(accent)
+
+  if (!bgParsed || !accentParsed) return { top: background, bottom: background }
+
+  const bgOklch = oklch(bgParsed) as Oklch
+  const accentOklch = oklch(accentParsed) as Oklch
+  if (!bgOklch || !accentOklch) return { top: background, bottom: background }
+
+  const isDark = (bgOklch.l ?? 0) < 0.5
+  const accentHue = accentOklch.h ?? 240
+
+  // Very subtle chroma — just enough to tint
+  const tintChroma = isDark ? 0.015 : 0.012
+
+  // Top: cool tint (accent hue shifted toward blue/cool)
+  const topTint: Oklch = {
+    mode: 'oklch',
+    l: Math.max(0, Math.min(1, (bgOklch.l ?? 0) + (isDark ? 0.03 : -0.02))),
+    c: tintChroma,
+    h: (accentHue + 30) % 360, // shift toward cooler
+  }
+
+  // Bottom: warm tint (accent hue shifted toward warm/horizon)
+  const bottomTint: Oklch = {
+    mode: 'oklch',
+    l: Math.max(0, Math.min(1, (bgOklch.l ?? 0) + (isDark ? 0.01 : -0.01))),
+    c: tintChroma * 0.8,
+    h: (accentHue - 40 + 360) % 360, // shift toward warmer
+  }
+
+  return {
+    top: formatHex(topTint) ?? background,
+    bottom: formatHex(bottomTint) ?? background,
+  }
+}

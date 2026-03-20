@@ -169,6 +169,8 @@ function renderCloudShapeWithDynamicFilters(variant: 'large' | 'medium' | 'small
 // Cloud field component that manages multiple floating clouds
 interface CloudFieldProps {
   className?: string
+  /** 'compact' for small containers (search bar), 'fullscreen' for page backgrounds */
+  size?: 'compact' | 'fullscreen'
 }
 
 interface CloudConfig {
@@ -181,47 +183,66 @@ interface CloudConfig {
   opacity: number
 }
 
-// Base cloud configurations without delays
-const cloudConfigs: CloudConfig[] = [
-  // Far background - slower, smaller, more transparent
+// Compact: original configs for small containers
+const compactCloudConfigs: CloudConfig[] = [
   { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 68, opacity: 0.25 },
   { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 75, opacity: 0.2 },
-
-  // Mid layer
   { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 52, opacity: 0.35 },
   { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 57, opacity: 0.3 },
-
-  // Foreground - larger, faster, more visible
   { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 42, opacity: 0.45 },
   { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 48, opacity: 0.4 },
-
-  // Extra variety
   { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 63, opacity: 0.22 },
   { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 60, opacity: 0.28 },
 ]
 
+// Fullscreen: larger clouds spread across the viewport
+const fullscreenCloudConfigs: CloudConfig[] = [
+  // Far background layer - very large, slow, subtle
+  { id: 1, variant: 'large', seed: 11, top: 5, size: 3.5, duration: 120, opacity: 0.2 },
+  { id: 2, variant: 'large', seed: 22, top: 60, size: 3.0, duration: 130, opacity: 0.18 },
+  { id: 3, variant: 'medium', seed: 33, top: 80, size: 2.5, duration: 110, opacity: 0.15 },
+
+  // Mid layer - moderate size, moderate pace
+  { id: 4, variant: 'large', seed: 44, top: 20, size: 2.8, duration: 90, opacity: 0.3 },
+  { id: 5, variant: 'large', seed: 55, top: 45, size: 2.5, duration: 95, opacity: 0.28 },
+  { id: 6, variant: 'medium', seed: 66, top: 70, size: 2.2, duration: 85, opacity: 0.25 },
+  { id: 7, variant: 'medium', seed: 77, top: 10, size: 2.0, duration: 100, opacity: 0.22 },
+
+  // Foreground - largest, faster
+  { id: 8, variant: 'large', seed: 88, top: 30, size: 3.8, duration: 70, opacity: 0.38 },
+  { id: 9, variant: 'large', seed: 99, top: 55, size: 3.2, duration: 75, opacity: 0.35 },
+  { id: 10, variant: 'medium', seed: 111, top: 85, size: 2.6, duration: 65, opacity: 0.3 },
+
+  // Small accent clouds
+  { id: 11, variant: 'small', seed: 122, top: 15, size: 1.8, duration: 80, opacity: 0.2 },
+  { id: 12, variant: 'small', seed: 133, top: 40, size: 1.5, duration: 88, opacity: 0.18 },
+]
+
 // Generate randomized delays once on module load for consistent rendering
 // Negative delay positions clouds at random points along their animation path
-const randomDelays = cloudConfigs.map((cloud) => -Math.random() * cloud.duration)
+const compactDelays = compactCloudConfigs.map((cloud) => -Math.random() * cloud.duration)
+const fullscreenDelays = fullscreenCloudConfigs.map((cloud) => -Math.random() * cloud.duration)
 
-export function CloudField({ className = '' }: CloudFieldProps) {
+export function CloudField({ className = '', size = 'compact' }: CloudFieldProps) {
+  const configs = size === 'fullscreen' ? fullscreenCloudConfigs : compactCloudConfigs
+  const delays = size === 'fullscreen' ? fullscreenDelays : compactDelays
+
   return (
     <div
       className={`cloud-field ${className}`}
       aria-hidden="true"
     >
-      {cloudConfigs.map((cloud, index) => (
+      {configs.map((cloud, index) => (
         <div
           key={cloud.id}
           className="cloud-instance"
           style={{
             top: `${cloud.top}%`,
-            // Scale is applied to the inner SVG to preserve animation transform
             width: `${180 * cloud.size}px`,
             height: `${120 * cloud.size}px`,
             opacity: cloud.opacity,
             animationDuration: `${cloud.duration}s`,
-            animationDelay: `${randomDelays[index]}s`,
+            animationDelay: `${delays[index]}s`,
           }}
         >
           <AnimatedCloud variant={cloud.variant} seed={cloud.seed} />
