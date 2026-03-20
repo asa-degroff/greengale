@@ -277,29 +277,28 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     }
 
     // Apply background texture CSS variables (called on mount and on light/dark toggle)
+    // --cloud-color is always set (used by homepage CloudField regardless of texture selection)
     const applyTextureColors = () => {
-      if (backgroundTexture === 'floral' || backgroundTexture === 'clouds') {
-        const colors = resolveTextureColors()
-        if (colors.bg) {
-          if (backgroundTexture === 'floral') {
-            const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
-            if (pattern) {
-              style.setProperty('--texture-image', pattern)
-            }
-          } else {
-            const cloudColor = deriveCloudColor(colors.bg, colors.text)
-            style.setProperty('--cloud-color', cloudColor)
+      const colors = resolveTextureColors()
+      if (colors.bg) {
+        // Always derive cloud color for the homepage search CloudField
+        const cloudColor = deriveCloudColor(colors.bg, colors.text)
+        style.setProperty('--cloud-color', cloudColor)
+
+        if (backgroundTexture === 'floral') {
+          const pattern = generateFloralPattern(colors.bg, colors.text, colors.accent, colors.codeBg)
+          if (pattern) {
+            style.setProperty('--texture-image', pattern)
           }
+        } else {
+          style.removeProperty('--texture-image')
         }
-      } else {
-        style.removeProperty('--texture-image')
-        style.removeProperty('--cloud-color')
       }
     }
 
     applyTextureColors()
+    customColorProps.push('--cloud-color')
     if (backgroundTexture === 'floral') customColorProps.push('--texture-image')
-    if (backgroundTexture === 'clouds') customColorProps.push('--cloud-color')
 
     // If using default theme, watch for site theme (light/dark) changes
     if (effectiveTheme === 'default') {
