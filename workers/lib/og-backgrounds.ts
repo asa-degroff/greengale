@@ -299,9 +299,9 @@ function deriveFloralPalette(colors: ThemeColors): string[] {
  */
 export function generateFloralSVG(colors: ThemeColors): string {
   const palette = deriveFloralPalette(colors)
-  const W = 400, H = 400
+  const W = 250, H = 250
   const rand = seededRandom(31415)
-  const MOTIF_COUNT = 200
+  const MOTIF_COUNT = 80
 
   const placed: { x: number; y: number; r: number }[] = []
   const MIN_DIST = 5
