@@ -60,27 +60,27 @@ export function AnimatedCloud({ className = '', variant = 'medium', seed = 42, s
 
         {/* Main gradient - smooth falloff with extra stops to prevent banding */}
         <radialGradient id={`cloud-gradient-${seed}`} cx="30%" cy="30%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.55 : 0.35} />
-          <stop offset="20%" stopColor="currentColor" stopOpacity={sharp ? 0.45 : 0.3} />
-          <stop offset="40%" stopColor="currentColor" stopOpacity={sharp ? 0.32 : 0.22} />
-          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.18 : 0.12} />
-          <stop offset="80%" stopColor="currentColor" stopOpacity={sharp ? 0.06 : 0.04} />
+          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.8 : 0.35} />
+          <stop offset="20%" stopColor="currentColor" stopOpacity={sharp ? 0.65 : 0.3} />
+          <stop offset="40%" stopColor="currentColor" stopOpacity={sharp ? 0.48 : 0.22} />
+          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.28 : 0.12} />
+          <stop offset="80%" stopColor="currentColor" stopOpacity={sharp ? 0.1 : 0.04} />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </radialGradient>
 
         {/* Inner gradient for core density */}
         <radialGradient id={`cloud-gradient-inner-${seed}`} cx="35%" cy="35%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.45 : 0.3} />
-          <stop offset="30%" stopColor="currentColor" stopOpacity={sharp ? 0.32 : 0.22} />
-          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.15 : 0.1} />
+          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.7 : 0.3} />
+          <stop offset="30%" stopColor="currentColor" stopOpacity={sharp ? 0.5 : 0.22} />
+          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.25 : 0.1} />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </radialGradient>
 
         {/* Wisp gradient - extremely soft */}
         <radialGradient id={`wisp-gradient-${seed}`} cx="50%" cy="50%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.25 : 0.15} />
-          <stop offset="30%" stopColor="currentColor" stopOpacity={sharp ? 0.14 : 0.08} />
-          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.05 : 0.03} />
+          <stop offset="0%" stopColor="currentColor" stopOpacity={sharp ? 0.35 : 0.15} />
+          <stop offset="30%" stopColor="currentColor" stopOpacity={sharp ? 0.2 : 0.08} />
+          <stop offset="60%" stopColor="currentColor" stopOpacity={sharp ? 0.08 : 0.03} />
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </radialGradient>
       </defs>
@@ -190,14 +190,14 @@ interface CloudConfig {
 
 // Compact: original configs for small containers
 const compactCloudConfigs: CloudConfig[] = [
-  { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 68, opacity: 0.25 },
-  { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 75, opacity: 0.2 },
-  { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 52, opacity: 0.35 },
-  { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 57, opacity: 0.3 },
-  { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 42, opacity: 0.45 },
-  { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 48, opacity: 0.4 },
-  { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 63, opacity: 0.22 },
-  { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 60, opacity: 0.28 },
+  { id: 1, variant: 'small', seed: 11, top: 15, size: 0.6, duration: 68, opacity: 0.35 },
+  { id: 2, variant: 'small', seed: 22, top: 70, size: 0.5, duration: 75, opacity: 0.3 },
+  { id: 3, variant: 'medium', seed: 33, top: 35, size: 0.8, duration: 52, opacity: 0.45 },
+  { id: 4, variant: 'medium', seed: 44, top: 55, size: 0.75, duration: 57, opacity: 0.4 },
+  { id: 5, variant: 'large', seed: 55, top: 25, size: 1.1, duration: 42, opacity: 0.55 },
+  { id: 6, variant: 'large', seed: 66, top: 50, size: 1.0, duration: 48, opacity: 0.5 },
+  { id: 7, variant: 'small', seed: 77, top: 80, size: 0.55, duration: 63, opacity: 0.32 },
+  { id: 8, variant: 'medium', seed: 88, top: 10, size: 0.7, duration: 60, opacity: 0.38 },
 ]
 
 // Fullscreen: larger clouds spread across the viewport
