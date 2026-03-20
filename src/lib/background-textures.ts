@@ -244,9 +244,24 @@ export function generateFloralPattern(
     }
 
     const motifSvg = motifs[motifIdx](shuffled)
-    elements.push(
-      `<g transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rotation.toFixed(0)}) scale(${scale.toFixed(2)})">${motifSvg}</g>`
-    )
+    const g = (tx: number, ty: number) =>
+      `<g transform="translate(${tx.toFixed(1)},${ty.toFixed(1)}) rotate(${rotation.toFixed(0)}) scale(${scale.toFixed(2)})">${motifSvg}</g>`
+
+    elements.push(g(x, y))
+
+    // Wrap near edges so motifs tile seamlessly
+    const nearR = x + effectiveRadius > W
+    const nearL = x - effectiveRadius < 0
+    const nearB = y + effectiveRadius > H
+    const nearT = y - effectiveRadius < 0
+    if (nearR) elements.push(g(x - W, y))
+    if (nearL) elements.push(g(x + W, y))
+    if (nearB) elements.push(g(x, y - H))
+    if (nearT) elements.push(g(x, y + H))
+    if (nearR && nearB) elements.push(g(x - W, y - H))
+    if (nearR && nearT) elements.push(g(x - W, y + H))
+    if (nearL && nearB) elements.push(g(x + W, y - H))
+    if (nearL && nearT) elements.push(g(x + W, y + H))
   }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${elements.join('')}</svg>`
