@@ -470,8 +470,8 @@ export function EditorPage() {
     if (!isEditing && !publicationThemeLoaded) return
     // Skip if there's nothing to save
     if (!title.trim() && !content.trim()) return
-    // Skip during publish/delete operations
-    if (publishing || deleting) return
+    // Skip during and after publish/delete operations
+    if (publishing || deleting || justSaved) return
     // Skip if there's a draft pending restoration (don't overwrite it with PDS content)
     if (isDraftLoaded && hasDraft && !draftWasRestored) return
 
@@ -519,6 +519,7 @@ export function EditorPage() {
     publicationThemeLoaded,
     publishing,
     deleting,
+    justSaved,
     saveDraft,
     isDraftLoaded,
     hasDraft,
