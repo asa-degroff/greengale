@@ -326,6 +326,9 @@ export function useDraftAutoSave(
       clearTimeout(debounceTimerRef.current)
     }
 
+    // Clear pending state so unmount flush doesn't re-save the draft
+    pendingStateRef.current = null
+
     clearDraftFromStorage(did, rkey)
     setSavedDraft(null)
   }, [did, rkey])
