@@ -296,6 +296,14 @@ export function deriveCloudColor(background: string, text: string): string {
     const mid = interpolate([bgParsed, textParsed], 'oklch')(0.2)
     return mid ? formatHex(mid) ?? '#333333' : '#333333'
   }
+
+  // For near-white backgrounds, use slightly dark clouds so they're visible
+  // (white-on-white would be invisible). For pastel/colored light backgrounds, keep white.
+  if ((bgOklch.l ?? 0) > 0.95 && (bgOklch.c ?? 0) < 0.02) {
+    const mid = interpolate([bgParsed, textParsed], 'oklch')(0.12)
+    return mid ? formatHex(mid) ?? '#d0d0d0' : '#d0d0d0'
+  }
+
   return '#ffffff'
 }
 
