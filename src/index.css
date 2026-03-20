@@ -502,12 +502,18 @@ body {
 .content-backdrop::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -2rem;
   z-index: -1;
   background-color: var(--site-bg);
   opacity: 0.75;
-  mask-image: linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent);
+  mask-image:
+    linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent),
+    linear-gradient(to right, transparent, black 3rem, black calc(100% - 3rem), transparent);
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, black 3rem, black calc(100% - 3rem), transparent),
+    linear-gradient(to right, transparent, black 3rem, black calc(100% - 3rem), transparent);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
 }
 
 /* Clouds background - uses CloudField component */
