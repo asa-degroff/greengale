@@ -1407,7 +1407,7 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
-        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
@@ -1527,7 +1527,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
         SELECT
           p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
           p.visibility, p.created_at, p.indexed_at,
-          a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+          a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
           pub.icon_cid,
           (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
@@ -1541,7 +1541,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
       )
       SELECT uri, author_did, rkey, title, subtitle, source,
              visibility, created_at, indexed_at,
-             handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
+             handle, display_name, avatar_url, pds_endpoint, is_ai_agent, icon_cid, tags
       FROM ranked_posts
       WHERE author_rank <= 3
       ORDER BY created_at DESC
@@ -1744,7 +1744,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
             p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
             p.visibility, p.created_at, p.indexed_at, p.external_url,
             p.content_preview,
-            a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+            a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
             pub.icon_cid,
             (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
             ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
@@ -1772,7 +1772,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
         SELECT uri, author_did, rkey, title, subtitle, source,
                visibility, created_at, indexed_at, external_url,
                content_preview,
-               handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
+               handle, display_name, avatar_url, pds_endpoint, is_ai_agent, icon_cid, tags
         FROM ranked_posts
         WHERE author_rank <= 3
         ORDER BY created_at DESC
@@ -1849,7 +1849,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at, p.external_url,
         p.content_preview,
-        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
@@ -1973,7 +1973,7 @@ app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
             p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
             p.visibility, p.created_at, p.indexed_at, p.external_url,
             p.content_preview,
-            a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+            a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
             pub.icon_cid,
             (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
             ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
@@ -2001,7 +2001,7 @@ app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
         SELECT uri, author_did, rkey, title, subtitle, source,
                visibility, created_at, indexed_at, external_url,
                content_preview,
-               handle, display_name, avatar_url, pds_endpoint, icon_cid, tags
+               handle, display_name, avatar_url, pds_endpoint, is_ai_agent, icon_cid, tags
         FROM ranked_posts
         WHERE author_rank <= 5
         ORDER BY created_at DESC
@@ -2101,7 +2101,7 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
         p.content_preview, p.first_image_cid, p.external_url,
-        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid,
         (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
       FROM posts p
@@ -2197,7 +2197,7 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at, p.external_url,
-        a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
+        a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
@@ -2319,6 +2319,7 @@ app.get('/xrpc/app.greengale.actor.getProfile', async (c) => {
       avatar: resolveAvatar(authorRow as Record<string, unknown>),
       description: authorRow.description,
       postsCount: authorRow.posts_count || 0,
+      isAiAgent: !!authorRow.is_ai_agent,
       publication,
     }
 
@@ -2377,6 +2378,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           a.display_name,
           a.avatar_url,
           a.pds_endpoint,
+          a.is_ai_agent,
           p.icon_cid,
           p.name as pub_name,
           p.url as pub_url,
@@ -2418,6 +2420,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           a.display_name,
           a.avatar_url,
           a.pds_endpoint,
+          a.is_ai_agent,
           pub2.icon_cid,
           NULL as pub_name,
           NULL as pub_url,
@@ -2446,6 +2449,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           a.display_name,
           a.avatar_url,
           a.pds_endpoint,
+          a.is_ai_agent,
           pub3.icon_cid,
           NULL as pub_name,
           NULL as pub_url,
@@ -2482,6 +2486,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       display_name: string | null
       avatar_url: string | null
       pds_endpoint: string | null
+      is_ai_agent: number | null
       icon_cid: string | null
       pub_name: string | null
       pub_url: string | null
@@ -2508,6 +2513,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
       handle: row.handle,
       displayName: row.display_name || null,
       avatarUrl: resolveAvatar({ ...row, author_did: row.did }),
+      isAiAgent: !!row.is_ai_agent,
       publication: row.pub_name ? {
         name: row.pub_name,
         url: row.pub_url || null,
@@ -2836,6 +2842,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         a.display_name,
         a.avatar_url,
         a.pds_endpoint,
+        a.is_ai_agent,
         pub.icon_cid
       FROM posts p
       JOIN authors a ON p.author_did = a.did
@@ -2901,6 +2908,7 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         handle: row.handle as string,
         displayName: row.display_name as string | null,
         avatarUrl: resolveAvatar(row as Record<string, unknown>),
+        isAiAgent: !!(row.is_ai_agent as number | null),
         rkey: row.rkey as string,
         title: row.title as string,
         subtitle: row.subtitle as string | null,
@@ -3034,6 +3042,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
             a.display_name,
             a.avatar_url,
             a.pds_endpoint,
+            a.is_ai_agent,
             p.icon_cid,
             p.name as pub_name,
             p.url as pub_url,
@@ -3097,6 +3106,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
               handle: row.handle,
               displayName: row.display_name || null,
               avatarUrl: resolveAvatar({ ...row, author_did: row.did } as Record<string, unknown>),
+              isAiAgent: !!(row.is_ai_agent as number | null),
               publication: row.pub_name ? {
                 name: row.pub_name,
                 url: row.pub_url || null,
@@ -3316,6 +3326,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                 a.display_name,
                 a.avatar_url,
                 a.pds_endpoint,
+                a.is_ai_agent,
                 pub.icon_cid
               FROM posts p
               JOIN authors a ON p.author_did = a.did
@@ -3381,6 +3392,7 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                 handle: row.handle as string,
                 displayName: row.display_name as string | null,
                 avatarUrl: resolveAvatar(row as Record<string, unknown>),
+                isAiAgent: !!(row.is_ai_agent as number | null),
                 rkey: row.rkey as string,
                 title: row.title as string,
                 subtitle: row.subtitle as string | null,
@@ -3558,6 +3570,7 @@ app.get('/xrpc/app.greengale.feed.getSimilarPosts', async (c) => {
         a.display_name,
         a.avatar_url,
         a.pds_endpoint,
+        a.is_ai_agent,
         pub.icon_cid
       FROM posts p
       JOIN authors a ON p.author_did = a.did
@@ -3574,6 +3587,7 @@ app.get('/xrpc/app.greengale.feed.getSimilarPosts', async (c) => {
       handle: string
       displayName: string | null
       avatarUrl: string | null
+      isAiAgent: boolean
       rkey: string
       title: string
       subtitle: string | null
@@ -3587,6 +3601,7 @@ app.get('/xrpc/app.greengale.feed.getSimilarPosts', async (c) => {
         handle: row.handle as string,
         displayName: row.display_name as string | null,
         avatarUrl: resolveAvatar(row as Record<string, unknown>),
+        isAiAgent: !!(row.is_ai_agent as number | null),
         rkey: row.rkey as string,
         title: row.title as string,
         subtitle: row.subtitle as string | null,
@@ -7041,6 +7056,7 @@ function formatPost(row: Record<string, unknown>, tagsOverride?: string[]) {
       displayName: row.display_name,
       avatar: resolveAvatar(row),
       pdsEndpoint: row.pds_endpoint,
+      isAiAgent: !!row.is_ai_agent,
     } : undefined,
     tags: postTags?.length ? postTags : undefined,
   }

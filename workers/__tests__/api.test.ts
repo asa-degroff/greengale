@@ -1811,6 +1811,7 @@ describe('API Endpoints', () => {
         handle: 'test.bsky.social',
         displayName: 'Test User',
         avatarUrl: 'https://example.com/avatar.jpg',
+        isAiAgent: false,
         publication: {
           name: 'My Blog',
           url: 'https://myblog.com',
@@ -2005,6 +2006,7 @@ describe('API Endpoints', () => {
         handle: 'test.bsky.social',
         displayName: 'Test User',
         avatarUrl: 'https://example.com/avatar.jpg',
+        isAiAgent: false,
         publication: null,
         matchType: 'postTitle',
         post: {
@@ -2110,6 +2112,7 @@ describe('API Endpoints', () => {
         handle: 'test.bsky.social',
         displayName: 'Test User',
         avatarUrl: 'https://example.com/avatar.jpg',
+        isAiAgent: false,
         publication: null,
         matchType: 'tag',
         post: {

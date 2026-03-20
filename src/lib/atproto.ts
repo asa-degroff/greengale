@@ -275,6 +275,7 @@ export interface AuthorProfile {
   displayName?: string
   avatar?: string
   description?: string
+  isAiAgent?: boolean
 }
 
 export interface VoiceTheme {

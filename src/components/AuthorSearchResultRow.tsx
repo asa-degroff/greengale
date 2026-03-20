@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { SearchResult } from '@/lib/appview'
 import { getPlatformInfo, getExternalDomain } from '@/lib/platform-utils'
+import { BotIcon } from '@/components/BotIcon'
 
 // Static badge config - defined outside component to avoid recreation
 const MATCH_TYPE_BADGES = {
@@ -110,8 +111,9 @@ export function AuthorSearchResultRow({ result, isSelected, onMouseEnter }: Auth
           )}
         </div>
 
-        <div className="text-sm text-[var(--site-text-secondary)] truncate mt-1">
+        <div className="text-sm text-[var(--site-text-secondary)] truncate mt-1 flex items-center gap-1">
           @{result.handle}
+          {result.isAiAgent && <BotIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />}
           {result.publication && (
             <span className="ml-2">
               · {result.publication.name}

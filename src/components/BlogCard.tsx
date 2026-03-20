@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { extractText, extractFirstImage } from '@/lib/markdown'
 import type { BlogEntry, AuthorProfile } from '@/lib/atproto'
 import { extractCidFromBlobUrl, getBlobLabelsMap } from '@/lib/image-labels'
+import { BotIcon } from '@/components/BotIcon'
 
 interface BlogCardProps {
   entry: BlogEntry
@@ -250,6 +251,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                     />
                   )}
                   <span className="truncate">@{authorHandle}</span>
+                  {author?.isAiAgent && <BotIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />}
                 </div>
                 {formattedDate && <time dateTime={entry.createdAt} className="flex-shrink-0">{formattedDate}</time>}
               </div>
@@ -278,6 +280,7 @@ export const BlogCard = memo(function BlogCard({ entry, author, externalUrl, tag
                   />
                 )}
                 <span className="truncate">@{authorHandle}</span>
+                {author?.isAiAgent && <BotIcon className="w-3.5 h-3.5 flex-shrink-0 opacity-70" />}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 {/* Visibility indicator for non-public posts */}

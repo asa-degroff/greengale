@@ -28,6 +28,7 @@ export interface AppViewPost {
     displayName: string | null
     avatar: string | null
     pdsEndpoint?: string | null
+    isAiAgent?: boolean
   }
   tags?: string[]
 }
@@ -46,6 +47,7 @@ export interface AppViewAuthor {
   avatar: string | null
   description: string | null
   postsCount: number
+  isAiAgent?: boolean
   publication?: AppViewPublication
 }
 
@@ -245,6 +247,7 @@ export interface SearchResult {
   handle: string
   displayName: string | null
   avatarUrl: string | null
+  isAiAgent?: boolean
   publication: {
     name: string
     url: string | null
@@ -328,6 +331,7 @@ export interface PostSearchResult {
   handle: string
   displayName: string | null
   avatarUrl: string | null
+  isAiAgent?: boolean
   rkey: string
   title: string
   subtitle: string | null
@@ -428,6 +432,7 @@ export interface UnifiedPostResult {
   handle: string
   displayName: string | null
   avatarUrl: string | null
+  isAiAgent?: boolean
   rkey: string
   title: string
   subtitle: string | null
@@ -446,6 +451,7 @@ export interface UnifiedAuthorResult {
   handle: string
   displayName: string | null
   avatarUrl: string | null
+  isAiAgent?: boolean
   publication: {
     name: string
     url: string | null

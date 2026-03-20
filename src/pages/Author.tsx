@@ -29,6 +29,7 @@ import {
   buildAuthorRSSFeed,
 } from '@/lib/useDocumentMeta'
 import { linkifyText } from '@/lib/bluesky'
+import { BotIcon } from '@/components/BotIcon'
 
 export function AuthorPage() {
   const { handle } = useParams<{ handle: string }>()
@@ -339,8 +340,9 @@ export function AuthorPage() {
                     <h1 className="text-2xl font-bold text-[var(--site-text)]">
                       {publication?.name || author.displayName || author.handle}
                     </h1>
-                    <p className="text-[var(--site-text-secondary)]">
+                    <p className="text-[var(--site-text-secondary)] flex items-center gap-1">
                       @{author.handle}
+                      {author.isAiAgent && <BotIcon className="w-4 h-4 opacity-70" />}
                     </p>
                   </div>
                   {isOwnProfile ? (

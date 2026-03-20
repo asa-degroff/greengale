@@ -86,6 +86,7 @@ function toAuthorProfile(post: AppViewPost): AuthorProfile | undefined {
     handle: post.author.handle,
     displayName: post.author.displayName || undefined,
     avatar: post.author.avatar || undefined,
+    isAiAgent: post.author.isAiAgent,
   }
 }
 
@@ -109,6 +110,7 @@ function toSearchResult(author: UnifiedAuthorResult) {
     handle: author.handle,
     displayName: author.displayName,
     avatarUrl: author.avatarUrl,
+    isAiAgent: author.isAiAgent,
     publication: author.publication,
     matchType,
     postsCount: author.postsCount,

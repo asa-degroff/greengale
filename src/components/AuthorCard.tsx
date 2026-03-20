@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { AuthorProfile } from '@/lib/atproto'
+import { BotIcon } from '@/components/BotIcon'
 
 interface AuthorCardProps {
   author: AuthorProfile
@@ -24,8 +25,11 @@ export function AuthorCard({ author, showLink = true }: AuthorCardProps) {
         <div className="font-medium text-[var(--theme-text)]">
           {author.displayName || author.handle}
         </div>
-        <div className="text-sm text-[var(--theme-text-secondary)]">
+        <div className="text-sm text-[var(--theme-text-secondary)] flex items-center gap-1">
           @{author.handle}
+          {author.isAiAgent && (
+            <BotIcon className="w-3.5 h-3.5 opacity-70" />
+          )}
         </div>
       </div>
     </div>
