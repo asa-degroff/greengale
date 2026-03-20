@@ -328,23 +328,20 @@ export function deriveSkyGradient(
   const isDark = (bgOklch.l ?? 0) < 0.5
   const accentHue = accentOklch.h ?? 240
 
-  // Very subtle chroma — just enough to tint
-  const tintChroma = isDark ? 0.015 : 0.012
-
-  // Top: cool tint (accent hue shifted toward blue/cool)
+  // Top: cooler and slightly darker — shifted toward blue
   const topTint: Oklch = {
     mode: 'oklch',
-    l: Math.max(0, Math.min(1, (bgOklch.l ?? 0) + (isDark ? 0.03 : -0.02))),
-    c: tintChroma,
-    h: (accentHue + 30) % 360, // shift toward cooler
+    l: Math.max(0, Math.min(1, (bgOklch.l ?? 0) + (isDark ? 0.02 : -0.06))),
+    c: isDark ? 0.025 : 0.02,
+    h: (accentHue + 30) % 360, // shift toward cool/blue
   }
 
-  // Bottom: warm tint (accent hue shifted toward warm/horizon)
+  // Bottom: warmer and closer to background lightness — shifted toward orange/peach
   const bottomTint: Oklch = {
     mode: 'oklch',
-    l: Math.max(0, Math.min(1, (bgOklch.l ?? 0) + (isDark ? 0.01 : -0.01))),
-    c: tintChroma * 0.8,
-    h: (accentHue - 40 + 360) % 360, // shift toward warmer
+    l: Math.max(0, Math.min(1, (bgOklch.l ?? 0) + (isDark ? 0.04 : -0.01))),
+    c: isDark ? 0.02 : 0.018,
+    h: (accentHue - 30 + 360) % 360, // shift toward warm/horizon
   }
 
   return {
