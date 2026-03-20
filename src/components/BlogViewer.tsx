@@ -46,7 +46,7 @@ export function BlogViewer({
   tags,
   publicationVoiceTheme,
 }: BlogViewerProps) {
-  const { forceDefaultTheme } = useThemePreference()
+  const { forceDefaultTheme, backgroundTexture } = useThemePreference()
   const [showRaw, setShowRaw] = useState(false)
   const [linkCopied, setLinkCopied] = useState(false)
 
@@ -173,7 +173,7 @@ export function BlogViewer({
       style={customStyles}
       className="text-[var(--theme-text)]"
     >
-      <div className={`max-w-3xl px-4 py-8 mx-auto ${headings.length > 0 ? 'min-[1350px]:max-[1609px]:mx-0 min-[1350px]:max-[1609px]:ml-[max(1rem,calc((100vw-1344px)/2))] min-[1350px]:max-[1609px]:mr-[320px]' : ''} ${isTTSActive ? 'pb-24' : ''}`}>
+      <div className={`max-w-3xl px-4 py-8 mx-auto ${headings.length > 0 ? 'min-[1350px]:max-[1609px]:mx-0 min-[1350px]:max-[1609px]:ml-[max(1rem,calc((100vw-1344px)/2))] min-[1350px]:max-[1609px]:mr-[320px]' : ''} ${isTTSActive ? 'pb-24' : ''} ${backgroundTexture !== 'grid' ? 'content-backdrop' : ''}`}>
         {/* Header */}
         <header className="mb-8">
           {title && (

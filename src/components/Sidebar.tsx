@@ -993,13 +993,13 @@ export function Sidebar({ children }: SidebarProps) {
     <div className="min-h-screen">
       {/* Background effects */}
       {animatedGridEnabled && webGPUSupported && backgroundTexture === 'grid' ? (
-        <AnimatedGridBackground gridColor={themeColors.grid} bgColor={themeColors.bg} />
+        <AnimatedGridBackground key="animated-grid" gridColor={themeColors.grid} bgColor={themeColors.bg} />
       ) : backgroundTexture === 'clouds' ? (
-        <div className="bg-texture-clouds" aria-hidden="true">
+        <div key="clouds" className="bg-texture-clouds" aria-hidden="true">
           <CloudField className="text-[var(--cloud-color,var(--site-text-secondary))]" />
         </div>
       ) : (
-        <div className="bg-texture" data-texture={backgroundTexture} aria-hidden="true" />
+        <div key={`texture-${backgroundTexture}`} className="bg-texture" data-texture={backgroundTexture} aria-hidden="true" />
       )}
       <div className="vignette-overlay" aria-hidden="true" />
 

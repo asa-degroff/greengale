@@ -375,7 +375,7 @@ export function HomePage() {
         </div>
 
         <div className={`relative bg-[var(--site-bg-secondary)] rounded-lg p-4 md:p-8 border border-[var(--site-border)] overflow-hidden min-h-[130px] md:min-h-[150px] ${search.searchActive ? 'mb-4' : 'mb-8'}`}>
-          <CloudField className="text-[var(--site-text-secondary)]" />
+          <CloudField className="text-[var(--cloud-color,var(--site-text-secondary))]" />
 
           <h2 className="relative text-xl font-bold mb-4 text-[var(--site-text)]">
             Find a Blog

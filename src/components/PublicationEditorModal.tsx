@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { VoiceSettingsPreview } from '@/components/VoiceSettingsPreview'
 import type { Publication } from '@/lib/atproto'
 import { savePublication } from '@/lib/atproto'
@@ -32,6 +32,8 @@ interface PublicationEditorModalProps {
   onSave: (publication: Publication) => void
   setActivePostTheme: (theme: ThemePreset | null) => void
   setActiveCustomColors: (colors: CustomColors | null) => void
+  setBackgroundTexture: (texture: BackgroundTexture) => void
+  currentBackgroundTexture: BackgroundTexture
 }
 
 const DEFAULT_CUSTOM_COLORS: CustomColors = {
@@ -49,6 +51,8 @@ export function PublicationEditorModal({
   onSave,
   setActivePostTheme,
   setActiveCustomColors,
+  setBackgroundTexture,
+  currentBackgroundTexture,
 }: PublicationEditorModalProps) {
   // Form state
   const [pubName, setPubName] = useState(publication?.name || '')
@@ -88,6 +92,15 @@ export function PublicationEditorModal({
 
   // Bio toggle
   const [showBlueskyBio, setShowBlueskyBio] = useState(!publication?.hideBlueskyBio)
+
+  // Track initial texture for revert on cancel
+  const initialTextureRef = useRef(currentBackgroundTexture)
+
+  // Cancel handler: revert texture to initial value
+  const handleCancel = () => {
+    setBackgroundTexture(initialTextureRef.current)
+    onClose()
+  }
 
   // UI state
   const [saving, setSaving] = useState(false)
@@ -366,16 +379,16 @@ export function PublicationEditorModal({
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
-        onClick={() => !saving && onClose()}
+        onClick={() => !saving && handleCancel()}
       />
       {/* Dialog */}
-      <div className="publication-modal relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-lg w-full mx-4 p-6 max-h-[calc(90vh-3.5rem)] lg:max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-6">
+      <div className="publication-modal relative bg-[var(--site-bg)] border border-[var(--site-border)] rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[calc(90vh-3.5rem)] lg:max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 pb-0 shrink-0">
           <h2 className="text-xl font-bold text-[var(--site-text)]">
             {publication ? 'Edit Publication' : 'Set Up Publication'}
           </h2>
           <button
-            onClick={() => !saving && onClose()}
+            onClick={() => !saving && handleCancel()}
             className="text-[var(--site-text-secondary)] hover:text-[var(--site-text)]"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -384,7 +397,7 @@ export function PublicationEditorModal({
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="overflow-y-auto px-6 pt-6 pb-2 space-y-4">
           {/* Publication Icon */}
           <div className="flex items-center gap-4">
             {iconPreview ? (
@@ -513,7 +526,7 @@ export function PublicationEditorModal({
                 <button
                   key={texture}
                   type="button"
-                  onClick={() => setPubBackgroundTexture(texture)}
+                  onClick={() => { setPubBackgroundTexture(texture); setBackgroundTexture(texture) }}
                   className={`px-3 py-2 text-sm rounded-md border transition-colors ${
                     pubBackgroundTexture === texture
                       ? 'border-[var(--site-accent)] bg-[var(--site-accent)]/10 text-[var(--site-accent)]'
@@ -959,17 +972,20 @@ export function PublicationEditorModal({
             </div>
           </div>
 
+        </div>
+
+        {/* Fixed footer with error + action buttons */}
+        <div className="shrink-0 px-6 py-4 border-t border-[var(--site-border)]">
           {/* Error message */}
           {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-500">
+            <div className="p-3 mb-3 bg-red-500/10 border border-red-500/30 rounded-md text-sm text-red-500">
               {error}
             </div>
           )}
 
-          {/* Action buttons */}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="flex justify-end gap-3">
             <button
-              onClick={onClose}
+              onClick={() => handleCancel()}
               disabled={saving}
               className="px-4 py-2 text-sm border border-[var(--site-border)] rounded-md hover:bg-[var(--site-bg-secondary)] text-[var(--site-text)] disabled:opacity-50"
             >

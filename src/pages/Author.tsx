@@ -50,7 +50,7 @@ export function AuthorPage() {
   const [publication, setPublication] = useState<Publication | null>(null)
   const [showPublicationModal, setShowPublicationModal] = useState(false)
   const [blentoUrl, setBlentoUrl] = useState<string | null>(null)
-  const { setActivePostTheme, setActiveCustomColors, setBackgroundTexture } = useThemePreference()
+  const { setActivePostTheme, setActiveCustomColors, setBackgroundTexture, backgroundTexture } = useThemePreference()
 
   // Subscriptions
   const subscriptionsState = useSubscriptions(session ? { did: session.did, fetchHandler: (url: string, options: RequestInit) => session.fetchHandler(url, options) } : undefined)
@@ -500,6 +500,8 @@ export function AuthorPage() {
             onSave={setPublication}
             setActivePostTheme={setActivePostTheme}
             setActiveCustomColors={setActiveCustomColors}
+            setBackgroundTexture={setBackgroundTexture}
+            currentBackgroundTexture={backgroundTexture}
           />
         </Suspense>
       )}
