@@ -516,8 +516,10 @@ app.get('/og/:handle/:filename', async (c) => {
     }
 
     // Generate OG image
-    // Post's own texture takes priority, then publication's, then default grid
-    const backgroundTexture = postBackgroundTexture || (post.background_texture as string) || 'grid'
+    // Post's own texture takes priority; fall back to publication's only if post has no theme at all
+    const postThemeData = post.theme_preset as string | null
+    const backgroundTexture = postBackgroundTexture
+      || (!postThemeData ? (post.background_texture as string) || 'grid' : 'grid')
     const imageResponse = await generateOGImage({
       title: (post.title as string) || 'Untitled',
       subtitle: post.subtitle as string | null,
@@ -6561,6 +6563,7 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
   }
 
   const dryRun = c.req.query('dryRun') === 'true'
+  const force = c.req.query('force') === 'true' // Re-index even if already in DB
   const collectionFilter = c.req.query('collection') // Optional: filter to specific collection
   // Limit how many posts to index per invocation (to avoid Cloudflare subrequest limits)
   const limitParam = c.req.query('limit')
@@ -6715,7 +6718,7 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
           const uri = record.uri
           const title = (record.value.title as string) || null
 
-          if (existingUris.has(uri)) {
+          if (existingUris.has(uri) && !force) {
             collectionResult.alreadyIndexed++
             collectionResult.posts.push({ uri, title, status: 'already_indexed' })
             continue
