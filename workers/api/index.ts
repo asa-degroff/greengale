@@ -4076,6 +4076,173 @@ app.post('/xrpc/app.greengale.admin.refreshAiAgentLabels', async (c) => {
   }
 })
 
+// Clean up orphaned posts that no longer exist on the author's PDS (admin only)
+// Scans posts in D1, checks each against the PDS, and removes any that are gone.
+// Usage: POST /xrpc/app.greengale.admin.cleanupOrphanedPosts
+// Query params: ?author=handle (optional, scope to one author), ?dryRun=true (preview only), ?limit=50
+app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const dryRun = c.req.query('dryRun') === 'true'
+  const authorFilter = c.req.query('author')
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 200)
+
+  try {
+    // Build query - optionally filter by author
+    let query = `
+      SELECT p.uri, p.author_did, p.rkey, p.title, p.source,
+             a.handle, a.pds_endpoint
+      FROM posts p
+      LEFT JOIN authors a ON p.author_did = a.did
+    `
+    const params: string[] = []
+    if (authorFilter) {
+      query += ' WHERE a.handle = ?'
+      params.push(authorFilter)
+    }
+    query += ' ORDER BY p.created_at DESC LIMIT ?'
+    params.push(String(limit))
+
+    const result = await c.env.DB.prepare(query).bind(...params).all()
+    const posts = result.results || []
+
+    const orphaned: Array<{ uri: string; title: string | null; handle: string | null }> = []
+    const alive: string[] = []
+    const errors: Array<{ uri: string; error: string }> = []
+
+    // Group posts by author to batch PDS lookups
+    const byAuthor = new Map<string, typeof posts>()
+    for (const post of posts) {
+      const did = post.author_did as string
+      if (!byAuthor.has(did)) byAuthor.set(did, [])
+      byAuthor.get(did)!.push(post)
+    }
+
+    for (const [did, authorPosts] of byAuthor) {
+      // Resolve PDS endpoint
+      let pdsEndpoint = authorPosts[0].pds_endpoint as string | null
+      if (!pdsEndpoint) {
+        pdsEndpoint = await fetchPdsEndpoint(did)
+      }
+      if (!pdsEndpoint) {
+        for (const post of authorPosts) {
+          errors.push({ uri: post.uri as string, error: 'Could not resolve PDS endpoint' })
+        }
+        continue
+      }
+
+      // Check each post against the PDS
+      for (const post of authorPosts) {
+        const uri = post.uri as string
+        // Parse collection from URI: at://did/collection/rkey
+        const uriParts = uri.replace('at://', '').split('/')
+        const collection = uriParts.slice(1, -1).join('/')
+        const rkey = uriParts[uriParts.length - 1]
+
+        try {
+          const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
+          const response = await fetch(recordUrl)
+
+          if (!response.ok) {
+            // Post doesn't exist on PDS anymore
+            orphaned.push({
+              uri,
+              title: post.title as string | null,
+              handle: post.handle as string | null,
+            })
+          } else {
+            alive.push(uri)
+          }
+        } catch (err) {
+          errors.push({ uri, error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+    }
+
+    // Delete orphaned posts if not a dry run
+    let deleted = 0
+    if (!dryRun && orphaned.length > 0) {
+      for (const post of orphaned) {
+        const uri = post.uri
+
+        // Get tags before deletion for cache invalidation
+        const tagsResult = await c.env.DB.prepare(
+          'SELECT tag FROM post_tags WHERE post_uri = ?'
+        ).bind(uri).all()
+        const postTags = (tagsResult.results || []).map(r => r.tag as string)
+
+        // Parse author DID from URI
+        const authorDid = uri.replace('at://', '').split('/')[0]
+
+        // Delete from DB and update author count
+        await c.env.DB.batch([
+          c.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri),
+          c.env.DB.prepare(`
+            UPDATE authors SET posts_count = (
+              SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
+            ), updated_at = datetime('now')
+            WHERE did = ?
+          `).bind(authorDid, authorDid),
+        ])
+
+        // Delete embeddings
+        deletePostEmbeddings(c.env.VECTORIZE, uri).catch(err =>
+          console.error(`Failed to delete embeddings for ${uri}:`, err)
+        )
+
+        // Invalidate tag caches
+        for (const tag of postTags) {
+          await c.env.CACHE.delete(`tag_posts:${tag}:50:`)
+        }
+
+        // Invalidate OG cache
+        if (post.handle) {
+          const rkey = uri.split('/').pop()!
+          await c.env.CACHE.delete(`og:${post.handle}:${rkey}`)
+        }
+
+        deleted++
+      }
+
+      // Invalidate feed caches once after all deletions
+      await Promise.all([
+        c.env.CACHE.delete('recent_posts:12:'),
+        c.env.CACHE.delete('recent_posts:24:'),
+        c.env.CACHE.delete('recent_posts:50:'),
+        c.env.CACHE.delete('recent_posts:100:'),
+        c.env.CACHE.delete('network_posts:v3:24:'),
+        c.env.CACHE.delete('network_posts:v3:50:'),
+        c.env.CACHE.delete('network_posts:v3:100:'),
+        c.env.CACHE.delete('popular_tags:20'),
+        c.env.CACHE.delete('popular_tags:50'),
+        c.env.CACHE.delete('popular_tags:100'),
+        c.env.CACHE.delete('rss:recent'),
+      ])
+
+      // Invalidate per-author RSS caches
+      const handles = new Set(orphaned.map(p => p.handle).filter(Boolean) as string[])
+      await Promise.all([...handles].map(h => c.env.CACHE.delete(`rss:author:${h}`)))
+    }
+
+    return c.json({
+      success: true,
+      scanned: posts.length,
+      alive: alive.length,
+      orphaned: orphaned.length,
+      deleted,
+      dryRun,
+      orphanedPosts: orphaned,
+      errors: errors.length > 0 ? errors : undefined,
+    })
+  } catch (error) {
+    console.error('Error cleaning up orphaned posts:', error)
+    return c.json({ error: 'Failed to clean up orphaned posts' }, 500)
+  }
+})
+
 // Invalidate OG image cache (admin only)
 // Usage: POST /xrpc/app.greengale.admin.invalidateOGCache
 // Body: { "handle": "user.bsky.social", "rkey": "abc123" } for post OG
