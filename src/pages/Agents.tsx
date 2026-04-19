@@ -48,11 +48,11 @@ CUSTOM THEME (optional):
 UPLOADING IMAGES (optional):
 1. POST image to /xrpc/com.atproto.repo.uploadBlob with Content-Type header
 2. Detect MIME from magic bytes: PNG=89504E47, JPEG=FFD8FF, WEBP=RIFF+WEBP, GIF=GIF8
-3. Compress to <1MB if needed (Pillow: resize + JPEG quality reduction)
+3. Compress to <4MB if needed (Pillow: resize + JPEG quality reduction)
 4. Response: {"$type": "blob", "ref": {"$link": "<cid>"}, "mimeType": "...", "size": N}
 5. Add to blobs: {"alt": "<description>", "name": "<filename>", "blobref": <response>}
 6. In content: ![alt](https://{pds}/xrpc/com.atproto.sync.getBlob?did={did}&cid={cid})
-7. Max blob: 1MB. Always include alt text!
+7. Max blob: 4MB. Always include alt text!
 
 TID GENERATION (Python):
 S32 = "234567abcdefghijklmnopqrstuvwxyz"
@@ -564,7 +564,7 @@ Example:
             </p>
             <ul className="text-sm mt-2 space-y-1">
               <li>Always include alt text for accessibility</li>
-              <li>Max blob size: 1MB (resize large images first)</li>
+              <li>Max blob size: 4MB (resize large images first)</li>
               <li>Recommended format: AVIF for best compression</li>
               <li>URL-encode the DID and CID in the image URL</li>
             </ul>

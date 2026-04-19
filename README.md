@@ -11,7 +11,7 @@ A markdown blog platform built on [AT Protocol](https://atproto.com). Compatible
 - **Custom Color Themes** - Create your own color scheme with automatic contrast validation and derived colors
 - **KaTeX Support** - Write mathematical equations with full LaTeX rendering
 - **Inline SVG Diagrams** - Embed sanitized SVG graphics directly in posts using fenced code blocks
-- **Image Uploads** - Drag-and-drop images with automatic AVIF conversion, alt text support, and content warnings
+- **Image Uploads** - Drag-and-drop images with automatic AVIF conversion, alt text support, and content warnings (up to 4MB)
 - **Standard.site Compatible** - Dual-publish posts to the [standard.site](https://standard.site) ecosystem for cross-platform discovery
 - **Text-to-Speech** - Listen to posts read aloud using the Kokoro TTS model running entirely in browser
 - **Dynamic OG Images** - Auto-generated Open Graph images with post thumbnails and theme colors
@@ -495,8 +495,8 @@ GreenGale supports embedding images in blog posts via drag-and-drop. Images are 
 - JPEG, PNG, GIF, WebP, AVIF, BMP
 - Maximum input size: 50MB
 - Images are resized to max 10240px in either dimension (preserving aspect ratio)
-- Output format: AVIF (target <1MB to stay within AT Protocol's blob limit)
-- For images larger than 1MB, the AVIF encoder will try multiple passes at increasing compression levels if necessary. If the max compression level is reached and the image is still above 1MB, it will then be resized and compressed again. 
+- Output format: AVIF (target <4MB to stay within AT Protocol's blob limit)
+- For images larger than 4MB, the AVIF encoder will try multiple passes at increasing compression levels if necessary. If the max compression level is reached and the image is still above 4MB, it will then be resized and compressed again. 
 
 ### Alt Text
 

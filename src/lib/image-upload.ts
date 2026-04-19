@@ -11,8 +11,7 @@ import type {
 } from './avif-encoder.worker'
 import AvifEncoderWorker from './avif-encoder.worker?worker'
 
-// AT Protocol blob limit is 1,000,000 bytes
-const MAX_BLOB_SIZE = 1000 * 1000
+const MAX_BLOB_SIZE = 4000 * 1000
 const MAX_PIXELS = 25_000_000 // Maximum total pixels (~50 megapixels)
 const MAX_DIMENSION = 10240 // Maximum single dimension (failsafe for very thin images)
 const MIN_DIMENSION = 256 // Minimum dimension before giving up on encoding
