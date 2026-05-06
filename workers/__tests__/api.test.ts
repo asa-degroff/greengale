@@ -23,6 +23,7 @@ vi.mock('../lib/og-image', () => ({
 // Import mocked module to access mock functions for assertions
 import { generateOGImage } from '../lib/og-image'
 const mockGenerateOGImage = generateOGImage as ReturnType<typeof vi.fn>
+const timeoutFetchOptions = () => expect.objectContaining({ signal: expect.any(AbortSignal) })
 
 // Import the REAL app after mocking dependencies
 import api from '../api/index'
@@ -301,7 +302,10 @@ describe('API Endpoints', () => {
       expect(res.status).toBe(200)
 
       // Verify the DID document was fetched from the correct did:web URL
-      expect(mockFetch).toHaveBeenCalledWith('https://example.com/.well-known/did.json')
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://example.com/.well-known/did.json',
+        timeoutFetchOptions()
+      )
     })
 
     it('resolves did:web with path segments correctly', async () => {
@@ -328,7 +332,10 @@ describe('API Endpoints', () => {
       expect(res.status).toBe(200)
 
       // Verify the correct path-based did:web URL
-      expect(mockFetch).toHaveBeenCalledWith('https://example.com/user/alice/did.json')
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://example.com/user/alice/did.json',
+        timeoutFetchOptions()
+      )
     })
 
     it('returns 404 when did:web resolution fails', async () => {
@@ -1014,7 +1021,8 @@ describe('API Endpoints', () => {
 
       // Verify Bluesky API was called with the handle
       expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('app.bsky.actor.getProfile?actor=discovered.bsky.social')
+        expect.stringContaining('app.bsky.actor.getProfile?actor=discovered.bsky.social'),
+        timeoutFetchOptions()
       )
 
       vi.unstubAllGlobals()

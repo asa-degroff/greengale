@@ -66,6 +66,7 @@ const FEED_CACHE_MAX_AGE = 60 // 1 minute fresh
 const FEED_CACHE_SWR = 300 // 5 minutes stale-while-revalidate
 const PROFILE_CACHE_MAX_AGE = 120 // 2 minutes fresh
 const PROFILE_CACHE_SWR = 600 // 10 minutes stale-while-revalidate
+const EXTERNAL_FETCH_TIMEOUT_MS = 5000
 
 /**
  * Create a JSON response with cache headers
@@ -74,6 +75,32 @@ function jsonWithCache<T>(c: { json: (data: T, status?: number) => Response }, d
   const response = c.json(data)
   response.headers.set('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=${swr}`)
   return response
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = EXTERNAL_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  const upstreamSignal = init.signal
+  const abortFromUpstream = () => controller.abort()
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) {
+      controller.abort()
+    } else {
+      upstreamSignal.addEventListener('abort', abortFromUpstream, { once: true })
+    }
+  }
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream)
+  }
 }
 
 /**
@@ -113,7 +140,7 @@ async function getSiteStandardPublicationRkey(did: string): Promise<string | nul
 
     // List site.standard.publication records
     const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=50`
-    const listRes = await fetch(listUrl)
+    const listRes = await fetchWithTimeout(listUrl)
     if (!listRes.ok) return null
 
     const listData = await listRes.json() as { records?: Array<{ uri: string; value: Record<string, unknown> }> }
@@ -362,7 +389,7 @@ app.get('/og/profile/:handle.png', async (c) => {
       themePreset,
       customColors,
       publicationName: (author.publication_name as string) || null,
-      backgroundTexture: ((author.background_texture as string) || 'grid') as 'grid' | 'floral' | 'clouds',
+      backgroundTexture: (author.background_texture as string as 'grid' | 'floral' | 'clouds') || 'grid',
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -458,23 +485,11 @@ app.get('/og/:handle/:filename', async (c) => {
     const publicationThemeData = post.publication_theme_preset as string | null
     const effectiveThemeData = themeData || publicationThemeData
 
-    // Track post-level backgroundTexture extracted from theme_preset JSON
-    let postBackgroundTexture: string | undefined
     if (effectiveThemeData) {
       if (effectiveThemeData.startsWith('{')) {
-        // JSON — could be custom colors, preset+texture combo, or texture-only
+        // JSON custom colors
         try {
-          const parsed = JSON.parse(effectiveThemeData)
-          if (parsed.backgroundTexture) {
-            postBackgroundTexture = parsed.backgroundTexture
-          }
-          if (parsed.preset) {
-            // Composite: { preset, backgroundTexture }
-            themePreset = parsed.preset
-          } else if (parsed.background || parsed.text || parsed.accent) {
-            // Custom colors (may also have backgroundTexture mixed in)
-            customColors = parsed
-          }
+          customColors = JSON.parse(effectiveThemeData)
         } catch {
           // Invalid JSON, ignore
         }
@@ -516,10 +531,6 @@ app.get('/og/:handle/:filename', async (c) => {
     }
 
     // Generate OG image
-    // Post's own texture takes priority; fall back to publication's only if post has no theme at all
-    const postThemeData = post.theme_preset as string | null
-    const backgroundTexture = postBackgroundTexture
-      || (!postThemeData ? (post.background_texture as string) || 'grid' : 'grid')
     const imageResponse = await generateOGImage({
       title: (post.title as string) || 'Untitled',
       subtitle: post.subtitle as string | null,
@@ -530,7 +541,7 @@ app.get('/og/:handle/:filename', async (c) => {
       customColors,
       thumbnailUrl,
       tags: tags.length > 0 ? tags : null,
-      backgroundTexture: backgroundTexture as 'grid' | 'floral' | 'clouds',
+      backgroundTexture: (post.background_texture as string as 'grid' | 'floral' | 'clouds') || 'grid',
     })
 
     const imageBuffer = await imageResponse.arrayBuffer()
@@ -549,7 +560,7 @@ app.get('/og/:handle/:filename', async (c) => {
     })
   } catch (error) {
     console.error('Error generating OG image:', error)
-    return c.json({ error: 'Failed to generate image', details: String(error) }, 500)
+    return c.json({ error: 'Failed to generate image' }, 500)
   }
 })
 
@@ -4867,7 +4878,7 @@ async function resolveDidDocument(did: string): Promise<{ service?: Array<{ id: 
     } else {
       url = `https://plc.directory/${did}`
     }
-    const response = await fetch(url)
+    const response = await fetchWithTimeout(url)
     if (response.ok) {
       return await response.json() as { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
     }
@@ -4909,7 +4920,7 @@ async function resolveExternalUrl(siteUri: string, documentPath: string): Promis
 
     // Fetch the publication record
     const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
-    const response = await fetch(recordUrl)
+    const response = await fetchWithTimeout(recordUrl)
     if (!response.ok) return null
 
     const record = await response.json() as { value?: { url?: string } }
@@ -4968,7 +4979,7 @@ async function indexPostsFromPds(
   const publicationUrlMap = new Map<string, string>()
   try {
     const pubListUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=100`
-    const pubResponse = await fetch(pubListUrl)
+    const pubResponse = await fetchWithTimeout(pubListUrl)
     if (pubResponse.ok) {
       const pubData = await pubResponse.json() as {
         records?: Array<{ uri: string; value: { url?: string } }>
@@ -4991,7 +5002,7 @@ async function indexPostsFromPds(
   for (const col of collections) {
     try {
       const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(col.name)}&limit=100`
-      const response = await fetch(listUrl)
+      const response = await fetchWithTimeout(listUrl)
       if (!response.ok) continue
 
       const data = await response.json() as {
@@ -5169,7 +5180,7 @@ async function discoverAndIndexAuthor(
 
   try {
     // Resolve handle via Bluesky public API
-    const profileResponse = await fetch(
+    const profileResponse = await fetchWithTimeout(
       `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(handle)}`
     )
     if (!profileResponse.ok) {
@@ -6563,7 +6574,6 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
   }
 
   const dryRun = c.req.query('dryRun') === 'true'
-  const force = c.req.query('force') === 'true' // Re-index even if already in DB
   const collectionFilter = c.req.query('collection') // Optional: filter to specific collection
   // Limit how many posts to index per invocation (to avoid Cloudflare subrequest limits)
   const limitParam = c.req.query('limit')
@@ -6718,7 +6728,7 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
           const uri = record.uri
           const title = (record.value.title as string) || null
 
-          if (existingUris.has(uri) && !force) {
+          if (existingUris.has(uri)) {
             collectionResult.alreadyIndexed++
             collectionResult.posts.push({ uri, title, status: 'already_indexed' })
             continue

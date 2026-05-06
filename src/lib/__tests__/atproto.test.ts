@@ -5,6 +5,7 @@ import type { Theme } from '../themes'
 
 // Mock fetch globally for resolveExternalUrl tests
 const mockFetch = vi.fn()
+const timeoutFetchOptions = () => expect.objectContaining({ signal: expect.any(AbortSignal) })
 
 // Helper to create a mock Response
 function mockResponse(data: unknown, options: { ok?: boolean } = {}) {
@@ -659,7 +660,10 @@ Third.`
         '/posts/test'
       )
       expect(result).toBeNull()
-      expect(mockFetch).toHaveBeenCalledWith('https://plc.directory/did:plc:abc123')
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://plc.directory/did:plc:abc123',
+        timeoutFetchOptions()
+      )
     })
 
     it('returns null when DID document has no PDS service', async () => {
@@ -800,7 +804,10 @@ Third.`
         '/article/hello'
       )
       expect(result).toBe('https://myblog.com/article/hello')
-      expect(mockFetch).toHaveBeenCalledWith('https://plc.directory/did:web:example.com')
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://plc.directory/did:web:example.com',
+        timeoutFetchOptions()
+      )
     })
 
     it('finds PDS service by type when id differs', async () => {
@@ -856,7 +863,8 @@ Third.`
       // Verify the record fetch URL
       expect(mockFetch).toHaveBeenNthCalledWith(
         2,
-        'https://pds.example.com/xrpc/com.atproto.repo.getRecord?repo=did%3Aplc%3Aabc123&collection=site.standard.publication&rkey=my-pub'
+        'https://pds.example.com/xrpc/com.atproto.repo.getRecord?repo=did%3Aplc%3Aabc123&collection=site.standard.publication&rkey=my-pub',
+        timeoutFetchOptions()
       )
     })
   })
@@ -1576,7 +1584,10 @@ Third.`
 
       const result = await getPdsEndpoint('did:plc:abc123')
       expect(result).toBe('https://pds.example.com')
-      expect(mockFetch).toHaveBeenCalledWith('https://plc.directory/did:plc:abc123')
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://plc.directory/did:plc:abc123',
+        timeoutFetchOptions()
+      )
     })
 
     it('resolves did:web via .well-known/did.json', async () => {
@@ -1588,7 +1599,10 @@ Third.`
 
       const result = await getPdsEndpoint('did:web:example.com')
       expect(result).toBe('https://pds.web.com')
-      expect(mockFetch).toHaveBeenCalledWith('https://example.com/.well-known/did.json')
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://example.com/.well-known/did.json',
+        timeoutFetchOptions()
+      )
     })
 
     it('throws for unsupported DID method', async () => {

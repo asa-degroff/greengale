@@ -182,6 +182,20 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: 
     return true
   }
 
+  const looksLikeBrowser = BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))
+  const acceptsHtml = headers?.get('accept')?.includes('text/html') ?? false
+  const isDocumentNavigation =
+    headers?.get('sec-fetch-mode') === 'navigate' ||
+    headers?.get('sec-fetch-dest') === 'document' ||
+    acceptsHtml
+
+  // Real browsers, especially first-visit/incognito Chrome, can arrive without
+  // cookies and before Cloudflare JS detection has passed. Keep those requests
+  // on the SPA path so humans do not wait on PDS-backed prerendering.
+  if (looksLikeBrowser && isDocumentNavigation) {
+    return false
+  }
+
   // If user has cookies, they're likely a real user with a session
   // Bots typically don't carry cookies across requests
   const hasCookies = !!headers?.get('cookie')
@@ -193,7 +207,7 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: 
   if (hasCookies || isSameOrigin) {
     // But still check for explicit bot patterns in UA (already done above)
     // If they look like a browser and have cookies/same-origin, they're real
-    if (BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+    if (looksLikeBrowser) {
       return false
     }
   }
@@ -216,13 +230,13 @@ function isBot(userAgent: string | null, cfProperties?: CfProperties, headers?: 
   // Real browsers would pass JS detection after their first visit
   if (cfProperties?.botManagement?.jsDetection?.passed === false) {
     // Only flag as bot if it claims to be a browser (headless Chrome, etc.)
-    if (BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+    if (looksLikeBrowser) {
       return true
     }
   }
 
   // If it looks like a real browser, it's not a bot
-  if (BROWSER_PATTERNS.some((pattern) => pattern.test(userAgent))) {
+  if (looksLikeBrowser) {
     return false
   }
 
