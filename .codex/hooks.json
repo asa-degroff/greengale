@@ -1,0 +1,61 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python '/Users/asa/Code/greengale/.codex/hooks/pre-web-check.py'",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python '/Users/asa/Code/greengale/.codex/hooks/work-check.py'",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python '/Users/asa/Code/greengale/.codex/hooks/post-edit-check.py'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python '/Users/asa/Code/greengale/.codex/hooks/session-start.py'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python '/Users/asa/Code/greengale/.codex/hooks/prompt-guard.py'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

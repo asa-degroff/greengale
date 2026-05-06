@@ -66,6 +66,7 @@ const FEED_CACHE_MAX_AGE = 60 // 1 minute fresh
 const FEED_CACHE_SWR = 300 // 5 minutes stale-while-revalidate
 const PROFILE_CACHE_MAX_AGE = 120 // 2 minutes fresh
 const PROFILE_CACHE_SWR = 600 // 10 minutes stale-while-revalidate
+const EXTERNAL_FETCH_TIMEOUT_MS = 5000
 
 /**
  * Create a JSON response with cache headers
@@ -74,6 +75,32 @@ function jsonWithCache<T>(c: { json: (data: T, status?: number) => Response }, d
   const response = c.json(data)
   response.headers.set('Cache-Control', `public, max-age=${maxAge}, stale-while-revalidate=${swr}`)
   return response
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = EXTERNAL_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  const upstreamSignal = init.signal
+  const abortFromUpstream = () => controller.abort()
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) {
+      controller.abort()
+    } else {
+      upstreamSignal.addEventListener('abort', abortFromUpstream, { once: true })
+    }
+  }
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timeoutId)
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream)
+  }
 }
 
 /**
@@ -113,7 +140,7 @@ async function getSiteStandardPublicationRkey(did: string): Promise<string | nul
 
     // List site.standard.publication records
     const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=50`
-    const listRes = await fetch(listUrl)
+    const listRes = await fetchWithTimeout(listUrl)
     if (!listRes.ok) return null
 
     const listData = await listRes.json() as { records?: Array<{ uri: string; value: Record<string, unknown> }> }
@@ -4851,7 +4878,7 @@ async function resolveDidDocument(did: string): Promise<{ service?: Array<{ id: 
     } else {
       url = `https://plc.directory/${did}`
     }
-    const response = await fetch(url)
+    const response = await fetchWithTimeout(url)
     if (response.ok) {
       return await response.json() as { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
     }
@@ -4893,7 +4920,7 @@ async function resolveExternalUrl(siteUri: string, documentPath: string): Promis
 
     // Fetch the publication record
     const recordUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
-    const response = await fetch(recordUrl)
+    const response = await fetchWithTimeout(recordUrl)
     if (!response.ok) return null
 
     const record = await response.json() as { value?: { url?: string } }
@@ -4952,7 +4979,7 @@ async function indexPostsFromPds(
   const publicationUrlMap = new Map<string, string>()
   try {
     const pubListUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=site.standard.publication&limit=100`
-    const pubResponse = await fetch(pubListUrl)
+    const pubResponse = await fetchWithTimeout(pubListUrl)
     if (pubResponse.ok) {
       const pubData = await pubResponse.json() as {
         records?: Array<{ uri: string; value: { url?: string } }>
@@ -4975,7 +5002,7 @@ async function indexPostsFromPds(
   for (const col of collections) {
     try {
       const listUrl = `${pdsEndpoint}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(did)}&collection=${encodeURIComponent(col.name)}&limit=100`
-      const response = await fetch(listUrl)
+      const response = await fetchWithTimeout(listUrl)
       if (!response.ok) continue
 
       const data = await response.json() as {
@@ -5153,7 +5180,7 @@ async function discoverAndIndexAuthor(
 
   try {
     // Resolve handle via Bluesky public API
-    const profileResponse = await fetch(
+    const profileResponse = await fetchWithTimeout(
       `https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(handle)}`
     )
     if (!profileResponse.ok) {

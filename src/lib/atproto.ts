@@ -35,6 +35,9 @@ interface CacheEntry<T> {
 
 // Cache TTL: 5 minutes for identity data (handles can change, but rarely)
 const IDENTITY_CACHE_TTL = 5 * 60 * 1000
+// Keep direct AT Protocol/PDS reads bounded so one stalled server cannot hang
+// a whole page load.
+const FETCH_TIMEOUT_MS = 5000
 
 // In-memory caches
 const didCache = new Map<string, CacheEntry<string>>()
@@ -63,6 +66,40 @@ function setCache<T>(cache: Map<string, CacheEntry<T>>, key: string, value: T): 
 export function clearIdentityCache(): void {
   didCache.clear()
   pdsCache.clear()
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs)
+
+  const upstreamSignal = init.signal
+  const abortFromUpstream = () => controller.abort()
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) {
+      controller.abort()
+    } else {
+      upstreamSignal.addEventListener('abort', abortFromUpstream, { once: true })
+    }
+  }
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal })
+  } finally {
+    globalThis.clearTimeout(timeoutId)
+    upstreamSignal?.removeEventListener('abort', abortFromUpstream)
+  }
+}
+
+function createAtprotoFetch(options?: { skipCache?: boolean }): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    fetchWithTimeout(input, {
+      ...init,
+      cache: options?.skipCache ? 'no-store' : init?.cache,
+    })) as typeof fetch
 }
 
 // =============================================================================
@@ -410,14 +447,14 @@ export async function getPdsEndpoint(did: string): Promise<string> {
   let didDoc: { service?: Array<{ id: string; type: string; serviceEndpoint: string }> }
 
   if (did.startsWith('did:plc:')) {
-    const response = await fetch(`https://plc.directory/${did}`)
+    const response = await fetchWithTimeout(`https://plc.directory/${did}`)
     if (!response.ok) {
       throw new Error(`Failed to resolve DID: ${did}`)
     }
     didDoc = await response.json()
   } else if (did.startsWith('did:web:')) {
     const domain = did.replace('did:web:', '').replace(/%3A/g, ':')
-    const response = await fetch(`https://${domain}/.well-known/did.json`)
+    const response = await fetchWithTimeout(`https://${domain}/.well-known/did.json`)
     if (!response.ok) {
       throw new Error(`Failed to resolve DID: ${did}`)
     }
@@ -464,7 +501,7 @@ export async function getAuthorProfile(identifier: string): Promise<AuthorProfil
   } catch {
     // Fallback: try to get handle from DID document
     try {
-      const handleResponse = await fetch(`https://plc.directory/${did}`)
+      const handleResponse = await fetchWithTimeout(`https://plc.directory/${did}`)
       const didDoc = await handleResponse.json()
       const handle = didDoc.alsoKnownAs?.[0]?.replace('at://', '') || did
       return { did, handle }
@@ -487,37 +524,34 @@ export async function getBlogEntry(
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
-  // Use a custom fetch that bypasses browser cache when skipCache is true
-  const fetchFn = options?.skipCache
-    ? (input: RequestInfo | URL, init?: RequestInit) =>
-        fetch(input, { ...init, cache: 'no-store' })
-    : undefined
-
+  const fetchFn = createAtprotoFetch({ skipCache: options?.skipCache })
   const agent = new AtpAgent({ service: pdsEndpoint, fetch: fetchFn })
 
-  // Query all collections in parallel for faster loading
+  // Query all collections in parallel, but return as soon as the highest-priority
+  // available record resolves. A stalled legacy collection should not block V2.
   // Priority order: V2 document > V1 GreenGale > WhiteWind
   // Uses retry logic to handle transient failures (e.g., HTTP 425 "Too Early" from some PDS)
   const collections = [DOCUMENT_COLLECTION, GREENGALE_COLLECTION, WHITEWIND_COLLECTION] as const
 
-  const results = await Promise.allSettled(
-    collections.map(collection =>
-      withRetry(() =>
+  const recordPromises = collections.map(collection =>
+    withRetry(
+      () =>
         agent.com.atproto.repo.getRecord({
           repo: did,
           collection,
           rkey,
-        }).then(response => ({ collection, response }))
-      )
+        }).then(response => ({ collection, response })),
+      1
     )
+      .catch(() => null)
   )
 
   // Find the first successful result (in priority order)
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i]
-    if (result.status !== 'fulfilled') continue
+  for (const recordPromise of recordPromises) {
+    const result = await recordPromise
+    if (!result) continue
 
-    const { collection, response } = result.value
+    const { collection, response } = result
     const record = response.data.value as Record<string, unknown>
     const visibility = (record.visibility as string | undefined) || 'public'
 
@@ -545,8 +579,7 @@ export async function getBlogEntry(
     if (contentBlobCid && isV2) {
       try {
         const blobUrl = `${pdsEndpoint}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(contentBlobCid)}`
-        const blobFetchFn = fetchFn || fetch
-        const blobResponse = await blobFetchFn(blobUrl)
+        const blobResponse = await fetchFn(blobUrl)
         if (blobResponse.ok) {
           content = await blobResponse.text()
         }
@@ -595,7 +628,7 @@ export async function resolveExternalUrl(siteUri: string, documentPath: string):
     const [, pubDid, collection, rkey] = match
 
     // Resolve DID to find PDS endpoint
-    const didDocRes = await fetch(`https://plc.directory/${pubDid}`)
+    const didDocRes = await fetchWithTimeout(`https://plc.directory/${pubDid}`)
     if (!didDocRes.ok) return null
     const didDoc = (await didDocRes.json()) as {
       service?: Array<{ id: string; type: string; serviceEndpoint: string }>
@@ -608,7 +641,7 @@ export async function resolveExternalUrl(siteUri: string, documentPath: string):
 
     // Fetch publication record
     const recordUrl = `${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(pubDid)}&collection=${encodeURIComponent(collection)}&rkey=${encodeURIComponent(rkey)}`
-    const recordRes = await fetch(recordUrl)
+    const recordRes = await fetchWithTimeout(recordUrl)
     if (!recordRes.ok) return null
 
     const record = (await recordRes.json()) as { value?: { url?: string } }
@@ -655,7 +688,7 @@ export async function listBlogEntries(
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
-  const agent = new AtpAgent({ service: pdsEndpoint })
+  const agent = new AtpAgent({ service: pdsEndpoint, fetch: createAtprotoFetch() })
 
   const entries: BlogEntry[] = []
 
@@ -816,16 +849,18 @@ export async function getPublication(identifier: string): Promise<Publication | 
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
 
-  const agent = new AtpAgent({ service: pdsEndpoint })
+  const agent = new AtpAgent({ service: pdsEndpoint, fetch: createAtprotoFetch() })
 
   try {
     // Use retry logic to handle transient failures (e.g., HTTP 425 "Too Early" from some PDS)
-    const response = await withRetry(() =>
-      agent.com.atproto.repo.getRecord({
-        repo: did,
-        collection: PUBLICATION_COLLECTION,
-        rkey: 'self',
-      })
+    const response = await withRetry(
+      () =>
+        agent.com.atproto.repo.getRecord({
+          repo: did,
+          collection: PUBLICATION_COLLECTION,
+          rkey: 'self',
+        }),
+      1
     )
 
     const record = response.data.value as Record<string, unknown>
@@ -960,7 +995,7 @@ export async function getAuthorExternalLinks(
   try {
     const did = await resolveIdentity(identifier)
     const pdsEndpoint = await getPdsEndpoint(did)
-    const agent = new AtpAgent({ service: pdsEndpoint })
+    const agent = new AtpAgent({ service: pdsEndpoint, fetch: createAtprotoFetch() })
 
     const response = await agent.com.atproto.repo.listRecords({
       repo: did,
@@ -1411,7 +1446,7 @@ export async function getSiteStandardPublication(
 ): Promise<SiteStandardPublication | null> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
-  const agent = new AtpAgent({ service: pdsEndpoint })
+  const agent = new AtpAgent({ service: pdsEndpoint, fetch: createAtprotoFetch() })
 
   // Check if rkey is a valid TID (13 base32-sortable characters)
   const isValidTidRkey = (rkey: string): boolean => {
@@ -2017,7 +2052,7 @@ export async function getAuthorPublicationUris(
 ): Promise<Array<{ uri: string; name: string; url: string }>> {
   const did = await resolveIdentity(identifier)
   const pdsEndpoint = await getPdsEndpoint(did)
-  const agent = new AtpAgent({ service: pdsEndpoint })
+  const agent = new AtpAgent({ service: pdsEndpoint, fetch: createAtprotoFetch() })
 
   try {
     const response = await agent.com.atproto.repo.listRecords({
