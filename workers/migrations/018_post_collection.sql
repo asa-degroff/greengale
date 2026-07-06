@@ -1,34 +1,18 @@
 -- Migration: Add `collection` column for indexed-collection filtering
 --
--- Replaces expensive `uri LIKE '%/site.standard.document/%'` full-table-scan patterns
--- with indexed equality checks on a dedicated column.
+-- Replaces expensive `uri LIKE '%/site.standard.document/%'` full-table-scan
+-- patterns with indexed equality checks on a dedicated column.
 --
--- The existing `source` column is 'greengale' for BOTH app.greengale.document AND
--- site.standard.document, so it cannot distinguish them. `collection` stores the
--- actual AT Protocol collection name, allowing feed queries to filter by exact
--- collection without LIKE scans.
+-- The existing `source` column is 'greengale' for BOTH app.greengale.document
+-- AND site.standard.document, so it cannot distinguish them. `collection` stores
+-- the actual AT Protocol collection name, allowing feed queries to filter by
+-- exact collection without LIKE scans.
+--
+-- NOTE: The backfill UPDATE is run in separate batched commands (see deploy
+-- script) to avoid D1's SQLITE_NOMEM on large databases. This file only contains
+-- the schema changes (ALTER + indexes), which are metadata-only.
 
 ALTER TABLE posts ADD COLUMN collection TEXT;
-
--- Backfill collection from uri. AT URIs look like: at://<did>/<collection>/<rkey>
--- Strip "at://" (5 chars) -> "<did>/<collection>/<rkey>"
--- then take the substring between the first and second '/'.
-UPDATE posts
-SET collection = substr(
-  substr(substr(uri, 6), instr(substr(uri, 6), '/') + 1),    -- after the did's '/'
-  1,
-  instr(
-    substr(substr(uri, 6), instr(substr(uri, 6), '/') + 1),
-    '/'
-  ) - 1
-)
-WHERE collection IS NULL
-  AND uri LIKE 'at://%'
-  AND instr(substr(uri, 6), '/') > 0
-  AND instr(
-    substr(substr(uri, 6), instr(substr(uri, 6), '/') + 1),
-    '/'
-  ) > 0;
 
 -- Indexes for fast collection filtering.
 CREATE INDEX IF NOT EXISTS idx_posts_collection ON posts(collection);

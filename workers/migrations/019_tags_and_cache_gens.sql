@@ -10,21 +10,12 @@
 -- invalidation scheme (see workers/lib/cache.ts). Instead of N blind
 -- `CACHE.delete()` calls per firehose event, writers bump a single integer
 -- generation in D1 and readers compare it against the generation stashed in KV.
+--
+-- NOTE: The tags backfill UPDATE is run in separate batched commands (see deploy
+-- script) to avoid D1's SQLITE_NOMEM on large databases. This file only contains
+-- the schema changes (ALTER + table creation), which are metadata-only.
 
 ALTER TABLE posts ADD COLUMN tags TEXT;
-
--- Backfill tags from the junction table (lowercased, comma-separated, deduped).
-UPDATE posts
-SET tags = (
-  SELECT GROUP_CONCAT(tag, ',')
-  FROM (
-    SELECT DISTINCT LOWER(tag) AS tag
-    FROM post_tags
-    WHERE post_uri = posts.uri
-    ORDER BY tag
-  )
-)
-WHERE EXISTS (SELECT 1 FROM post_tags WHERE post_uri = posts.uri);
 
 -- Cache generation tracking. One row per cache family.
 -- `family` examples: 'recent_posts', 'network_posts', 'popular_tags', 'rss:recent',
@@ -45,4 +36,6 @@ INSERT OR IGNORE INTO cache_generations (family) VALUES
   ('network_posts'),
   ('popular_tags'),
   ('rss:recent'),
-  ('subscriptions');
+  ('subscriptions'),
+  ('sitemap'),
+  ('following:feed');
