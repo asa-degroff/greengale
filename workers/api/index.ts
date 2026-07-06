@@ -25,6 +25,14 @@ import {
   hashContent,
   chunkByHeadings,
 } from '../lib/content-extraction'
+import {
+  buildCacheKey,
+  bumpGeneration,
+  bumpGenerations,
+  bumpGlobalFeeds,
+  bumpFeedsForPostChange,
+  GLOBAL_FEED_FAMILIES,
+} from '../lib/cache'
 
 type Bindings = {
   DB: D1Database
@@ -281,7 +289,7 @@ app.get('/og/test', async (c) => {
 
 // Generate OpenGraph image for the site homepage
 app.get('/og/site.png', async (c) => {
-  const cacheKey = 'og:site'
+  const cacheKey = await buildCacheKey(c.env.DB, 'og:site')
 
   try {
     // Check KV cache first
@@ -320,7 +328,7 @@ app.get('/og/site.png', async (c) => {
 // Generate OpenGraph image for a user profile
 app.get('/og/profile/:handle.png', async (c) => {
   const handle = c.req.param('handle')
-  const cacheKey = `og:profile:${handle}`
+  const cacheKey = await buildCacheKey(c.env.DB, `og:profile:${handle}`)
 
   try {
     // Check KV cache first
@@ -423,7 +431,7 @@ app.get('/og/:handle/:filename', async (c) => {
   }
   const rkey = filename.slice(0, -4) // Remove .png extension
 
-  const cacheKey = `og:${handle}:${rkey}`
+  const cacheKey = await buildCacheKey(c.env.DB, `og:${handle}:${rkey}`)
 
   try {
     // Check KV cache first
@@ -453,7 +461,8 @@ app.get('/og/:handle/:filename', async (c) => {
 
     // Fetch post + author + publication data from D1 (including first_image_cid and pds_endpoint for OG thumbnails)
     // Exclude site.standard.document posts since they don't have theme data
-    // (dual-published posts share the same rkey, so we want the GreenGale version)
+    // (dual-published posts share the same rkey, so we want the GreenGale version).
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan.
     const post = await c.env.DB.prepare(`
       SELECT p.uri, p.title, p.subtitle, p.theme_preset, p.first_image_cid,
              p.author_did, a.handle, a.display_name, a.avatar_url, a.pds_endpoint,
@@ -463,7 +472,7 @@ app.get('/og/:handle/:filename', async (c) => {
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND p.rkey = ?
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
     `).bind(authorDid, rkey).first()
 
     if (!post) {
@@ -581,7 +590,7 @@ const BASE_URL = 'https://greengale.app'
  * NOTE: This route must be defined BEFORE /feed/:handle.xml to prevent "recent" being matched as a handle
  */
 app.get('/feed/recent.xml', async (c) => {
-  const cacheKey = 'rss:recent'
+  const cacheKey = await buildCacheKey(c.env.DB, 'rss:recent')
 
   try {
     // Check KV cache first
@@ -596,20 +605,22 @@ app.get('/feed/recent.xml', async (c) => {
       })
     }
 
-    // Use same query pattern as getRecentPosts (limit authors to 3 posts each)
+    // Use same query pattern as getRecentPosts (limit authors to 3 posts each).
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan,
+    // and reads tags from denormalized `p.tags` column.
     const postsResult = await c.env.DB.prepare(`
       WITH ranked_posts AS (
         SELECT
           p.rkey, p.title, p.subtitle, p.created_at, p.content_preview, p.first_image_cid,
           p.author_did,
           a.handle, a.display_name, a.pds_endpoint,
-          (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+          p.tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
         FROM posts p
         LEFT JOIN authors a ON p.author_did = a.did
         LEFT JOIN publications pub ON p.author_did = pub.author_did
         WHERE p.visibility = 'public'
-          AND p.uri NOT LIKE '%/site.standard.document/%'
+          AND (p.collection IS NULL OR p.collection != 'site.standard.document')
           AND COALESCE(pub.show_in_discover, 1) = 1
       )
       SELECT rkey, title, subtitle, created_at, content_preview, first_image_cid,
@@ -721,7 +732,7 @@ app.get('/feed/:filename', async (c) => {
   // Extract handle from filename (remove .xml extension)
   const handle = filename.slice(0, -4)
 
-  const cacheKey = `rss:author:${handle}`
+  const cacheKey = await buildCacheKey(c.env.DB, `rss:author:${handle}`)
 
   try {
     // Check KV cache first
@@ -757,16 +768,18 @@ app.get('/feed/:filename', async (c) => {
     const pubName = authorRow.pub_name as string | null
     const pubDescription = authorRow.pub_description as string | null
 
-    // Fetch recent posts (limit 50 for RSS)
+    // Fetch recent posts (limit 50 for RSS).
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan,
+    // and reads tags from denormalized `p.tags` column.
     const postsResult = await c.env.DB.prepare(`
       SELECT
         p.rkey, p.title, p.subtitle, p.created_at, p.content_preview, p.first_image_cid,
         a.handle, a.display_name, a.pds_endpoint,
-        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
+        p.tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND p.visibility = 'public'
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
       ORDER BY p.created_at DESC
       LIMIT 50
     `).bind(authorDid).all()
@@ -873,7 +886,7 @@ const SITEMAP_CACHE_CONTROL = 'public, max-age=600, s-maxage=3600'
  * Includes homepage, all author pages, and all public posts
  */
 app.get('/sitemap.xml', async (c) => {
-  const cacheKey = 'sitemap'
+  const cacheKey = await buildCacheKey(c.env.DB, 'sitemap')
 
   try {
     // Check KV cache first
@@ -897,13 +910,14 @@ app.get('/sitemap.xml', async (c) => {
       priority: 1.0,
     })
 
-    // Get all authors with posts
+    // Get all authors with posts.
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan.
     const authorsResult = await c.env.DB.prepare(`
       SELECT DISTINCT a.handle, MAX(p.created_at) as last_post
       FROM authors a
       INNER JOIN posts p ON a.did = p.author_did
       WHERE p.visibility = 'public'
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
       GROUP BY a.handle
       ORDER BY last_post DESC
     `).all()
@@ -921,13 +935,14 @@ app.get('/sitemap.xml', async (c) => {
       })
     }
 
-    // Get all public posts
+    // Get all public posts.
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan.
     const postsResult = await c.env.DB.prepare(`
       SELECT a.handle, p.rkey, p.created_at
       FROM posts p
       INNER JOIN authors a ON p.author_did = a.did
       WHERE p.visibility = 'public'
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
       ORDER BY p.created_at DESC
       LIMIT 50000
     `).all()
@@ -1428,7 +1443,7 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  const cacheKey = `tag_posts:${normalizedTag}:${limit}:${cursor || ''}`
+  const cacheKey = await buildCacheKey(c.env.DB, `tag_posts:${normalizedTag}`, `${limit}:${cursor || ''}`)
 
   try {
     // Check cache first
@@ -1437,20 +1452,22 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
       return c.json(cached)
     }
 
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan.
+    // Tags read from denormalized `p.tags` column.
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid,
-        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
+        p.tags
       FROM posts p
       INNER JOIN post_tags pt ON p.uri = pt.post_uri
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE pt.tag = ?
         AND p.visibility = 'public'
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
         AND COALESCE(pub.show_in_discover, 1) = 1
     `
 
@@ -1492,7 +1509,7 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
 app.get('/xrpc/app.greengale.feed.getPopularTags', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100)
 
-  const cacheKey = `popular_tags:${limit}`
+  const cacheKey = await buildCacheKey(c.env.DB, 'popular_tags', limit)
 
   try {
     // Check cache first
@@ -1501,15 +1518,15 @@ app.get('/xrpc/app.greengale.feed.getPopularTags', async (c) => {
       return c.json(cached)
     }
 
-    // Aggregate post counts per tag
-    // Only count public posts that are visible in discover
+    // Aggregate post counts per tag.
+    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan.
     const result = await c.env.DB.prepare(`
       SELECT pt.tag, COUNT(*) as count
       FROM post_tags pt
       INNER JOIN posts p ON pt.post_uri = p.uri
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.visibility = 'public'
-        AND p.uri NOT LIKE '%/site.standard.document/%'
+        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
         AND COALESCE(pub.show_in_discover, 1) = 1
       GROUP BY pt.tag
       ORDER BY count DESC
@@ -1541,8 +1558,9 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  // Build cache key
-  const cacheKey = `recent_posts:${limit}:${cursor || ''}`
+  // Build cache key (includes cache generation so a generation bump
+  // invalidates all keys for this family at once — no KV deletes needed).
+  const cacheKey = await buildCacheKey(c.env.DB, 'recent_posts', `${limit}:${cursor || ''}`)
 
   try {
     // Check cache first
@@ -1555,6 +1573,9 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     // Use a CTE with window function to limit each author to 3 posts max
     // This prevents very active users from dominating the recents feed
     // Order by created_at (original publish date) so editing old posts doesn't push them to top
+    // Uses indexed `collection != 'site.standard.document'` (partial idx_posts_discover_feed)
+    // instead of `uri NOT LIKE '%/site.standard.document/%'` (full table scan).
+    // Tags read from denormalized `p.tags` column instead of a correlated GROUP_CONCAT subquery.
     const cursorClause = cursor ? 'AND p.created_at < ?' : ''
     const query = `
       WITH ranked_posts AS (
@@ -1563,13 +1584,13 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
           p.visibility, p.created_at, p.indexed_at,
           a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
           pub.icon_cid,
-          (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+          p.tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
         FROM posts p
         LEFT JOIN authors a ON p.author_did = a.did
         LEFT JOIN publications pub ON p.author_did = pub.author_did
         WHERE p.visibility = 'public'
-          AND p.uri NOT LIKE '%/site.standard.document/%'
+          AND (p.collection IS NULL OR p.collection != 'site.standard.document')
           AND COALESCE(pub.show_in_discover, 1) = 1
           ${cursorClause}
       )
@@ -1742,8 +1763,9 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  // Build cache key for feed results
-  const feedCacheKey = `following:feed:${viewer}:${limit}:${cursor || ''}`
+  // Build cache key for feed results (includes cache generation so a
+  // generation bump invalidates all viewer keys at once).
+  const feedCacheKey = await buildCacheKey(c.env.DB, 'following:feed', `${viewer}:${limit}:${cursor || ''}`)
 
   try {
     // Check feed cache first
@@ -1771,7 +1793,8 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
       const batch = followingDids.slice(i, i + didBatchSize)
       const placeholders = batch.map(() => '?').join(',')
 
-      // Use CTE with window function to limit 3 posts per author
+      // Uses indexed `collection` checks instead of `uri LIKE` scans.
+      // Tags read from denormalized `p.tags` column.
       const query = `
         WITH ranked_posts AS (
           SELECT
@@ -1780,7 +1803,7 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
             p.content_preview,
             a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
             pub.icon_cid,
-            (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+            p.tags,
             ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
           FROM posts p
           LEFT JOIN authors a ON p.author_did = a.did
@@ -1788,16 +1811,14 @@ app.get('/xrpc/app.greengale.feed.getFollowingPosts', async (c) => {
           WHERE p.author_did IN (${placeholders})
             AND p.visibility = 'public'
             AND NOT (
-              p.uri LIKE '%/site.standard.document/%'
+              p.collection = 'site.standard.document'
               AND (
                 p.external_url IS NULL
                 OR EXISTS (
                   SELECT 1 FROM posts gg
                   WHERE gg.author_did = p.author_did
                     AND gg.rkey = p.rkey
-                    AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                      OR gg.uri LIKE '%/app.greengale.document/%'
-                      OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                    AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
                 )
               )
             )
@@ -1864,8 +1885,9 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
   const cursor = c.req.query('cursor')
 
-  // Build cache key (v3: fixes avatar field name)
-  const cacheKey = `network_posts:v3:${limit}:${cursor || ''}`
+  // Build cache key (includes cache generation; the old `v3` tag is now
+  // superseded by the generation suffix).
+  const cacheKey = await buildCacheKey(c.env.DB, 'network_posts', `${limit}:${cursor || ''}`)
 
   try {
     // Check cache first
@@ -1875,9 +1897,11 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
     }
 
     // Cache miss - query database
-    // Use external_url column (pre-computed during indexing)
-    // Exclude posts that also have a GreenGale version (dual-published from GreenGale)
-    // Filter out posts with invalid/missing dates (must start with valid year like 19xx or 20xx)
+    // Uses indexed `p.collection = 'site.standard.document'` (partial
+    // idx_posts_network_feed) instead of `uri LIKE '%/site.standard.document/%'`.
+    // The NOT EXISTS subquery uses `gg.collection IN (...)` against the
+    // idx_posts_author_collection_rkey index instead of LIKE scans.
+    // Tags read from denormalized `p.tags` column.
     let query = `
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
@@ -1885,12 +1909,12 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
         p.content_preview,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid,
-        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
+        p.tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.visibility = 'public'
-        AND p.uri LIKE '%/site.standard.document/%'
+        AND p.collection = 'site.standard.document'
         AND p.external_url IS NOT NULL
         AND p.created_at IS NOT NULL
         AND p.created_at GLOB '[12][0-9][0-9][0-9]-*'
@@ -1899,8 +1923,7 @@ app.get('/xrpc/app.greengale.feed.getNetworkPosts', async (c) => {
           SELECT 1 FROM posts gg
           WHERE gg.author_did = p.author_did
             AND gg.rkey = p.rkey
-            AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-              OR gg.uri LIKE '%/app.greengale.document/%')
+            AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
         )
     `
 
@@ -1980,9 +2003,9 @@ app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
 
   const limit = Math.min(body.limit || 50, 100)
 
-  // Build cache key from sorted DIDs hash
+  // Build cache key from sorted DIDs hash + cache generation
   const didsHash = validDids.sort().join(',')
-  const cacheKey = `subscriptions:feed:${didsHash}:${limit}:${cursor || ''}`
+  const cacheKey = await buildCacheKey(c.env.DB, 'subscriptions', `${didsHash}:${limit}:${cursor || ''}`)
 
   try {
     // Check cache first
@@ -2001,6 +2024,8 @@ app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
       const batch = validDids.slice(i, i + didBatchSize)
       const placeholders = batch.map(() => '?').join(',')
 
+      // Uses indexed `collection` checks instead of `uri LIKE` scans.
+      // Tags read from denormalized `p.tags` column.
       const query = `
         WITH ranked_posts AS (
           SELECT
@@ -2009,7 +2034,7 @@ app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
             p.content_preview,
             a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
             pub.icon_cid,
-            (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags,
+            p.tags,
             ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
           FROM posts p
           LEFT JOIN authors a ON p.author_did = a.did
@@ -2017,16 +2042,14 @@ app.post('/xrpc/app.greengale.feed.getSubscriptionPosts', async (c) => {
           WHERE p.author_did IN (${placeholders})
             AND p.visibility = 'public'
             AND NOT (
-              p.uri LIKE '%/site.standard.document/%'
+              p.collection = 'site.standard.document'
               AND (
                 p.external_url IS NULL
                 OR EXISTS (
                   SELECT 1 FROM posts gg
                   WHERE gg.author_did = p.author_did
                     AND gg.rkey = p.rkey
-                    AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                      OR gg.uri LIKE '%/app.greengale.document/%'
-                      OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                    AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
                 )
               )
             )
@@ -2137,22 +2160,20 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
         p.content_preview, p.first_image_cid, p.external_url,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
         pub.icon_cid,
-        (SELECT GROUP_CONCAT(tag, ',') FROM post_tags WHERE post_uri = p.uri) as tags
+        p.tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND ${visibilityFilter}
         AND NOT (
-          p.uri LIKE '%/site.standard.document/%'
+          p.collection = 'site.standard.document'
           AND (
             p.external_url IS NULL
             OR EXISTS (
               SELECT 1 FROM posts gg
               WHERE gg.author_did = p.author_did
                 AND gg.rkey = p.rkey
-                AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                  OR gg.uri LIKE '%/app.greengale.document/%'
-                  OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
             )
           )
         )
@@ -2171,12 +2192,13 @@ app.get('/xrpc/app.greengale.feed.getAuthorPosts', async (c) => {
     let result = await c.env.DB.prepare(query).bind(...params).all()
     let posts = result.results || []
 
-    // On first page load, try indexing any missing posts from PDS
-    // (KV cache makes this a single fast GET for already-indexed authors)
+    // On first page load, try indexing any missing posts from PDS.
+    // If new posts were indexed, re-run the feed query so the user sees them
+    // immediately (this endpoint is browser-cached but not KV-cached, so the
+    // extra D1 read only happens on the rare cold-cache first-page visit).
     if (!cursor) {
       const indexed = await indexPostsFromPds(authorDid, c.env)
       if (indexed > 0) {
-        // Re-query now that posts are indexed
         result = await c.env.DB.prepare(query).bind(...params).all()
         posts = result.results || []
       }
@@ -2226,28 +2248,28 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
     }
 
     // Exclude dual-published site.standard.document posts (where a GreenGale/WhiteWind
-    // version exists), but allow external-only site.standard posts (e.g. Leaflet)
+    // version exists), but allow external-only site.standard posts (e.g. Leaflet).
+    // Uses indexed `collection` checks instead of `uri LIKE` scans.
     const post = await c.env.DB.prepare(`
       SELECT
         p.uri, p.author_did, p.rkey, p.title, p.subtitle, p.source,
         p.visibility, p.created_at, p.indexed_at, p.external_url,
         a.handle, a.display_name, a.avatar_url, a.pds_endpoint, a.is_ai_agent,
-        pub.icon_cid
+        pub.icon_cid,
+        p.tags
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND p.rkey = ?
         AND NOT (
-          p.uri LIKE '%/site.standard.document/%'
+          p.collection = 'site.standard.document'
           AND (
             p.external_url IS NULL
             OR EXISTS (
               SELECT 1 FROM posts gg
               WHERE gg.author_did = p.author_did
                 AND gg.rkey = p.rkey
-                AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                  OR gg.uri LIKE '%/app.greengale.document/%'
-                  OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
             )
           )
         )
@@ -2267,13 +2289,15 @@ app.get('/xrpc/app.greengale.feed.getPost', async (c) => {
     }
     // 'url' visibility allows anyone with the link, 'public' is open to all
 
-    // Fetch tags for this post
-    const tagsResult = await c.env.DB.prepare(
-      'SELECT tag FROM post_tags WHERE post_uri = ? ORDER BY tag'
-    ).bind(post.uri).all()
-    const tags = (tagsResult.results || []).map(r => r.tag as string)
+    // Read tags from the denormalized `posts.tags` column (avoids a second
+    // D1 query against post_tags). The junction table remains the source of
+    // truth; `posts.tags` is kept in sync by the indexer.
+    const tagsStr = (post as Record<string, unknown>).tags as string | null | undefined
+    const tags = tagsStr
+      ? tagsStr.split(',').filter(t => t.length > 0)
+      : []
 
-    const response = { post: formatPost(post, tags) }
+    const response = { post: formatPost(post, tags.length ? tags : undefined) }
 
     // Only cache for public views (not when author is viewing their own post)
     if (!isAuthor) {
@@ -2303,24 +2327,14 @@ app.post('/xrpc/app.greengale.feed.notifyPostRemoved', async (c) => {
     ).bind(did, rkey).first()
 
     if (!post) {
-      // Post not in DB (already deleted or never indexed) - still invalidate caches
+      // Post not in DB (already deleted or never indexed) - still bump cache
+      // generations so any cached feed entries are invalidated.
       const authorRow = await c.env.DB.prepare(
         'SELECT handle FROM authors WHERE did = ?'
       ).bind(did).first()
       const handle = authorRow?.handle as string | undefined
 
-      await Promise.all([
-        c.env.CACHE.delete('recent_posts:12:'),
-        c.env.CACHE.delete('recent_posts:24:'),
-        c.env.CACHE.delete('recent_posts:50:'),
-        c.env.CACHE.delete('recent_posts:100:'),
-        c.env.CACHE.delete('network_posts:v3:24:'),
-        c.env.CACHE.delete('network_posts:v3:50:'),
-        c.env.CACHE.delete('network_posts:v3:100:'),
-        c.env.CACHE.delete('rss:recent'),
-        handle ? c.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
-        handle ? c.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
-      ])
+      await bumpFeedsForPostChange(c.env.DB, { handle, rkey })
 
       return c.json({ success: true, found: false })
     }
@@ -2328,34 +2342,22 @@ app.post('/xrpc/app.greengale.feed.notifyPostRemoved', async (c) => {
     const uri = post.uri as string
     const authorDid = post.author_did as string
 
-    // Get author handle and post tags before deletion
-    const [authorRow, tagsResult] = await Promise.all([
-      c.env.DB.prepare('SELECT handle FROM authors WHERE did = ?').bind(authorDid).first(),
-      c.env.DB.prepare('SELECT tag FROM post_tags WHERE post_uri = ?').bind(uri).all(),
-    ])
-    const handle = authorRow?.handle as string | undefined
-    const postTags = (tagsResult.results || []).map(r => r.tag as string)
+    // Get author handle before deletion. Tags are read from the denormalized
+    // `posts.tags` column (avoids an extra post_tags query here).
+    const authorRow = await c.env.DB.prepare(
+      'SELECT handle FROM authors WHERE did = ?'
+    ).bind(authorDid).first<{ handle: string | null }>()
+    const handle = authorRow?.handle ?? undefined
 
-    // Phase 1: Invalidate all caches
-    const cacheInvalidations: Promise<boolean | void>[] = [
-      c.env.CACHE.delete('recent_posts:12:'),
-      c.env.CACHE.delete('recent_posts:24:'),
-      c.env.CACHE.delete('recent_posts:50:'),
-      c.env.CACHE.delete('recent_posts:100:'),
-      c.env.CACHE.delete('network_posts:v3:24:'),
-      c.env.CACHE.delete('network_posts:v3:50:'),
-      c.env.CACHE.delete('network_posts:v3:100:'),
-      c.env.CACHE.delete('popular_tags:20'),
-      c.env.CACHE.delete('popular_tags:50'),
-      c.env.CACHE.delete('popular_tags:100'),
-      c.env.CACHE.delete('rss:recent'),
-      handle ? c.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
-      handle ? c.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
-    ]
-    for (const tag of postTags) {
-      cacheInvalidations.push(c.env.CACHE.delete(`tag_posts:${tag}:50:`))
-    }
-    await Promise.all(cacheInvalidations)
+    const postRow = await c.env.DB.prepare(
+      'SELECT tags FROM posts WHERE uri = ?'
+    ).bind(uri).first<{ tags: string | null }>()
+    const postTags = (postRow?.tags ?? '')
+      .split(',')
+      .filter(t => t.length > 0)
+
+    // Phase 1: Bump cache generation keys (replaces ~12+ blind KV deletes).
+    await bumpFeedsForPostChange(c.env.DB, { handle, tags: postTags, rkey })
 
     // Phase 2: Delete post from DB and update author count
     await c.env.DB.batch([
@@ -2593,7 +2595,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           FROM posts p
           JOIN post_tags pt ON p.uri = pt.post_uri
           WHERE p.visibility = 'public'
-            AND p.uri NOT LIKE '%/site.standard.document/%'
+            AND (p.collection IS NULL OR p.collection != 'site.standard.document')
             AND LOWER(pt.tag) LIKE ?3 ESCAPE '\\'
           GROUP BY p.author_did, p.rkey, pt.tag
         ) tagged_posts
@@ -2875,14 +2877,12 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
           AND (${whereConditions.join(' OR ')})
           -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
           AND NOT (
-            p.uri LIKE '%/site.standard.document/%'
+            p.collection = 'site.standard.document'
             AND EXISTS (
               SELECT 1 FROM posts gg
               WHERE gg.author_did = p.author_did
                 AND gg.rkey = p.rkey
-                AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                  OR gg.uri LIKE '%/app.greengale.document/%'
-                  OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
             )
           )`
 
@@ -2981,14 +2981,12 @@ app.get('/xrpc/app.greengale.search.posts', async (c) => {
         AND p.deleted_at IS NULL
         -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
         AND NOT (
-          p.uri LIKE '%/site.standard.document/%'
+          p.collection = 'site.standard.document'
           AND EXISTS (
             SELECT 1 FROM posts gg
             WHERE gg.author_did = p.author_did
               AND gg.rkey = p.rkey
-              AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                OR gg.uri LIKE '%/app.greengale.document/%'
-                OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+              AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
           )
         )`
 
@@ -3356,14 +3354,12 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
               AND (${whereConditions.join(' OR ')})
               -- Exclude site.standard duplicates when a GreenGale/WhiteWind version exists
               AND NOT (
-                p.uri LIKE '%/site.standard.document/%'
+                p.collection = 'site.standard.document'
                 AND EXISTS (
                   SELECT 1 FROM posts gg
                   WHERE gg.author_did = p.author_did
                     AND gg.rkey = p.rkey
-                    AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                      OR gg.uri LIKE '%/app.greengale.document/%'
-                      OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                    AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
                 )
               )
               ${aiAgentFilter === 'and' ? 'AND a.is_ai_agent = 1' : ''}
@@ -3464,14 +3460,12 @@ app.get('/xrpc/app.greengale.search.unified', async (c) => {
                 AND p.visibility = 'public'
                 AND p.deleted_at IS NULL
                 AND NOT (
-                  p.uri LIKE '%/site.standard.document/%'
+                  p.collection = 'site.standard.document'
                   AND EXISTS (
                     SELECT 1 FROM posts gg
                     WHERE gg.author_did = p.author_did
                       AND gg.rkey = p.rkey
-                      AND (gg.uri LIKE '%/app.greengale.blog.entry/%'
-                        OR gg.uri LIKE '%/app.greengale.document/%'
-                        OR gg.uri LIKE '%/com.whtwnd.blog.entry/%')
+                      AND gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')
                   )
                 )`
 
@@ -3975,8 +3969,8 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
       }
     }
 
-    // Invalidate recent posts cache
-    await c.env.CACHE.delete('recent_posts:24:')
+    // Bump recent posts cache generation (avatar is denormalized into cached feed rows)
+    await bumpGlobalFeeds(c.env.DB)
 
     return c.json({
       success: true,
@@ -4198,14 +4192,22 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
     // Delete orphaned posts if not a dry run
     let deleted = 0
     if (!dryRun && orphaned.length > 0) {
+      // Collect per-post cache families to bump (tag + per-post OG), so a
+      // single batched D1 UPDATE handles them all at the end.
+      const tagFamilies = new Set<string>()
+      const ogFamilies = new Set<string>()
+
       for (const post of orphaned) {
         const uri = post.uri
 
-        // Get tags before deletion for cache invalidation
-        const tagsResult = await c.env.DB.prepare(
-          'SELECT tag FROM post_tags WHERE post_uri = ?'
-        ).bind(uri).all()
-        const postTags = (tagsResult.results || []).map(r => r.tag as string)
+        // Get tags before deletion (for cache invalidation)
+        const tagsRow = await c.env.DB.prepare(
+          'SELECT tags FROM posts WHERE uri = ?'
+        ).bind(uri).first<{ tags: string | null }>()
+        const postTags = (tagsRow?.tags ?? '')
+          .split(',')
+          .filter(t => t.length > 0)
+        for (const tag of postTags) tagFamilies.add(`tag_posts:${tag}`)
 
         // Parse author DID from URI
         const authorDid = uri.replace('at://', '').split('/')[0]
@@ -4226,38 +4228,25 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
           console.error(`Failed to delete embeddings for ${uri}:`, err)
         )
 
-        // Invalidate tag caches
-        for (const tag of postTags) {
-          await c.env.CACHE.delete(`tag_posts:${tag}:50:`)
-        }
-
-        // Invalidate OG cache
+        // Collect per-post OG family
         if (post.handle) {
           const rkey = uri.split('/').pop()!
-          await c.env.CACHE.delete(`og:${post.handle}:${rkey}`)
+          ogFamilies.add(`og:${post.handle}:${rkey}`)
         }
 
         deleted++
       }
 
-      // Invalidate feed caches once after all deletions
-      await Promise.all([
-        c.env.CACHE.delete('recent_posts:12:'),
-        c.env.CACHE.delete('recent_posts:24:'),
-        c.env.CACHE.delete('recent_posts:50:'),
-        c.env.CACHE.delete('recent_posts:100:'),
-        c.env.CACHE.delete('network_posts:v3:24:'),
-        c.env.CACHE.delete('network_posts:v3:50:'),
-        c.env.CACHE.delete('network_posts:v3:100:'),
-        c.env.CACHE.delete('popular_tags:20'),
-        c.env.CACHE.delete('popular_tags:50'),
-        c.env.CACHE.delete('popular_tags:100'),
-        c.env.CACHE.delete('rss:recent'),
-      ])
-
-      // Invalidate per-author RSS caches
-      const handles = new Set(orphaned.map(p => p.handle).filter(Boolean) as string[])
-      await Promise.all([...handles].map(h => c.env.CACHE.delete(`rss:author:${h}`)))
+      // Bump all affected cache generations in one batched D1 UPDATE:
+      // global feeds + per-author RSS + per-tag + per-post OG.
+      const handles = [...new Set(orphaned.map(p => p.handle).filter(Boolean) as string[])]
+      const families = [
+        ...GLOBAL_FEED_FAMILIES,
+        ...handles.map(h => `rss:author:${h}`),
+        ...tagFamilies,
+        ...ogFamilies,
+      ]
+      await bumpGenerations(c.env.DB, families)
     }
 
     return c.json({
@@ -4291,20 +4280,20 @@ app.post('/xrpc/app.greengale.admin.invalidateOGCache', async (c) => {
     const body = await c.req.json() as { handle?: string; rkey?: string; type?: string }
     const { handle, rkey, type } = body
 
-    let cacheKey: string
+    let family: string
     if (type === 'site') {
-      cacheKey = 'og:site'
+      family = 'og:site'
     } else if (handle && rkey) {
-      cacheKey = `og:${handle}:${rkey}`
+      family = `og:${handle}:${rkey}`
     } else if (handle) {
-      cacheKey = `og:profile:${handle}`
+      family = `og:profile:${handle}`
     } else {
       return c.json({ error: 'Missing parameters: need handle+rkey, handle, or type=site' }, 400)
     }
 
-    await c.env.CACHE.delete(cacheKey)
+    await bumpGeneration(c.env.DB, family)
 
-    return c.json({ success: true, cacheKey, message: `Invalidated cache for ${cacheKey}` })
+    return c.json({ success: true, cacheKey: family, message: `Bumped cache generation for ${family}` })
   } catch (error) {
     console.error('Error invalidating OG cache:', error)
     return c.json({ error: 'Failed to invalidate cache' }, 500)
@@ -4329,30 +4318,26 @@ app.post('/xrpc/app.greengale.admin.invalidateRSSCache', async (c) => {
     const invalidated: string[] = []
 
     if (type === 'all') {
-      // Clear recent feed cache
-      await c.env.CACHE.delete('rss:recent')
-      invalidated.push('rss:recent')
-
-      // Get all author handles and clear their caches
-      const authors = await c.env.DB.prepare('SELECT handle FROM authors').all()
-      for (const author of authors.results || []) {
-        const authorHandle = author.handle as string
-        const cacheKey = `rss:author:${authorHandle}`
-        await c.env.CACHE.delete(cacheKey)
-        invalidated.push(cacheKey)
-      }
+      // Bump the recent feed generation + every author's RSS generation.
+      const authors = await c.env.DB.prepare('SELECT handle FROM authors WHERE handle IS NOT NULL').all()
+      const handles = (authors.results || [])
+        .map(a => a.handle as string)
+        .filter(Boolean)
+      const families = ['rss:recent', ...handles.map(h => `rss:author:${h}`)]
+      await bumpGenerations(c.env.DB, families)
+      invalidated.push(...families)
     } else if (type === 'recent') {
-      await c.env.CACHE.delete('rss:recent')
+      await bumpGeneration(c.env.DB, 'rss:recent')
       invalidated.push('rss:recent')
     } else if (handle) {
-      const cacheKey = `rss:author:${handle}`
-      await c.env.CACHE.delete(cacheKey)
-      invalidated.push(cacheKey)
+      const family = `rss:author:${handle}`
+      await bumpGeneration(c.env.DB, family)
+      invalidated.push(family)
     } else {
       return c.json({ error: 'Missing parameters: need handle, type=recent, or type=all' }, 400)
     }
 
-    return c.json({ success: true, invalidated, message: `Invalidated ${invalidated.length} RSS cache(s)` })
+    return c.json({ success: true, invalidated, message: `Bumped ${invalidated.length} RSS cache generation(s)` })
   } catch (error) {
     console.error('Error invalidating RSS cache:', error)
     return c.json({ error: 'Failed to invalidate cache' }, 500)
@@ -4451,14 +4436,8 @@ app.post('/xrpc/app.greengale.admin.reindexPost', async (c) => {
       'SELECT handle FROM authors WHERE did = ?'
     ).bind(did).first()
     const authorHandle = authorRow?.handle as string | undefined
-    if (authorHandle) {
-      await c.env.CACHE.delete(`og:${authorHandle}:${rkey}`)
-    }
-    await Promise.all([
-      c.env.CACHE.delete('recent_posts:24:'),
-      c.env.CACHE.delete('rss:recent'),
-      authorHandle ? c.env.CACHE.delete(`rss:author:${authorHandle}`) : Promise.resolve(),
-    ])
+    // Bump cache generations for the affected feeds + per-author + per-post OG.
+    await bumpFeedsForPostChange(c.env.DB, { handle: authorHandle, rkey })
 
     // Get the updated post info
     const updatedPost = await c.env.DB.prepare(`
@@ -5132,9 +5111,20 @@ async function indexPostsFromPds(
           ? title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
           : null
 
+        // Extract tags (normalize the same way the firehose does).
+        const rawTags = value.tags as string[] | undefined
+        const tags = rawTags
+          ? [...new Set(
+              rawTags
+                .filter(t => typeof t === 'string')
+                .map(t => t.toLowerCase().trim())
+                .filter(t => t.length > 0 && t.length <= 100)
+            )].slice(0, 100)
+          : []
+
         await env.DB.prepare(`
-          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path, site_uri, external_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path, site_uri, external_url, collection, tags)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(uri) DO UPDATE SET
             title = excluded.title,
             subtitle = excluded.subtitle,
@@ -5147,11 +5137,15 @@ async function indexPostsFromPds(
             path = excluded.path,
             site_uri = excluded.site_uri,
             external_url = excluded.external_url,
+            collection = excluded.collection,
+            tags = excluded.tags,
             indexed_at = datetime('now')
         `).bind(
           uri, did, rkey, title, subtitle, slug, col.source, visibility,
           createdAt, createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid, documentPath,
-          siteUri, externalUrl
+          siteUri, externalUrl,
+          col.name,
+          tags.length > 0 ? tags.join(',') : null
         ).run()
 
         totalPosts++
@@ -5161,8 +5155,19 @@ async function indexPostsFromPds(
     }
   }
 
-  // Mark as indexed (24-hour TTL) to avoid repeated PDS calls
+  // Mark as indexed (24-hour TTL) to avoid repeated PDS calls.
   await env.CACHE.put(cacheKey, '1', { expirationTtl: 86400 })
+
+  // If we indexed any posts, bump cache generations so feed caches pick up
+  // the new data. Use the firehose helper to bump global feeds + per-author
+  // families in a single batched D1 UPDATE.
+  if (totalPosts > 0) {
+    const authorRow = await env.DB.prepare(
+      'SELECT handle FROM authors WHERE did = ?'
+    ).bind(did).first<{ handle: string | null }>()
+    const handle = authorRow?.handle ?? null
+    await bumpFeedsForPostChange(env.DB, { handle })
+  }
 
   return totalPosts
 }
@@ -5264,6 +5269,9 @@ app.post('/xrpc/app.greengale.admin.backfillFirstImageCid', async (c) => {
     const body = await c.req.json().catch(() => ({})) as { limit?: number }
     const limit = Math.min(body.limit || 50, 200) // Max 200 per call
 
+    // Collect per-post OG cache families to bump in one batch at the end.
+    const ogFamilies: string[] = []
+
     // Get GreenGale posts without first_image_cid (don't require pds_endpoint - we'll fetch it)
     const posts = await c.env.DB.prepare(`
       SELECT p.uri, p.author_did, p.rkey, a.pds_endpoint, a.handle
@@ -5353,10 +5361,10 @@ app.post('/xrpc/app.greengale.admin.backfillFirstImageCid', async (c) => {
               'UPDATE posts SET first_image_cid = ? WHERE uri = ?'
             ).bind(firstCid, post.uri).run()
 
-            // Invalidate OG cache for this post
+            // Collect per-post OG cache family for batched bump.
             const handle = post.handle as string | null
             if (handle) {
-              await c.env.CACHE.delete(`og:${handle}:${rkey}`)
+              ogFamilies.push(`og:${handle}:${rkey}`)
             }
 
             updated++
@@ -5369,6 +5377,11 @@ app.post('/xrpc/app.greengale.admin.backfillFirstImageCid', async (c) => {
         failed++
         errors.push(`${post.uri}: ${err instanceof Error ? err.message : 'Unknown error'}`)
       }
+    }
+
+    // Bump all collected OG cache generations in one batched D1 UPDATE.
+    if (ogFamilies.length > 0) {
+      await bumpGenerations(c.env.DB, ogFamilies)
     }
 
     return c.json({
@@ -5542,12 +5555,10 @@ app.post('/xrpc/app.greengale.admin.backfillMissedPosts', async (c) => {
       }
     }
 
-    // Invalidate cache if we indexed anything
+    // Bump cache generations if we indexed anything (global feeds cover all
+    // feed/RSS caches that might reference the new posts).
     if (indexed > 0) {
-      await Promise.all([
-        c.env.CACHE.delete('recent_posts:24:'),
-        c.env.CACHE.delete('rss:recent'),
-      ])
+      await bumpGlobalFeeds(c.env.DB)
     }
 
     return c.json({
@@ -5719,9 +5730,9 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrls', async (c) => {
       }
     }
 
-    // Clear network posts cache if we updated anything
+    // Bump network posts cache generation if we updated anything.
     if (updated > 0) {
-      await c.env.CACHE.delete('network_posts:24:')
+      await bumpGeneration(c.env.DB, 'network_posts')
     }
 
     return c.json({
@@ -5818,11 +5829,11 @@ app.post('/xrpc/app.greengale.admin.backfillExternalUrlsFromStored', async (c) =
       updated++
     }
 
-    // Clear search cache (best effort)
+    // Bump network posts cache generation (best effort)
     try {
-      await c.env.CACHE.delete('network_posts:24:')
+      await bumpGeneration(c.env.DB, 'network_posts')
     } catch (e) {
-      console.log('Cache clear failed:', e)
+      console.log('Cache bump failed:', e)
     }
 
     return c.json({
@@ -5959,12 +5970,8 @@ app.post('/xrpc/app.greengale.admin.cleanupStalePosts', async (c) => {
         }
       }
 
-      // Clear caches
-      await Promise.all([
-        c.env.CACHE.delete('network_posts:24:'),
-        c.env.CACHE.delete('network_posts:50:'),
-        c.env.CACHE.delete('network_posts:100:'),
-      ])
+      // Bump network posts + global feed cache generations
+      await bumpGlobalFeeds(c.env.DB)
     }
 
     return c.json({
@@ -5994,13 +6001,14 @@ app.post('/xrpc/app.greengale.admin.backfillTags', async (c) => {
 
   try {
     // Get posts that don't have any tags in post_tags table yet
-    // Focus on greengale posts (which support tags in the lexicon)
+    // Focus on greengale posts (which support tags in the lexicon).
+    // Uses indexed `collection = 'app.greengale.document'` instead of LIKE scan.
     const posts = await c.env.DB.prepare(`
       SELECT p.uri, p.author_did, p.rkey, a.pds_endpoint
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN post_tags pt ON p.uri = pt.post_uri
-      WHERE p.uri LIKE '%/app.greengale.document/%'
+      WHERE p.collection = 'app.greengale.document'
         AND pt.post_uri IS NULL
       LIMIT ?
     `).bind(limit).all()
@@ -6063,38 +6071,37 @@ app.post('/xrpc/app.greengale.admin.backfillTags', async (c) => {
           continue
         }
 
-        // Insert tags into post_tags table
+        // Insert tags into post_tags table + denormalized posts.tags column.
         const insertStatements = normalizedTags.map(tag =>
           c.env.DB.prepare(
             'INSERT OR IGNORE INTO post_tags (post_uri, tag) VALUES (?, ?)'
           ).bind(uri, tag)
         )
+        // Update the denormalized tags column (comma-separated, deduped).
+        insertStatements.push(
+          c.env.DB.prepare('UPDATE posts SET tags = ? WHERE uri = ?')
+            .bind(normalizedTags.join(','), uri)
+        )
 
         await c.env.DB.batch(insertStatements)
         updated++
 
-        // Invalidate caches
-        await c.env.CACHE.delete(`popular_tags:20`)
-        await c.env.CACHE.delete(`popular_tags:50`)
-        await c.env.CACHE.delete(`popular_tags:100`)
+        // Bump popular tags + per-tag feed generations for the affected tags.
+        const tagFamilies = normalizedTags.map(t => `tag_posts:${t}`)
+        await bumpGenerations(c.env.DB, ['popular_tags', ...tagFamilies])
       } catch (e) {
         errors.push(`${uri}: ${e instanceof Error ? e.message : 'Unknown error'}`)
       }
     }
 
-    // Invalidate all feed caches since tags may have changed
-    // Clear common limit values for both feeds
-    const cacheKeysToDelete = [
-      'recent_posts:24:', 'recent_posts:50:', 'recent_posts:100:',
-      'network_posts:24:', 'network_posts:50:', 'network_posts:100:',
-    ]
-    await Promise.all(cacheKeysToDelete.map(key => c.env.CACHE.delete(key)))
+    // Bump all feed cache generations since tags may affect feed ordering.
+    await bumpGlobalFeeds(c.env.DB)
 
     return c.json({
       success: true,
       postsChecked: checked,
       postsUpdated: updated,
-      cacheCleared: cacheKeysToDelete.length,
+      cacheCleared: GLOBAL_FEED_FAMILIES.length,
       errors: errors.slice(0, 20),
     })
   } catch (error) {
@@ -6112,22 +6119,14 @@ app.post('/xrpc/app.greengale.admin.clearFeedCache', async (c) => {
   }
 
   try {
-    // Clear all common feed cache entries
-    // Note: KV doesn't support prefix-based deletion, so we clear known keys
-    const cacheKeysToDelete = [
-      // Recent posts (GreenGale)
-      'recent_posts:24:', 'recent_posts:50:', 'recent_posts:100:',
-      // Network posts (standard.site)
-      'network_posts:24:', 'network_posts:50:', 'network_posts:100:',
-      // Popular tags
-      'popular_tags:10', 'popular_tags:20', 'popular_tags:50', 'popular_tags:100',
-    ]
-
-    await Promise.all(cacheKeysToDelete.map(key => c.env.CACHE.delete(key)))
+    // Bump all global feed cache generations. This invalidates every cached
+    // feed key for these families (readers embed the new generation in their
+    // keys, so old keys become unreachable and expire via TTL).
+    await bumpGlobalFeeds(c.env.DB)
 
     return c.json({
       success: true,
-      keysCleared: cacheKeysToDelete,
+      familiesCleared: [...GLOBAL_FEED_FAMILIES],
     })
   } catch (error) {
     console.error('Error clearing feed cache:', error)
@@ -6213,19 +6212,13 @@ app.post('/xrpc/app.greengale.admin.cleanupDualPublishedDuplicates', async (c) =
       console.log('Error deleting embeddings (may not exist):', e)
     }
 
-    // Clear feed caches (non-critical, don't fail if rate limited)
+    // Bump feed cache generations (non-critical, don't fail if it errors)
     let cacheCleared = false
     try {
-      await Promise.all([
-        c.env.CACHE.delete('recent_posts:12:'),
-        c.env.CACHE.delete('recent_posts:24:'),
-        c.env.CACHE.delete('recent_posts:50:'),
-        c.env.CACHE.delete('recent_posts:100:'),
-        c.env.CACHE.delete('rss:recent'),
-      ])
+      await bumpGlobalFeeds(c.env.DB)
       cacheCleared = true
     } catch (e) {
-      console.log('Cache clear failed (rate limited), will expire naturally:', e)
+      console.log('Cache bump failed, will expire naturally:', e)
     }
 
     return c.json({
@@ -6330,13 +6323,9 @@ app.post('/xrpc/app.greengale.admin.fixCorruptedDates', async (c) => {
       }
     }
 
-    // Clear caches if we fixed anything
+    // Bump feed cache generations if we fixed anything (date changes affect ordering)
     if (fixed > 0) {
-      await Promise.all([
-        c.env.CACHE.delete('network_posts:24:'),
-        c.env.CACHE.delete('network_posts:50:'),
-        c.env.CACHE.delete('network_posts:100:'),
-      ])
+      await bumpGlobalFeeds(c.env.DB)
     }
 
     return c.json({
@@ -6793,21 +6782,14 @@ app.post('/xrpc/app.greengale.admin.backfillAuthor', async (c) => {
     // Invalidate cache if we indexed anything
     const totalIndexed = results.reduce((sum, r) => sum + r.newlyIndexed, 0)
     if (totalIndexed > 0 && !dryRun) {
-      // Get author's handle for RSS cache invalidation
+      // Get author's handle for per-author RSS cache invalidation
       const authorRow = await c.env.DB.prepare(
         'SELECT handle FROM authors WHERE did = ?'
       ).bind(did).first()
       const authorHandle = authorRow?.handle as string | undefined
 
-      await Promise.all([
-        c.env.CACHE.delete('recent_posts:12:'),
-        c.env.CACHE.delete('recent_posts:24:'),
-        c.env.CACHE.delete('recent_posts:50:'),
-        c.env.CACHE.delete('recent_posts:100:'),
-        // Invalidate RSS feeds
-        c.env.CACHE.delete('rss:recent'),
-        authorHandle ? c.env.CACHE.delete(`rss:author:${authorHandle}`) : Promise.resolve(),
-      ])
+      // Bump global feed generations + per-author RSS in one batched UPDATE.
+      await bumpFeedsForPostChange(c.env.DB, { handle: authorHandle })
     }
 
     // Summary
@@ -7057,16 +7039,10 @@ app.post('/xrpc/app.greengale.admin.discoverWhiteWindAuthors', async (c) => {
       }
     }
 
-    // Invalidate cache if we indexed anything
+    // Bump cache generations if we indexed anything
     const totalIndexed = results.reduce((sum, r) => sum + r.postsIndexed, 0)
     if (totalIndexed > 0 && !dryRun) {
-      await Promise.all([
-        c.env.CACHE.delete('recent_posts:12:'),
-        c.env.CACHE.delete('recent_posts:24:'),
-        c.env.CACHE.delete('recent_posts:50:'),
-        c.env.CACHE.delete('recent_posts:100:'),
-        c.env.CACHE.delete('rss:recent'),
-      ])
+      await bumpGlobalFeeds(c.env.DB)
     }
 
     return c.json({
@@ -7597,6 +7573,11 @@ async function runReconciliation(
     let verified = 0
     let softDeleted = 0
 
+    // Collect DB UPDATEs to run as a single batch after the loop (cuts D1
+    // round-trips from N down to 1 for the common verify case).
+    const verifiedUris: string[] = []
+    const softDeletedUris: string[] = []
+
     for (const post of stalePosts.results || []) {
       const uri = post.uri as string
       const did = post.author_did as string
@@ -7621,27 +7602,39 @@ async function runReconciliation(
         const response = await fetch(recordUrl)
 
         if (response.status === 404) {
-          // Post deleted from PDS - soft delete and remove embedding
-          await env.DB.prepare(
-            'UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?'
-          ).bind(uri).run()
-
+          // Post deleted from PDS - queue soft-delete UPDATE; delete
+          // embeddings inline (Vectorize call can't be batched with D1).
+          softDeletedUris.push(uri)
           if (hasEmbedding === 1) {
             const { deletePostEmbeddings } = await import('../lib/embeddings')
             await deletePostEmbeddings(env.VECTORIZE, uri)
           }
           softDeleted++
         } else if (response.ok) {
-          // Post still exists - update verified timestamp
-          await env.DB.prepare(
-            'UPDATE posts SET last_verified_at = datetime("now") WHERE uri = ?'
-          ).bind(uri).run()
+          // Post still exists - queue verified-timestamp UPDATE.
+          verifiedUris.push(uri)
           verified++
         }
         // If 5xx or timeout, skip - will retry next run
       } catch (err) {
         console.error(`Reconciliation error for ${uri}:`, err)
       }
+    }
+
+    // Batch all collected D1 UPDATEs into a single round-trip.
+    const batchStatements: D1PreparedStatement[] = []
+    for (const uri of verifiedUris) {
+      batchStatements.push(
+        env.DB.prepare('UPDATE posts SET last_verified_at = datetime("now") WHERE uri = ?').bind(uri)
+      )
+    }
+    for (const uri of softDeletedUris) {
+      batchStatements.push(
+        env.DB.prepare('UPDATE posts SET deleted_at = datetime("now"), has_embedding = 0 WHERE uri = ?').bind(uri)
+      )
+    }
+    if (batchStatements.length > 0) {
+      await env.DB.batch(batchStatements)
     }
 
     // 3. Hard delete posts that have been soft-deleted for over 30 days
@@ -8550,20 +8543,8 @@ app.post('/xrpc/app.greengale.admin.cleanupBlockedDomains', async (c) => {
       authorsDeleted = authors.meta.changes || 0
     }
 
-    // Clear caches
-    await Promise.all([
-      c.env.CACHE.delete('recent_posts:12:'),
-      c.env.CACHE.delete('recent_posts:24:'),
-      c.env.CACHE.delete('recent_posts:50:'),
-      c.env.CACHE.delete('recent_posts:100:'),
-      c.env.CACHE.delete('network_posts:v3:24:'),
-      c.env.CACHE.delete('network_posts:v3:50:'),
-      c.env.CACHE.delete('network_posts:v3:100:'),
-      c.env.CACHE.delete('rss:recent'),
-      c.env.CACHE.delete('popular_tags:20'),
-      c.env.CACHE.delete('popular_tags:50'),
-      c.env.CACHE.delete('popular_tags:100'),
-    ])
+    // Bump all global feed cache generations (clears recent/network/tags/RSS).
+    await bumpGlobalFeeds(c.env.DB)
 
     // Check remaining
     const remainingHandle = await c.env.DB.prepare(
@@ -8712,20 +8693,8 @@ app.post('/xrpc/app.greengale.admin.cleanupSpamPosts', async (c) => {
       )`
     ).bind(limit).run()
 
-    // Clear caches
-    await Promise.all([
-      c.env.CACHE.delete('recent_posts:12:'),
-      c.env.CACHE.delete('recent_posts:24:'),
-      c.env.CACHE.delete('recent_posts:50:'),
-      c.env.CACHE.delete('recent_posts:100:'),
-      c.env.CACHE.delete('network_posts:v3:24:'),
-      c.env.CACHE.delete('network_posts:v3:50:'),
-      c.env.CACHE.delete('network_posts:v3:100:'),
-      c.env.CACHE.delete('rss:recent'),
-      c.env.CACHE.delete('popular_tags:20'),
-      c.env.CACHE.delete('popular_tags:50'),
-      c.env.CACHE.delete('popular_tags:100'),
-    ])
+    // Bump all global feed cache generations (clears recent/network/tags/RSS).
+    await bumpGlobalFeeds(c.env.DB)
 
     // Check remaining
     const remainingNoHandle = await c.env.DB.prepare(

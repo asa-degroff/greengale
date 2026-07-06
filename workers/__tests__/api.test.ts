@@ -39,6 +39,8 @@ function createMockD1() {
 
   return {
     prepare: vi.fn().mockReturnValue(mockStatement),
+    // batch() runs an array of prepared statements; return success for each.
+    batch: vi.fn().mockResolvedValue([{ success: true }]),
     _statement: mockStatement,
   }
 }
@@ -477,7 +479,10 @@ describe('API Endpoints', () => {
       const data = await res.json()
 
       expect(data.posts[0].uri).toBe('cached')
-      expect(env.DB.prepare).not.toHaveBeenCalled()
+      // Cache hit: only the cache-generation lookup should touch D1, not the feed query.
+      for (const call of env.DB.prepare.mock.calls) {
+        expect(call[0]).toContain('cache_generations')
+      }
     })
 
     it('caches response after fetching from DB', async () => {
@@ -486,7 +491,7 @@ describe('API Endpoints', () => {
       await makeRequest(env, '/xrpc/app.greengale.feed.getRecentPosts')
 
       expect(env.CACHE.put).toHaveBeenCalledWith(
-        'recent_posts:50:',
+        expect.stringContaining('recent_posts:50:'),
         expect.any(String),
         expect.objectContaining({ expirationTtl: 1800 })
       )
@@ -499,7 +504,10 @@ describe('API Endpoints', () => {
 
       // Verify the query uses a CTE with ROW_NUMBER to limit per-author posts
       expect(env.DB.prepare).toHaveBeenCalled()
-      const query = env.DB.prepare.mock.calls[0][0]
+      // Find the feed query (skipping the cache-generation lookup).
+      const query = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('WITH ranked_posts AS'))
       expect(query).toContain('WITH ranked_posts AS')
       expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank')
       expect(query).toContain('WHERE author_rank <= 3')
@@ -639,7 +647,10 @@ describe('API Endpoints', () => {
       const data = await res.json()
 
       expect(data.posts[0].uri).toBe('cached-network')
-      expect(env.DB.prepare).not.toHaveBeenCalled()
+      // Cache hit: only the cache-generation lookup should touch D1, not the feed query.
+      for (const call of env.DB.prepare.mock.calls) {
+        expect(call[0]).toContain('cache_generations')
+      }
     })
 
     it('caches response after fetching from DB', async () => {
@@ -648,7 +659,7 @@ describe('API Endpoints', () => {
       await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
 
       expect(env.CACHE.put).toHaveBeenCalledWith(
-        'network_posts:v3:50:',
+        expect.stringContaining('network_posts:50:'),
         expect.any(String),
         expect.objectContaining({ expirationTtl: 1800 })
       )
@@ -659,8 +670,11 @@ describe('API Endpoints', () => {
 
       await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
 
-      const query = env.DB.prepare.mock.calls[0][0]
-      expect(query).toContain("p.uri LIKE '%/site.standard.document/%'")
+      // Find the feed query (skipping the cache-generation lookup).
+      const feedQuery = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('p.collection'))
+      expect(feedQuery).toContain("p.collection = 'site.standard.document'")
     })
 
     it('excludes posts with null external_url', async () => {
@@ -668,8 +682,11 @@ describe('API Endpoints', () => {
 
       await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
 
-      const query = env.DB.prepare.mock.calls[0][0]
-      expect(query).toContain('p.external_url IS NOT NULL')
+      // Find the feed query (skipping the cache-generation lookup).
+      const feedQuery = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('p.external_url'))
+      expect(feedQuery).toContain('p.external_url IS NOT NULL')
     })
 
     it('excludes dual-published GreenGale posts', async () => {
@@ -677,9 +694,11 @@ describe('API Endpoints', () => {
 
       await makeRequest(env, '/xrpc/app.greengale.feed.getNetworkPosts')
 
-      const query = env.DB.prepare.mock.calls[0][0]
-      expect(query).toContain('NOT EXISTS')
-      expect(query).toContain('app.greengale.document')
+      const feedQuery = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('NOT EXISTS'))
+      expect(feedQuery).toContain('NOT EXISTS')
+      expect(feedQuery).toContain('app.greengale.document')
     })
 
     it('returns 500 on database error', async () => {
@@ -864,12 +883,13 @@ describe('API Endpoints', () => {
     })
 
     it('uses cached feed results when available', async () => {
-      // Set up cached feed results
+      // Set up cached feed results (under the generation-keyed cache key;
+      // getGeneration falls back to 1 when cache_generations has no row).
       const cachedResponse = {
         posts: [{ uri: 'at://cached', title: 'Cached Post' }],
         cursor: 'cachedCursor',
       }
-      await env.CACHE.put('following:feed:did:plc:viewer123:50:', JSON.stringify(cachedResponse))
+      await env.CACHE.put('following:feed:did:plc:viewer123:50::1', JSON.stringify(cachedResponse))
 
       const res = await makeRequest(env, '/xrpc/app.greengale.feed.getFollowingPosts?viewer=did:plc:viewer123')
       expect(res.status).toBe(200)
@@ -878,8 +898,10 @@ describe('API Endpoints', () => {
       expect(data.posts).toEqual(cachedResponse.posts)
       expect(data.cursor).toBe('cachedCursor')
 
-      // Should NOT have called DB (cache hit)
-      expect(env.DB.prepare).not.toHaveBeenCalled()
+      // Cache hit: only the cache-generation lookup should touch D1, not the feed query.
+      for (const call of env.DB.prepare.mock.calls) {
+        expect(call[0]).toContain('cache_generations')
+      }
     })
 
     it('limits posts per author to 3', async () => {
@@ -903,7 +925,10 @@ describe('API Endpoints', () => {
 
       // Check that the query uses window function to limit per-author posts
       expect(env.DB.prepare).toHaveBeenCalled()
-      const query = env.DB.prepare.mock.calls[1][0]
+      // Find the feed query (skipping cache-generation + following-DID lookups).
+      const query = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('ROW_NUMBER()'))
       expect(query).toContain('ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank')
       expect(query).toContain('WHERE author_rank <= 3')
     })
@@ -1211,10 +1236,8 @@ describe('API Endpoints', () => {
       // Should NOT use the simple exclusion
       expect(query).not.toContain("p.uri NOT LIKE '%/site.standard.document/%'")
       // Should use deduplication: exclude site.standard.document posts that have a primary version
-      expect(query).toContain("p.uri LIKE '%/site.standard.document/%'")
-      expect(query).toContain("gg.uri LIKE '%/app.greengale.document/%'")
-      expect(query).toContain("gg.uri LIKE '%/app.greengale.blog.entry/%'")
-      expect(query).toContain("gg.uri LIKE '%/com.whtwnd.blog.entry/%'")
+      expect(query).toContain("p.collection = 'site.standard.document'")
+      expect(query).toContain("gg.collection IN ('app.greengale.blog.entry', 'app.greengale.document', 'com.whtwnd.blog.entry')")
       // Should exclude site.standard posts without an external URL
       expect(query).toContain("p.external_url IS NULL")
     })
@@ -2338,7 +2361,8 @@ describe('API Endpoints', () => {
         const data = await res.json()
         expect(data.success).toBe(true)
         expect(data.cacheKey).toBe('og:test.bsky.social:abc123')
-        expect(env.CACHE.delete).toHaveBeenCalledWith('og:test.bsky.social:abc123')
+        // Generation-based invalidation: a D1 write is issued (no KV delete).
+        expect(env.DB._statement.run).toHaveBeenCalled()
       })
 
       it('invalidates profile OG cache', async () => {
@@ -2520,9 +2544,11 @@ describe('API Endpoints', () => {
     })
 
     it('uses post theme when available', async () => {
-      // First query: resolve handle to DID
+      // First query: cache-generation lookup (returns gen=1)
+      env.DB._statement.first.mockResolvedValueOnce({ gen: 1 })
+      // Second query: resolve handle to DID
       env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
-      // Second query: get post with theme_preset
+      // Third query: get post with theme_preset
       env.DB._statement.first.mockResolvedValueOnce({
         uri: 'at://did:plc:abc/app.greengale.document/123',
         title: 'Test Post',
@@ -2535,7 +2561,7 @@ describe('API Endpoints', () => {
         avatar_url: null,
         pds_endpoint: null,
       })
-      // Third query: get tags
+      // Fourth query: get tags
       env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
       mockGenerateOGImage.mockClear()
@@ -2550,7 +2576,9 @@ describe('API Endpoints', () => {
     })
 
     it('falls back to publication theme when post has no theme', async () => {
-      // First query: resolve handle to DID
+      // First query: cache-generation lookup
+      env.DB._statement.first.mockResolvedValueOnce({ gen: 1 })
+      // Second query: resolve handle to DID
       env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
       // Second query: get post without theme_preset but with publication_theme_preset
       env.DB._statement.first.mockResolvedValueOnce({
@@ -2582,7 +2610,9 @@ describe('API Endpoints', () => {
     it('falls back to publication custom colors when post has no theme', async () => {
       const customColors = { background: '#1a1a2e', text: '#ffffff', accent: '#e94560' }
 
-      // First query: resolve handle to DID
+      // First query: cache-generation lookup
+      env.DB._statement.first.mockResolvedValueOnce({ gen: 1 })
+      // Second query: resolve handle to DID
       env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
       // Second query: get post without theme_preset but with publication custom colors
       env.DB._statement.first.mockResolvedValueOnce({
@@ -2612,7 +2642,9 @@ describe('API Endpoints', () => {
     })
 
     it('uses default theme when neither post nor publication has theme', async () => {
-      // First query: resolve handle to DID
+      // First query: cache-generation lookup
+      env.DB._statement.first.mockResolvedValueOnce({ gen: 1 })
+      // Second query: resolve handle to DID
       env.DB._statement.first.mockResolvedValueOnce({ did: 'did:plc:abc' })
       // Second query: get post without any theme
       env.DB._statement.first.mockResolvedValueOnce({
@@ -2747,9 +2779,12 @@ describe('API Endpoints', () => {
 
       await makeRequest(env, '/xrpc/app.greengale.feed.getPostsByTag?tag=test')
 
-      const query = env.DB.prepare.mock.calls[0][0]
-      expect(query).toContain("p.visibility = 'public'")
-      expect(query).toContain("p.uri NOT LIKE '%/site.standard.document/%'")
+      // Find the feed query (skipping the cache-generation lookup).
+      const feedQuery = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('p.visibility'))
+      expect(feedQuery).toContain("p.visibility = 'public'")
+      expect(feedQuery).toContain("p.collection IS NULL OR p.collection != 'site.standard.document'")
     })
 
     it('caches response for 5 minutes', async () => {
@@ -2772,7 +2807,10 @@ describe('API Endpoints', () => {
       const data = await res.json()
 
       expect(data.posts[0].uri).toBe('cached')
-      expect(env.DB.prepare).not.toHaveBeenCalled()
+      // Cache hit: only the cache-generation lookup should touch D1, not the feed query.
+      for (const call of env.DB.prepare.mock.calls) {
+        expect(call[0]).toContain('cache_generations')
+      }
     })
   })
 
@@ -2834,9 +2872,12 @@ describe('API Endpoints', () => {
 
       await makeRequest(env, '/xrpc/app.greengale.feed.getPopularTags')
 
-      const query = env.DB.prepare.mock.calls[0][0]
-      expect(query).toContain("p.visibility = 'public'")
-      expect(query).toContain("p.uri NOT LIKE '%/site.standard.document/%'")
+      // Find the feed query (skipping the cache-generation lookup).
+      const feedQuery = env.DB.prepare.mock.calls
+        .map(c => c[0] as string)
+        .find(q => q.includes('p.visibility'))
+      expect(feedQuery).toContain("p.visibility = 'public'")
+      expect(feedQuery).toContain("p.collection IS NULL OR p.collection != 'site.standard.document'")
     })
 
     it('caches response for 30 minutes', async () => {
@@ -2859,7 +2900,10 @@ describe('API Endpoints', () => {
       const data = await res.json()
 
       expect(data.tags[0].tag).toBe('cached')
-      expect(env.DB.prepare).not.toHaveBeenCalled()
+      // Cache hit: only the cache-generation lookup should touch D1, not the feed query.
+      for (const call of env.DB.prepare.mock.calls) {
+        expect(call[0]).toContain('cache_generations')
+      }
     })
   })
 
@@ -2914,18 +2958,15 @@ describe('API Endpoints', () => {
         rkey: 'xyz',
         title: 'Test Post',
         visibility: 'public',
+        tags: 'announcement,featured',
       }
-      // Mock post query
+      // Mock post query (tags now read from denormalized posts.tags column)
       env.DB._statement.first.mockResolvedValueOnce(mockPost)
-      // Mock tags query
-      env.DB._statement.all.mockResolvedValueOnce({
-        results: [{ tag: 'featured' }, { tag: 'announcement' }]
-      })
 
       const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
       const data = await res.json()
 
-      expect(data.post.tags).toEqual(['featured', 'announcement'])
+      expect(data.post.tags).toEqual(['announcement', 'featured'])
     })
 
     it('returns undefined when post has no tags', async () => {
@@ -2936,10 +2977,8 @@ describe('API Endpoints', () => {
         title: 'Test Post',
         visibility: 'public',
       }
-      // Mock post query
+      // Mock post query (no tags column → tags undefined in response)
       env.DB._statement.first.mockResolvedValueOnce(mockPost)
-      // Mock empty tags query
-      env.DB._statement.all.mockResolvedValueOnce({ results: [] })
 
       const res = await makeRequest(env, '/xrpc/app.greengale.feed.getPost?author=did:plc:abc&rkey=xyz')
       const data = await res.json()

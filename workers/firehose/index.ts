@@ -17,6 +17,12 @@ import {
   extractLeafletContent,
   isLeafletContent,
 } from '../lib/leaflet-parser'
+import {
+  bumpGlobalFeeds,
+  bumpFeedsForPostChange,
+  bumpForPublicationChange,
+  bumpGeneration,
+} from '../lib/cache'
 // Re-export pure utility functions from firehose-utils for backwards compatibility
 export {
   SENSITIVE_LABELS,
@@ -690,42 +696,21 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      // Phase 2: Invalidate cache BEFORE DB write to prevent stale data
-      // Note: Homepage uses limit=24, so we must include that key
-      const cacheInvalidations = [
-        this.env.CACHE.delete('recent_posts:12:'),
-        this.env.CACHE.delete('recent_posts:24:'),
-        this.env.CACHE.delete('recent_posts:50:'),
-        this.env.CACHE.delete('recent_posts:100:'),
-        // Invalidate popular tags cache when posts change
-        this.env.CACHE.delete('popular_tags:20'),
-        this.env.CACHE.delete('popular_tags:50'),
-        this.env.CACHE.delete('popular_tags:100'),
-        // Invalidate RSS feeds
-        this.env.CACHE.delete('rss:recent'),
-        // Invalidate network posts cache (site.standard.document posts)
-        this.env.CACHE.delete('network_posts:v3:24:'),
-        this.env.CACHE.delete('network_posts:v3:50:'),
-        this.env.CACHE.delete('network_posts:v3:100:'),
-      ]
-      // Invalidate tag-specific caches for each tag
-      for (const tag of tags) {
-        cacheInvalidations.push(this.env.CACHE.delete(`tag_posts:${tag}:50:`))
-      }
-      // Invalidate author's RSS feed if we have their handle
-      if (authorData?.handle) {
-        cacheInvalidations.push(this.env.CACHE.delete(`rss:author:${authorData.handle}`))
-      }
-      await Promise.all(cacheInvalidations)
+      // Phase 2: Bump cache generation keys (replaces ~12 blind KV deletes).
+      // Each bumped family is a single D1 UPDATE; readers embed the new
+      // generation in their KV keys so old entries become unreachable.
+      // We bump global feeds here; per-author / per-tag / per-post OG families
+      // are bumped after the DB batch once we know the post's tags + handle.
+      await bumpGlobalFeeds(this.env.DB)
 
       // Phase 3: Atomic database batch - all operations succeed or all roll back
       const statements: D1PreparedStatement[] = []
 
-      // Statement 1: Upsert post
+      // Statement 1: Upsert post (now includes collection + denormalized tags)
       statements.push(
         this.env.DB.prepare(`
-          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri, external_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, content_preview, has_latex, theme_preset, first_image_cid, url, path, site_uri, external_url, collection, tags)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(uri) DO UPDATE SET
             title = excluded.title,
             subtitle = excluded.subtitle,
@@ -739,11 +724,15 @@ export class FirehoseConsumer extends DurableObject<Env> {
             path = excluded.path,
             site_uri = excluded.site_uri,
             external_url = excluded.external_url,
+            collection = excluded.collection,
+            tags = excluded.tags,
             indexed_at = datetime('now')
         `).bind(
           uri, did, rkey, title, subtitle, slug, source, visibility,
           createdAt, contentPreview, hasLatex ? 1 : 0, themePreset, firstImageCid,
-          documentUrl, documentPath, siteUri, externalUrl
+          documentUrl, documentPath, siteUri, externalUrl,
+          collection || null,
+          tags.length > 0 ? tags.join(',') : null
         )
       )
 
@@ -807,9 +796,14 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Execute all statements atomically
       await this.env.DB.batch(statements)
 
-      // Phase 4: Invalidate OG image cache (after batch, needs author handle)
+      // Phase 4: Bump per-author / per-tag / per-post OG cache families.
+      // This is a single batched D1 UPDATE across all the affected families.
       // Note: authorData.handle is guaranteed to exist here (we return early if missing)
-      await this.env.CACHE.delete(`og:${authorData.handle}:${rkey}`)
+      await bumpFeedsForPostChange(this.env.DB, {
+        handle: authorData.handle,
+        tags,
+        rkey,
+      })
 
       console.log(`Indexed ${source} post: ${uri}`)
 
@@ -874,31 +868,13 @@ export class FirehoseConsumer extends DurableObject<Env> {
       ).bind(uri).all()
       const postTags = (tagsResult.results || []).map(r => r.tag as string)
 
-      // Phase 1: Invalidate cache BEFORE DB write to prevent stale data
-      // Note: Homepage uses limit=24, so we must include that key
-      const cacheInvalidations = [
-        this.env.CACHE.delete('recent_posts:12:'),
-        this.env.CACHE.delete('recent_posts:24:'),
-        this.env.CACHE.delete('recent_posts:50:'),
-        this.env.CACHE.delete('recent_posts:100:'),
-        handle ? this.env.CACHE.delete(`og:${handle}:${rkey}`) : Promise.resolve(),
-        // Invalidate popular tags cache when posts are deleted
-        this.env.CACHE.delete('popular_tags:20'),
-        this.env.CACHE.delete('popular_tags:50'),
-        this.env.CACHE.delete('popular_tags:100'),
-        // Invalidate RSS feeds
-        this.env.CACHE.delete('rss:recent'),
-        handle ? this.env.CACHE.delete(`rss:author:${handle}`) : Promise.resolve(),
-        // Invalidate network posts cache (site.standard.document posts)
-        this.env.CACHE.delete('network_posts:v3:24:'),
-        this.env.CACHE.delete('network_posts:v3:50:'),
-        this.env.CACHE.delete('network_posts:v3:100:'),
-      ]
-      // Invalidate tag-specific caches for each tag
-      for (const tag of postTags) {
-        cacheInvalidations.push(this.env.CACHE.delete(`tag_posts:${tag}:50:`))
-      }
-      await Promise.all(cacheInvalidations)
+      // Phase 1: Bump cache generation keys (replaces ~12 blind KV deletes).
+      // Per-author / per-tag / per-post OG families are bumped in one batch.
+      await bumpFeedsForPostChange(this.env.DB, {
+        handle,
+        tags: postTags,
+        rkey,
+      })
 
       // Phase 2: Atomic database batch - delete post AND update count together
       await this.env.DB.batch([
@@ -1161,32 +1137,18 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      // Phase 2: Invalidate caches BEFORE DB write
-      // Invalidate OG images, feed caches, and RSS (since publication changes affect avatar in all feeds)
+      // Phase 2: Bump cache generation keys (replaces per-post KV deletes).
+      // A publication change affects the author's avatar/theme everywhere it's
+      // denormalized (global feeds, author RSS, profile OG, and every post's
+      // OG image). Fetching all rkeys is still needed to enumerate per-post OG
+      // families, but each is now a single batched D1 UPDATE rather than a
+      // KV delete per post.
       if (authorData?.handle) {
-        const cacheInvalidations: Promise<boolean>[] = [
-          this.env.CACHE.delete(`og:profile:${authorData.handle}`),
-          // Feed caches (avatar is embedded in cached responses)
-          this.env.CACHE.delete('recent_posts:12:'),
-          this.env.CACHE.delete('recent_posts:24:'),
-          this.env.CACHE.delete('recent_posts:50:'),
-          this.env.CACHE.delete('recent_posts:100:'),
-          // RSS caches
-          this.env.CACHE.delete('rss:recent'),
-          this.env.CACHE.delete(`rss:author:${authorData.handle}`),
-        ]
-
-        // Get all rkeys for this author's posts to invalidate their OG images
         const postsResult = await this.env.DB.prepare(
           'SELECT rkey FROM posts WHERE author_did = ?'
         ).bind(did).all()
-        for (const row of postsResult.results || []) {
-          cacheInvalidations.push(
-            this.env.CACHE.delete(`og:${authorData.handle}:${row.rkey}`)
-          )
-        }
-
-        await Promise.all(cacheInvalidations)
+        const rkeys = (postsResult.results || []).map(r => r.rkey as string)
+        await bumpForPublicationChange(this.env.DB, authorData.handle, rkeys)
       }
 
       // Phase 3: Atomic database batch
@@ -1356,9 +1318,9 @@ export class FirehoseConsumer extends DurableObject<Env> {
       ).bind(did).first()
       const handle = authorRow?.handle as string | undefined
 
-      // Phase 1: Invalidate OG cache BEFORE DB write
+      // Phase 1: Bump OG profile cache generation (replaces KV delete)
       if (handle) {
-        await this.env.CACHE.delete(`og:profile:${handle}`)
+        await bumpGeneration(this.env.DB, `og:profile:${handle}`)
       }
 
       // Phase 2: Delete publication
