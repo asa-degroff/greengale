@@ -34,6 +34,23 @@ export const GLOBAL_FEED_FAMILIES = [
 ] as const
 
 /**
+ * A site.standard.document only appears in the network, subscription, and
+ * following feeds. It must not invalidate native-only surfaces such as the
+ * homepage, RSS, tags, or sitemap.
+ */
+export const SITE_STANDARD_FEED_FAMILIES = [
+  'network_posts',
+  'subscriptions',
+  'following:feed',
+] as const
+
+export function getFeedFamiliesForCollection(collection?: string | null): string[] {
+  return collection === 'site.standard.document'
+    ? [...SITE_STANDARD_FEED_FAMILIES]
+    : [...GLOBAL_FEED_FAMILIES]
+}
+
+/**
  * Bump (increment) the generation for a single cache family.
  * Creates the row if it doesn't exist yet (defaults to gen=1, then bumps to 2).
  */
@@ -126,14 +143,23 @@ export async function bumpGlobalFeedsAndAuthors(
  */
 export async function bumpFeedsForPostChange(
   db: D1Database,
-  opts: { handle?: string | null; tags?: string[]; rkey?: string | null }
+  opts: {
+    collection?: string | null
+    handle?: string | null
+    tags?: string[]
+    rkey?: string | null
+  }
 ): Promise<void> {
-  const families = new Set<string>(GLOBAL_FEED_FAMILIES)
-  if (opts.handle) {
+  const isSiteStandard = opts.collection === 'site.standard.document'
+  const families = new Set<string>(getFeedFamiliesForCollection(opts.collection))
+
+  // Author RSS, GreenGale OG images, and tag feeds intentionally exclude
+  // site.standard.document records.
+  if (!isSiteStandard && opts.handle) {
     families.add(`rss:author:${opts.handle}`)
     if (opts.rkey) families.add(`og:${opts.handle}:${opts.rkey}`)
   }
-  if (opts.tags) {
+  if (!isSiteStandard && opts.tags) {
     for (const tag of opts.tags) {
       families.add(`tag_posts:${tag}`)
     }

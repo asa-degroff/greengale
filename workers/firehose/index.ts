@@ -18,11 +18,15 @@ import {
   isLeafletContent,
 } from '../lib/leaflet-parser'
 import {
-  bumpGlobalFeeds,
   bumpFeedsForPostChange,
   bumpForPublicationChange,
   bumpGeneration,
 } from '../lib/cache'
+import {
+  SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+  publicPostCountDelta,
+  shouldRetainSiteStandardPost,
+} from '../lib/archive-policy'
 // Re-export pure utility functions from firehose-utils for backwards compatibility
 export {
   SENSITIVE_LABELS,
@@ -527,6 +531,56 @@ export class FirehoseConsumer extends DurableObject<Env> {
         ? (record?.publishedAt as string) || null
         : (record?.createdAt as string) || null
 
+      // Read the pre-write state once. This powers transition-aware author
+      // counts and preserves the previous embedding state across an upsert.
+      const existingPost = await this.env.DB.prepare(
+        'SELECT visibility, has_embedding FROM posts WHERE uri = ?'
+      ).bind(uri).first<{ visibility: string | null; has_embedding: number | null }>()
+
+      // Keep only the newest N external documents per author. A new record
+      // outside the retained window is ignored before any profile/publication
+      // network work. When a newer record enters a full window, evict one
+      // oldest record atomically with the insert.
+      let evictedPost: {
+        uri: string
+        visibility: string | null
+        has_embedding: number | null
+      } | null = null
+      if (isSiteStandardDocument && !existingPost) {
+        const boundary = await this.env.DB.prepare(`
+          SELECT uri, created_at
+          FROM posts INDEXED BY idx_posts_site_standard_retention
+          WHERE author_did = ? AND collection = 'site.standard.document'
+          ORDER BY created_at DESC, uri DESC
+          LIMIT 1 OFFSET ?
+        `).bind(did, SITE_STANDARD_POST_LIMIT_PER_AUTHOR - 1).first<{
+          uri: string
+          created_at: string | null
+        }>()
+
+        if (!shouldRetainSiteStandardPost(
+          { uri, createdAt },
+          boundary ? { uri: boundary.uri, createdAt: boundary.created_at } : null
+        )) {
+          console.log(`Skipping site.standard archive record outside retained window: ${uri}`)
+          return
+        }
+
+        if (boundary) {
+          evictedPost = await this.env.DB.prepare(`
+            SELECT uri, visibility, has_embedding
+            FROM posts INDEXED BY idx_posts_site_standard_retention
+            WHERE author_did = ? AND collection = 'site.standard.document'
+            ORDER BY created_at ASC, uri ASC
+            LIMIT 1
+          `).bind(did).first<{
+            uri: string
+            visibility: string | null
+            has_embedding: number | null
+          }>() ?? null
+        }
+      }
+
       // Extract V2-specific fields (site.standard uses 'site' AT-URI instead of 'url')
       const documentUrl = isV2Document ? (record?.url as string) || null : null
       const documentPath = (isV2Document || isSiteStandardDocument) ? (record?.path as string) || null : null
@@ -696,15 +750,15 @@ export class FirehoseConsumer extends DurableObject<Env> {
         }
       }
 
-      // Phase 2: Bump cache generation keys (replaces ~12 blind KV deletes).
-      // Each bumped family is a single D1 UPDATE; readers embed the new
-      // generation in their KV keys so old entries become unreachable.
-      // We bump global feeds here; per-author / per-tag / per-post OG families
-      // are bumped after the DB batch once we know the post's tags + handle.
-      await bumpGlobalFeeds(this.env.DB)
-
-      // Phase 3: Atomic database batch - all operations succeed or all roll back
+      // Phase 2: Atomic database batch - all operations succeed or all roll back
       const statements: D1PreparedStatement[] = []
+
+      if (evictedPost) {
+        statements.push(
+          this.env.DB.prepare('DELETE FROM post_tags WHERE post_uri = ?').bind(evictedPost.uri),
+          this.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(evictedPost.uri),
+        )
+      }
 
       // Statement 1: Upsert post (now includes collection + denormalized tags)
       statements.push(
@@ -769,15 +823,23 @@ export class FirehoseConsumer extends DurableObject<Env> {
         )
       }
 
-      // Statement 3: Update author post count
-      statements.push(
-        this.env.DB.prepare(`
-          UPDATE authors SET posts_count = (
-            SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
-          ), updated_at = datetime('now')
-          WHERE did = ?
-        `).bind(did, did)
+      // Statement 3: Adjust the cached public-post count for the actual state
+      // transition instead of recounting every post owned by the author.
+      const postCountDelta = publicPostCountDelta(
+        existingPost?.visibility,
+        visibility,
+        evictedPost?.visibility
       )
+      if (postCountDelta !== 0) {
+        statements.push(
+          this.env.DB.prepare(`
+            UPDATE authors
+            SET posts_count = MAX(0, COALESCE(posts_count, 0) + ?),
+                updated_at = datetime('now')
+            WHERE did = ?
+          `).bind(postCountDelta, did)
+        )
+      }
 
       // Statement 4: Delete old tags for this post
       statements.push(
@@ -796,22 +858,24 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Execute all statements atomically
       await this.env.DB.batch(statements)
 
-      // Phase 4: Bump per-author / per-tag / per-post OG cache families.
-      // This is a single batched D1 UPDATE across all the affected families.
-      // Note: authorData.handle is guaranteed to exist here (we return early if missing)
+      // Phase 3: Bump each affected cache family exactly once. External
+      // site.standard records only invalidate network/subscription feeds.
       await bumpFeedsForPostChange(this.env.DB, {
+        collection,
         handle: authorData.handle,
         tags,
         rkey,
       })
 
+      if (evictedPost?.has_embedding === 1) {
+        deletePostEmbeddings(this.env.VECTORIZE, evictedPost.uri)
+          .catch(err => console.error(`Failed to delete evicted embeddings for ${evictedPost?.uri}:`, err))
+      }
+
       console.log(`Indexed ${source} post: ${uri}`)
 
       // Phase 5: Handle embeddings for semantic search
       // Check if post was previously public (had embedding) but is now non-public
-      const existingPost = await this.env.DB.prepare(
-        'SELECT has_embedding, visibility FROM posts WHERE uri = ?'
-      ).bind(uri).first()
       const hadEmbedding = existingPost?.has_embedding === 1
 
       if (visibility === 'public' && record) {
@@ -845,8 +909,13 @@ export class FirehoseConsumer extends DurableObject<Env> {
     try {
       // Get post data before deleting (for cache invalidation and author lookup)
       const post = await this.env.DB.prepare(
-        'SELECT author_did, rkey FROM posts WHERE uri = ?'
-      ).bind(uri).first()
+        'SELECT author_did, rkey, visibility, collection FROM posts WHERE uri = ?'
+      ).bind(uri).first<{
+        author_did: string
+        rkey: string
+        visibility: string | null
+        collection: string | null
+      }>()
 
       if (!post) {
         console.log(`Post not found for deletion: ${uri}`)
@@ -871,21 +940,28 @@ export class FirehoseConsumer extends DurableObject<Env> {
       // Phase 1: Bump cache generation keys (replaces ~12 blind KV deletes).
       // Per-author / per-tag / per-post OG families are bumped in one batch.
       await bumpFeedsForPostChange(this.env.DB, {
+        collection: post.collection,
         handle,
         tags: postTags,
         rkey,
       })
 
-      // Phase 2: Atomic database batch - delete post AND update count together
-      await this.env.DB.batch([
+      // Phase 2: Atomic database batch - delete the post and decrement only
+      // when a public record actually left the index.
+      const statements = [
         this.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri),
-        this.env.DB.prepare(`
-          UPDATE authors SET posts_count = (
-            SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
-          ), updated_at = datetime('now')
-          WHERE did = ?
-        `).bind(authorDid, authorDid),
-      ])
+      ]
+      if (post.visibility === 'public') {
+        statements.push(
+          this.env.DB.prepare(`
+            UPDATE authors
+            SET posts_count = MAX(0, COALESCE(posts_count, 0) - 1),
+                updated_at = datetime('now')
+            WHERE did = ?
+          `).bind(authorDid)
+        )
+      }
+      await this.env.DB.batch(statements)
 
       // Phase 3: Delete embeddings from Vectorize (async, don't block)
       deletePostEmbeddings(this.env.VECTORIZE, uri)

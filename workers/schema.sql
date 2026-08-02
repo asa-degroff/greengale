@@ -59,9 +59,17 @@ CREATE INDEX IF NOT EXISTS idx_posts_collection_created ON posts(collection, cre
 CREATE INDEX IF NOT EXISTS idx_posts_network_feed
   ON posts(created_at DESC)
   WHERE collection = 'site.standard.document' AND external_url IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_posts_discover_feed
-  ON posts(created_at DESC)
-  WHERE collection IS NULL OR collection != 'site.standard.document';
+CREATE INDEX IF NOT EXISTS idx_posts_native_author_created
+  ON posts(author_did, created_at DESC, uri DESC)
+  WHERE visibility = 'public'
+    AND collection IS NOT 'site.standard.document';
+CREATE INDEX IF NOT EXISTS idx_posts_native_created
+  ON posts(created_at DESC, author_did, rkey)
+  WHERE visibility = 'public'
+    AND collection IS NOT 'site.standard.document';
+CREATE INDEX IF NOT EXISTS idx_posts_site_standard_retention
+  ON posts(author_did, created_at DESC, uri DESC)
+  WHERE collection = 'site.standard.document';
 
 -- Authors table: caches author profile information
 -- Note: handle is NOT unique because handles can transfer between DIDs

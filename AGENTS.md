@@ -557,6 +557,7 @@ Admin endpoints require `X-Admin-Secret` header:
 - `POST /xrpc/app.greengale.admin.backfillFirstImageCid` - Backfill first_image_cid for existing posts
 - `POST /xrpc/app.greengale.admin.backfillAuthor` - Index all posts from a specific author (body: `{"did":"..."}` or `{"handle":"..."}`)
 - `POST /xrpc/app.greengale.admin.discoverWhiteWindAuthors?limit=20` - Discover and backfill WhiteWind authors from the network
+- `POST /xrpc/app.greengale.admin.cleanupSiteStandardArchives?author=&dryRun=true&limit=500` - Preview or remove `site.standard.document` rows beyond the newest 1,000 per author; deletion requires `dryRun=false`
 - `POST /xrpc/app.greengale.admin.invalidateOGCache?handle=&rkey=` - Invalidate OG image cache
 - `POST /xrpc/app.greengale.admin.invalidateRSSCache` - Invalidate RSS feed cache (body: `{"handle":"..."}` for author, or `{"type":"all"}` for all)
 
@@ -568,20 +569,25 @@ Admin endpoints require `X-Admin-Secret` header:
 
 ### RSS Feed Cache Invalidation
 
-RSS feeds are cached in KV for 30 minutes (`rss:recent`, `rss:author:${handle}`). The cache is automatically invalidated when:
+RSS feeds are cached in KV for 30 minutes using D1 generation keys. Native
+GreenGale and WhiteWind post changes invalidate the relevant RSS generations;
+`site.standard.document` changes do not, because those records are excluded
+from RSS.
 
 1. **Firehose indexes a post** - Both `rss:recent` and the author's RSS feed are invalidated
 2. **Firehose deletes a post** - Same as above
 
-**Important for future development:** When adding new admin endpoints or backfill operations that create, update, or delete posts, you MUST also invalidate RSS caches:
+**Important for future development:** When adding new admin endpoints or
+backfill operations that create, update, or delete posts, use the shared
+collection-aware generation helper:
 
 ```typescript
-// After indexing/updating posts:
-await Promise.all([
-  c.env.CACHE.delete('recent_posts:24:'),  // Feed cache
-  c.env.CACHE.delete('rss:recent'),         // RSS cache
-  authorHandle ? c.env.CACHE.delete(`rss:author:${authorHandle}`) : Promise.resolve(),
-])
+await bumpFeedsForPostChange(c.env.DB, {
+  collection,
+  handle: authorHandle,
+  tags,
+  rkey,
+})
 ```
 
 **Endpoints that currently invalidate RSS caches:**
@@ -603,6 +609,13 @@ await Promise.all([
 **whitelist**: `did` (PK), `handle`, `added_at`, `added_by`, `notes`
 
 **sync_state**: Firehose cursor position
+
+### site.standard Retention
+
+GreenGale is a discovery index, not a complete `site.standard.document` archive.
+All ingestion paths retain only the newest 1,000 standard.site documents per
+author. Use the admin cleanup endpoint above in bounded batches for records
+that predate this policy; always run it with the default `dryRun=true` first.
 
 ## Environment Variables
 

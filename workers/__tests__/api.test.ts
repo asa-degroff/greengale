@@ -2493,6 +2493,94 @@ describe('API Endpoints', () => {
         expect(res.status).toBe(400)
       })
     })
+
+    describe('cleanupSiteStandardArchives', () => {
+      const oversizedAuthor = {
+        author_did: 'did:plc:archive',
+        handle: 'archive.example',
+        post_count: 2500,
+      }
+      const candidates = [
+        {
+          uri: 'at://did:plc:archive/site.standard.document/old-1',
+          rkey: 'old-1',
+          visibility: 'public',
+          has_embedding: 0,
+          created_at: '2001-01-01T00:00:00.000Z',
+        },
+        {
+          uri: 'at://did:plc:archive/site.standard.document/old-2',
+          rkey: 'old-2',
+          visibility: 'public',
+          has_embedding: 0,
+          created_at: '2001-01-02T00:00:00.000Z',
+        },
+      ]
+
+      it('defaults to a dry run and reports the retained boundary', async () => {
+        env.DB._statement.all
+          .mockResolvedValueOnce({ results: [oversizedAuthor] })
+          .mockResolvedValueOnce({ results: candidates })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.admin.cleanupSiteStandardArchives?author=did:plc:archive&limit=2',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Secret': 'test-admin-secret' },
+          }
+        )
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.dryRun).toBe(true)
+        expect(data.retainedPerAuthor).toBe(1000)
+        expect(data.wouldDelete).toBe(2)
+        expect(env.DB.batch).not.toHaveBeenCalled()
+      })
+
+      it('deletes only a bounded overflow batch when explicitly confirmed', async () => {
+        env.DB._statement.first.mockResolvedValueOnce({ handle: 'archive.example' })
+        env.DB._statement.all.mockResolvedValueOnce({ results: candidates })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.admin.cleanupSiteStandardArchives?author=did:plc:archive&limit=2&dryRun=false',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Secret': 'test-admin-secret' },
+          }
+        )
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.dryRun).toBe(false)
+        expect(data.deleted).toBe(2)
+        expect(data.publicDeleted).toBe(2)
+        expect(env.DB.batch).toHaveBeenCalledTimes(2)
+        expect(env.DB._statement.run).toHaveBeenCalled()
+      })
+
+      it('reports a confirmed no-op without labeling it as a dry run', async () => {
+        env.DB._statement.first.mockResolvedValueOnce({ handle: 'archive.example' })
+        env.DB._statement.all.mockResolvedValueOnce({ results: [] })
+
+        const res = await makeRequest(
+          env,
+          '/xrpc/app.greengale.admin.cleanupSiteStandardArchives?author=did:plc:archive&dryRun=false',
+          {
+            method: 'POST',
+            headers: { 'X-Admin-Secret': 'test-admin-secret' },
+          }
+        )
+
+        expect(res.status).toBe(200)
+        const data = await res.json()
+        expect(data.dryRun).toBe(false)
+        expect(data.deleted).toBe(0)
+        expect(env.DB.batch).not.toHaveBeenCalled()
+      })
+    })
   })
 
   describe('Error Handling', () => {
@@ -2784,7 +2872,7 @@ describe('API Endpoints', () => {
         .map(c => c[0] as string)
         .find(q => q.includes('p.visibility'))
       expect(feedQuery).toContain("p.visibility = 'public'")
-      expect(feedQuery).toContain("p.collection IS NULL OR p.collection != 'site.standard.document'")
+      expect(feedQuery).toContain("p.collection IS NOT 'site.standard.document'")
     })
 
     it('caches response for 5 minutes', async () => {
@@ -2877,7 +2965,7 @@ describe('API Endpoints', () => {
         .map(c => c[0] as string)
         .find(q => q.includes('p.visibility'))
       expect(feedQuery).toContain("p.visibility = 'public'")
-      expect(feedQuery).toContain("p.collection IS NULL OR p.collection != 'site.standard.document'")
+      expect(feedQuery).toContain("p.collection IS NOT 'site.standard.document'")
     })
 
     it('caches response for 30 minutes', async () => {

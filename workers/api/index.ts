@@ -33,6 +33,10 @@ import {
   bumpFeedsForPostChange,
   GLOBAL_FEED_FAMILIES,
 } from '../lib/cache'
+import {
+  SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+  shouldRetainSiteStandardPost,
+} from '../lib/archive-policy'
 
 type Bindings = {
   DB: D1Database
@@ -472,7 +476,7 @@ app.get('/og/:handle/:filename', async (c) => {
       LEFT JOIN authors a ON p.author_did = a.did
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.author_did = ? AND p.rkey = ?
-        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+        AND p.collection IS NOT 'site.standard.document'
     `).bind(authorDid, rkey).first()
 
     if (!post) {
@@ -606,7 +610,7 @@ app.get('/feed/recent.xml', async (c) => {
     }
 
     // Use same query pattern as getRecentPosts (limit authors to 3 posts each).
-    // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan,
+    // Uses indexed `collection IS NOT 'site.standard.document'` instead of LIKE scan,
     // and reads tags from denormalized `p.tags` column.
     const postsResult = await c.env.DB.prepare(`
       WITH ranked_posts AS (
@@ -616,11 +620,11 @@ app.get('/feed/recent.xml', async (c) => {
           a.handle, a.display_name, a.pds_endpoint,
           p.tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
-        FROM posts p
+        FROM posts p INDEXED BY idx_posts_native_author_created
         LEFT JOIN authors a ON p.author_did = a.did
         LEFT JOIN publications pub ON p.author_did = pub.author_did
         WHERE p.visibility = 'public'
-          AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+          AND p.collection IS NOT 'site.standard.document'
           AND COALESCE(pub.show_in_discover, 1) = 1
       )
       SELECT rkey, title, subtitle, created_at, content_preview, first_image_cid,
@@ -779,7 +783,7 @@ app.get('/feed/:filename', async (c) => {
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
       WHERE p.author_did = ? AND p.visibility = 'public'
-        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+        AND p.collection IS NOT 'site.standard.document'
       ORDER BY p.created_at DESC
       LIMIT 50
     `).bind(authorDid).all()
@@ -915,9 +919,9 @@ app.get('/sitemap.xml', async (c) => {
     const authorsResult = await c.env.DB.prepare(`
       SELECT DISTINCT a.handle, MAX(p.created_at) as last_post
       FROM authors a
-      INNER JOIN posts p ON a.did = p.author_did
+      INNER JOIN posts p INDEXED BY idx_posts_native_author_created ON a.did = p.author_did
       WHERE p.visibility = 'public'
-        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+        AND p.collection IS NOT 'site.standard.document'
       GROUP BY a.handle
       ORDER BY last_post DESC
     `).all()
@@ -939,10 +943,10 @@ app.get('/sitemap.xml', async (c) => {
     // Uses indexed `collection != 'site.standard.document'` instead of LIKE scan.
     const postsResult = await c.env.DB.prepare(`
       SELECT a.handle, p.rkey, p.created_at
-      FROM posts p
+      FROM posts p INDEXED BY idx_posts_native_created
       INNER JOIN authors a ON p.author_did = a.did
       WHERE p.visibility = 'public'
-        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+        AND p.collection IS NOT 'site.standard.document'
       ORDER BY p.created_at DESC
       LIMIT 50000
     `).all()
@@ -1467,7 +1471,7 @@ app.get('/xrpc/app.greengale.feed.getPostsByTag', async (c) => {
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE pt.tag = ?
         AND p.visibility = 'public'
-        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+        AND p.collection IS NOT 'site.standard.document'
         AND COALESCE(pub.show_in_discover, 1) = 1
     `
 
@@ -1526,7 +1530,7 @@ app.get('/xrpc/app.greengale.feed.getPopularTags', async (c) => {
       INNER JOIN posts p ON pt.post_uri = p.uri
       LEFT JOIN publications pub ON p.author_did = pub.author_did
       WHERE p.visibility = 'public'
-        AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+        AND p.collection IS NOT 'site.standard.document'
         AND COALESCE(pub.show_in_discover, 1) = 1
       GROUP BY pt.tag
       ORDER BY count DESC
@@ -1573,7 +1577,7 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
     // Use a CTE with window function to limit each author to 3 posts max
     // This prevents very active users from dominating the recents feed
     // Order by created_at (original publish date) so editing old posts doesn't push them to top
-    // Uses indexed `collection != 'site.standard.document'` (partial idx_posts_discover_feed)
+    // Uses the partial idx_posts_native_author_created index.
     // instead of `uri NOT LIKE '%/site.standard.document/%'` (full table scan).
     // Tags read from denormalized `p.tags` column instead of a correlated GROUP_CONCAT subquery.
     const cursorClause = cursor ? 'AND p.created_at < ?' : ''
@@ -1586,11 +1590,11 @@ app.get('/xrpc/app.greengale.feed.getRecentPosts', async (c) => {
           pub.icon_cid,
           p.tags,
           ROW_NUMBER() OVER (PARTITION BY p.author_did ORDER BY p.created_at DESC) as author_rank
-        FROM posts p
+        FROM posts p INDEXED BY idx_posts_native_author_created
         LEFT JOIN authors a ON p.author_did = a.did
         LEFT JOIN publications pub ON p.author_did = pub.author_did
         WHERE p.visibility = 'public'
-          AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+          AND p.collection IS NOT 'site.standard.document'
           AND COALESCE(pub.show_in_discover, 1) = 1
           ${cursorClause}
       )
@@ -2322,9 +2326,11 @@ app.post('/xrpc/app.greengale.feed.notifyPostRemoved', async (c) => {
     }
 
     // Look up the post by author_did + rkey (works regardless of collection)
-    const post = await c.env.DB.prepare(
-      'SELECT uri, author_did FROM posts WHERE author_did = ? AND rkey = ?'
-    ).bind(did, rkey).first()
+    const post = await c.env.DB.prepare(`
+      SELECT uri, author_did, visibility, collection, tags
+      FROM posts
+      WHERE author_did = ? AND rkey = ?
+    `).bind(did, rkey).first()
 
     if (!post) {
       // Post not in DB (already deleted or never indexed) - still bump cache
@@ -2342,33 +2348,40 @@ app.post('/xrpc/app.greengale.feed.notifyPostRemoved', async (c) => {
     const uri = post.uri as string
     const authorDid = post.author_did as string
 
-    // Get author handle before deletion. Tags are read from the denormalized
-    // `posts.tags` column (avoids an extra post_tags query here).
+    // Get the author handle before deletion. Post metadata already came from
+    // the initial lookup, avoiding another D1 round trip.
     const authorRow = await c.env.DB.prepare(
       'SELECT handle FROM authors WHERE did = ?'
     ).bind(authorDid).first<{ handle: string | null }>()
     const handle = authorRow?.handle ?? undefined
 
-    const postRow = await c.env.DB.prepare(
-      'SELECT tags FROM posts WHERE uri = ?'
-    ).bind(uri).first<{ tags: string | null }>()
-    const postTags = (postRow?.tags ?? '')
+    const postTags = ((post.tags as string | null) ?? '')
       .split(',')
       .filter(t => t.length > 0)
 
     // Phase 1: Bump cache generation keys (replaces ~12+ blind KV deletes).
-    await bumpFeedsForPostChange(c.env.DB, { handle, tags: postTags, rkey })
+    await bumpFeedsForPostChange(c.env.DB, {
+      collection: post.collection as string | null,
+      handle,
+      tags: postTags,
+      rkey,
+    })
 
-    // Phase 2: Delete post from DB and update author count
-    await c.env.DB.batch([
+    // Phase 2: Delete the post and decrement only when a public post left.
+    const statements = [
       c.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri),
-      c.env.DB.prepare(`
-        UPDATE authors SET posts_count = (
-          SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
-        ), updated_at = datetime('now')
-        WHERE did = ?
-      `).bind(authorDid, authorDid),
-    ])
+    ]
+    if (post.visibility === 'public') {
+      statements.push(
+        c.env.DB.prepare(`
+          UPDATE authors
+          SET posts_count = MAX(0, COALESCE(posts_count, 0) - 1),
+              updated_at = datetime('now')
+          WHERE did = ?
+        `).bind(authorDid)
+      )
+    }
+    await c.env.DB.batch(statements)
 
     // Phase 3: Delete embeddings (async, don't block response)
     deletePostEmbeddings(c.env.VECTORIZE, uri).catch(err =>
@@ -2595,7 +2608,7 @@ app.get('/xrpc/app.greengale.search.publications', async (c) => {
           FROM posts p
           JOIN post_tags pt ON p.uri = pt.post_uri
           WHERE p.visibility = 'public'
-            AND (p.collection IS NULL OR p.collection != 'site.standard.document')
+            AND p.collection IS NOT 'site.standard.document'
             AND LOWER(pt.tag) LIKE ?3 ESCAPE '\\'
           GROUP BY p.author_did, p.rkey, pt.tag
         ) tagged_posts
@@ -4121,6 +4134,7 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
     // Build query - optionally filter by author
     let query = `
       SELECT p.uri, p.author_did, p.rkey, p.title, p.source,
+             p.visibility, p.collection, p.tags,
              a.handle, a.pds_endpoint
       FROM posts p
       LEFT JOIN authors a ON p.author_did = a.did
@@ -4136,7 +4150,15 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
     const result = await c.env.DB.prepare(query).bind(...params).all()
     const posts = result.results || []
 
-    const orphaned: Array<{ uri: string; title: string | null; handle: string | null }> = []
+    const orphaned: Array<{
+      uri: string
+      authorDid: string
+      title: string | null
+      handle: string | null
+      visibility: string | null
+      collection: string | null
+      tags: string | null
+    }> = []
     const alive: string[] = []
     const errors: Array<{ uri: string; error: string }> = []
 
@@ -4177,8 +4199,12 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
             // Post doesn't exist on PDS anymore
             orphaned.push({
               uri,
+              authorDid: did,
               title: post.title as string | null,
               handle: post.handle as string | null,
+              visibility: post.visibility as string | null,
+              collection: post.collection as string | null,
+              tags: post.tags as string | null,
             })
           } else {
             alive.push(uri)
@@ -4200,28 +4226,28 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
       for (const post of orphaned) {
         const uri = post.uri
 
-        // Get tags before deletion (for cache invalidation)
-        const tagsRow = await c.env.DB.prepare(
-          'SELECT tags FROM posts WHERE uri = ?'
-        ).bind(uri).first<{ tags: string | null }>()
-        const postTags = (tagsRow?.tags ?? '')
+        const postTags = (post.tags ?? '')
           .split(',')
           .filter(t => t.length > 0)
-        for (const tag of postTags) tagFamilies.add(`tag_posts:${tag}`)
+        if (post.collection !== 'site.standard.document') {
+          for (const tag of postTags) tagFamilies.add(`tag_posts:${tag}`)
+        }
 
-        // Parse author DID from URI
-        const authorDid = uri.replace('at://', '').split('/')[0]
-
-        // Delete from DB and update author count
-        await c.env.DB.batch([
+        // Delete from DB and decrement the cached count only for public posts.
+        const statements = [
           c.env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(uri),
-          c.env.DB.prepare(`
-            UPDATE authors SET posts_count = (
-              SELECT COUNT(*) FROM posts WHERE author_did = ? AND visibility = 'public'
-            ), updated_at = datetime('now')
-            WHERE did = ?
-          `).bind(authorDid, authorDid),
-        ])
+        ]
+        if (post.visibility === 'public') {
+          statements.push(
+            c.env.DB.prepare(`
+              UPDATE authors
+              SET posts_count = MAX(0, COALESCE(posts_count, 0) - 1),
+                  updated_at = datetime('now')
+              WHERE did = ?
+            `).bind(post.authorDid)
+          )
+        }
+        await c.env.DB.batch(statements)
 
         // Delete embeddings
         deletePostEmbeddings(c.env.VECTORIZE, uri).catch(err =>
@@ -4229,7 +4255,7 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
         )
 
         // Collect per-post OG family
-        if (post.handle) {
+        if (post.handle && post.collection !== 'site.standard.document') {
           const rkey = uri.split('/').pop()!
           ogFamilies.add(`og:${post.handle}:${rkey}`)
         }
@@ -4256,12 +4282,216 @@ app.post('/xrpc/app.greengale.admin.cleanupOrphanedPosts', async (c) => {
       orphaned: orphaned.length,
       deleted,
       dryRun,
-      orphanedPosts: orphaned,
+      orphanedPosts: orphaned.map(({ uri, title, handle }) => ({ uri, title, handle })),
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
     console.error('Error cleaning up orphaned posts:', error)
     return c.json({ error: 'Failed to clean up orphaned posts' }, 500)
+  }
+})
+
+// Remove site.standard archives beyond the newest retained documents per author.
+// Dry-run is the default; pass dryRun=false to delete one bounded batch.
+// Usage: POST /xrpc/app.greengale.admin.cleanupSiteStandardArchives
+// Query params: ?author=handle-or-did&dryRun=true&limit=500
+app.post('/xrpc/app.greengale.admin.cleanupSiteStandardArchives', async (c) => {
+  const authError = requireAdmin(c)
+  if (authError) {
+    return c.json({ error: authError.error }, authError.status)
+  }
+
+  const dryRun = c.req.query('dryRun') !== 'false'
+  const requestedLimit = parseInt(c.req.query('limit') || '500', 10)
+  const limit = Math.min(Math.max(Number.isFinite(requestedLimit) ? requestedLimit : 500, 1), 1000)
+  const authorFilter = c.req.query('author')
+
+  try {
+    let targetDid: string | null = null
+    if (authorFilter) {
+      if (authorFilter.startsWith('did:')) {
+        targetDid = authorFilter
+      } else {
+        const author = await c.env.DB.prepare(
+          'SELECT did FROM authors WHERE handle = ? ORDER BY updated_at DESC LIMIT 1'
+        ).bind(authorFilter).first<{ did: string }>()
+        targetDid = author?.did ?? null
+      }
+
+      if (!targetDid) {
+        return c.json({ error: 'Author not found' }, 404)
+      }
+    }
+
+    let oversizedAuthors: Array<{
+      did: string
+      handle: string | null
+      postCount: number | null
+      overflow: number | null
+    }>
+
+    if (targetDid && !dryRun) {
+      // Repeated confirmed batches should not recount a very large author on
+      // every call. Candidate selection below uses the retention index and
+      // reads only the retained prefix plus this batch.
+      const author = await c.env.DB.prepare(
+        'SELECT handle FROM authors WHERE did = ?'
+      ).bind(targetDid).first<{ handle: string | null }>()
+      oversizedAuthors = [{
+        did: targetDid,
+        handle: author?.handle ?? null,
+        postCount: null,
+        overflow: null,
+      }]
+    } else {
+      let summarySql = `
+        SELECT p.author_did, a.handle, COUNT(*) AS post_count
+        FROM posts p INDEXED BY idx_posts_site_standard_retention
+        LEFT JOIN authors a ON a.did = p.author_did
+        WHERE p.collection = 'site.standard.document'
+      `
+      const summaryParams: Array<string | number> = []
+      if (targetDid) {
+        summarySql += ' AND p.author_did = ?'
+        summaryParams.push(targetDid)
+      }
+      summarySql += `
+        GROUP BY p.author_did, a.handle
+        HAVING COUNT(*) > ?
+        ORDER BY post_count DESC
+        LIMIT 20
+      `
+      summaryParams.push(SITE_STANDARD_POST_LIMIT_PER_AUTHOR)
+
+      const oversizedResult = await c.env.DB.prepare(summarySql).bind(...summaryParams).all()
+      oversizedAuthors = (oversizedResult.results || []).map(row => ({
+        did: row.author_did as string,
+        handle: row.handle as string | null,
+        postCount: Number(row.post_count),
+        overflow: Number(row.post_count) - SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+      }))
+    }
+
+    if (oversizedAuthors.length === 0) {
+      return c.json({
+        success: true,
+        dryRun,
+        retainedPerAuthor: SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+        deleted: 0,
+        oversizedAuthors: [],
+        message: 'No oversized site.standard archives found',
+      })
+    }
+
+    const target = oversizedAuthors[0]
+    const candidatesResult = await c.env.DB.prepare(`
+      SELECT uri, rkey, visibility, has_embedding, created_at
+      FROM posts INDEXED BY idx_posts_site_standard_retention
+      WHERE author_did = ? AND collection = 'site.standard.document'
+      ORDER BY created_at DESC, uri DESC
+      LIMIT ? OFFSET ?
+    `).bind(target.did, limit, SITE_STANDARD_POST_LIMIT_PER_AUTHOR).all()
+    const candidates = candidatesResult.results || []
+
+    if (candidates.length === 0) {
+      return c.json({
+        success: true,
+        dryRun,
+        retainedPerAuthor: SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+        target,
+        deleted: 0,
+        oversizedAuthors,
+        message: 'No site.standard archive overflow found for this author',
+      })
+    }
+
+    if (dryRun) {
+      return c.json({
+        success: true,
+        dryRun: true,
+        retainedPerAuthor: SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+        target,
+        batchSize: candidates.length,
+        wouldDelete: candidates.length,
+        remainingAfterBatch: target.overflow === null
+          ? null
+          : Math.max(0, target.overflow - candidates.length),
+        sample: candidates.slice(0, 20).map(row => ({
+          uri: row.uri,
+          createdAt: row.created_at,
+        })),
+        oversizedAuthors,
+      })
+    }
+
+    // The two statements use the same deterministic newest-N boundary. The
+    // junction-table delete runs first so cleanup does not depend on FK mode.
+    await c.env.DB.batch([
+      c.env.DB.prepare(`
+        DELETE FROM post_tags
+        WHERE post_uri IN (
+          SELECT uri FROM posts INDEXED BY idx_posts_site_standard_retention
+          WHERE author_did = ? AND collection = 'site.standard.document'
+          ORDER BY created_at DESC, uri DESC
+          LIMIT ? OFFSET ?
+        )
+      `).bind(target.did, limit, SITE_STANDARD_POST_LIMIT_PER_AUTHOR),
+      c.env.DB.prepare(`
+        DELETE FROM posts
+        WHERE uri IN (
+          SELECT uri FROM posts INDEXED BY idx_posts_site_standard_retention
+          WHERE author_did = ? AND collection = 'site.standard.document'
+          ORDER BY created_at DESC, uri DESC
+          LIMIT ? OFFSET ?
+        )
+      `).bind(target.did, limit, SITE_STANDARD_POST_LIMIT_PER_AUTHOR),
+    ])
+
+    const publicDeleted = candidates.filter(row => row.visibility === 'public').length
+    if (publicDeleted > 0) {
+      await c.env.DB.prepare(`
+        UPDATE authors
+        SET posts_count = MAX(0, COALESCE(posts_count, 0) - ?),
+            updated_at = datetime('now')
+        WHERE did = ?
+      `).bind(publicDeleted, target.did).run()
+    }
+
+    let embeddingDeleteFailures = 0
+    const embeddedUris = candidates
+      .filter(row => row.has_embedding === 1)
+      .map(row => row.uri as string)
+    for (let i = 0; i < embeddedUris.length; i += 25) {
+      const batch = embeddedUris.slice(i, i + 25)
+      const results = await Promise.allSettled(
+        batch.map(uri => deletePostEmbeddings(c.env.VECTORIZE, uri))
+      )
+      embeddingDeleteFailures += results.filter(result => result.status === 'rejected').length
+    }
+
+    await bumpFeedsForPostChange(c.env.DB, { collection: 'site.standard.document' })
+
+    return c.json({
+      success: true,
+      dryRun: false,
+      retainedPerAuthor: SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
+      target,
+      deleted: candidates.length,
+      publicDeleted,
+      embeddingDeleteFailures,
+      remainingAfterBatch: target.overflow === null
+        ? null
+        : Math.max(0, target.overflow - candidates.length),
+      runAgain: target.overflow === null
+        ? candidates.length === limit
+        : target.overflow > candidates.length,
+    })
+  } catch (error) {
+    console.error('Error cleaning up site.standard archives:', error)
+    return c.json({
+      error: 'Failed to clean up site.standard archives',
+      details: error instanceof Error ? error.message : 'Unknown',
+    }, 500)
   }
 })
 
@@ -4977,6 +5207,8 @@ async function indexPostsFromPds(
   }
 
   let totalPosts = 0
+  let nativePostsIndexed = 0
+  let siteStandardPostsIndexed = 0
 
   for (const col of collections) {
     try {
@@ -5010,6 +5242,47 @@ async function indexPostsFromPds(
           : (value.createdAt as string) || null
         const hasLatex = col.source === 'greengale' && !col.isSiteStandard && value.latex === true
         const documentPath = (col.isV2 || col.isSiteStandard) ? (value.path as string) || null : null
+
+        // This direct discovery path predates the firehose indexer. Enforce the
+        // same newest-N retention policy here so no write path can rebuild a
+        // large site.standard archive after cleanup.
+        let evictedSiteStandardUri: string | null = null
+        if (col.isSiteStandard) {
+          const existing = await env.DB.prepare(
+            'SELECT 1 FROM posts WHERE uri = ?'
+          ).bind(uri).first()
+
+          if (!existing) {
+            const boundary = await env.DB.prepare(`
+              SELECT uri, created_at
+              FROM posts INDEXED BY idx_posts_site_standard_retention
+              WHERE author_did = ? AND collection = 'site.standard.document'
+              ORDER BY created_at DESC, uri DESC
+              LIMIT 1 OFFSET ?
+            `).bind(did, SITE_STANDARD_POST_LIMIT_PER_AUTHOR - 1).first<{
+              uri: string
+              created_at: string | null
+            }>()
+
+            if (!shouldRetainSiteStandardPost(
+              { uri, createdAt },
+              boundary ? { uri: boundary.uri, createdAt: boundary.created_at } : null
+            )) {
+              continue
+            }
+
+            if (boundary) {
+              const evicted = await env.DB.prepare(`
+                SELECT uri
+                FROM posts INDEXED BY idx_posts_site_standard_retention
+                WHERE author_did = ? AND collection = 'site.standard.document'
+                ORDER BY created_at ASC, uri ASC
+                LIMIT 1
+              `).bind(did).first<{ uri: string }>()
+              evictedSiteStandardUri = evicted?.uri ?? null
+            }
+          }
+        }
 
         // site.standard fields
         const siteUri = col.isSiteStandard ? (value.site as string) || null : null
@@ -5122,7 +5395,7 @@ async function indexPostsFromPds(
             )].slice(0, 100)
           : []
 
-        await env.DB.prepare(`
+        const upsertPost = env.DB.prepare(`
           INSERT INTO posts (uri, author_did, rkey, title, subtitle, slug, source, visibility, created_at, indexed_at, content_preview, has_latex, theme_preset, first_image_cid, path, site_uri, external_url, collection, tags)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(uri) DO UPDATE SET
@@ -5146,9 +5419,24 @@ async function indexPostsFromPds(
           siteUri, externalUrl,
           col.name,
           tags.length > 0 ? tags.join(',') : null
-        ).run()
+        )
+
+        if (evictedSiteStandardUri) {
+          await env.DB.batch([
+            env.DB.prepare('DELETE FROM post_tags WHERE post_uri = ?').bind(evictedSiteStandardUri),
+            env.DB.prepare('DELETE FROM posts WHERE uri = ?').bind(evictedSiteStandardUri),
+            upsertPost,
+          ])
+        } else {
+          await upsertPost.run()
+        }
 
         totalPosts++
+        if (col.isSiteStandard) {
+          siteStandardPostsIndexed++
+        } else {
+          nativePostsIndexed++
+        }
       }
     } catch {
       // Skip failed collections
@@ -5166,7 +5454,13 @@ async function indexPostsFromPds(
       'SELECT handle FROM authors WHERE did = ?'
     ).bind(did).first<{ handle: string | null }>()
     const handle = authorRow?.handle ?? null
-    await bumpFeedsForPostChange(env.DB, { handle })
+    if (nativePostsIndexed > 0) {
+      // Native invalidation includes every family affected by site.standard,
+      // so a second bump would only churn the same generations again.
+      await bumpFeedsForPostChange(env.DB, { handle })
+    } else if (siteStandardPostsIndexed > 0) {
+      await bumpFeedsForPostChange(env.DB, { collection: 'site.standard.document' })
+    }
   }
 
   return totalPosts
