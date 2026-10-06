@@ -37,6 +37,7 @@ import {
   SITE_STANDARD_POST_LIMIT_PER_AUTHOR,
   shouldRetainSiteStandardPost,
 } from '../lib/archive-policy'
+import { releaseHandleFromOtherAuthors } from '../lib/authors'
 
 type Bindings = {
   DB: D1Database
@@ -3951,27 +3952,32 @@ app.post('/xrpc/app.greengale.admin.refreshAuthorProfiles', async (c) => {
           // Also fetch PDS endpoint from DID document (supports did:plc and did:web)
           const pdsEndpoint = await fetchPdsEndpoint(did)
 
-          await c.env.DB.prepare(`
-            UPDATE authors SET
-              handle = ?,
-              display_name = ?,
-              description = ?,
-              avatar_url = ?,
-              banner_url = ?,
-              pds_endpoint = COALESCE(?, pds_endpoint),
-              is_ai_agent = MAX(COALESCE(is_ai_agent, 0), ?),
-              updated_at = datetime('now')
-            WHERE did = ?
-          `).bind(
-            profile.handle,
-            profile.displayName || null,
-            profile.description || null,
-            profile.avatar || null,
-            profile.banner || null,
-            pdsEndpoint,
-            hasNativeBotLabel ? 1 : 0,
-            did
-          ).run()
+          // Release the handle from any previous owner in the same batch so
+          // handle lookups keep resolving to the DID that currently owns it.
+          await c.env.DB.batch([
+            releaseHandleFromOtherAuthors(c.env.DB, profile.handle, did),
+            c.env.DB.prepare(`
+              UPDATE authors SET
+                handle = ?,
+                display_name = ?,
+                description = ?,
+                avatar_url = ?,
+                banner_url = ?,
+                pds_endpoint = COALESCE(?, pds_endpoint),
+                is_ai_agent = MAX(COALESCE(is_ai_agent, 0), ?),
+                updated_at = datetime('now')
+              WHERE did = ?
+            `).bind(
+              profile.handle,
+              profile.displayName || null,
+              profile.description || null,
+              profile.avatar || null,
+              profile.banner || null,
+              pdsEndpoint,
+              hasNativeBotLabel ? 1 : 0,
+              did
+            ),
+          ])
 
           updated++
         } else {
@@ -5511,29 +5517,44 @@ async function discoverAndIndexAuthor(
     }
 
     // Index posts from PDS
-    const totalPosts = await indexPostsFromPds(did, env)
+    let totalPosts = await indexPostsFromPds(did, env)
+
+    if (totalPosts === 0) {
+      // indexPostsFromPds returns 0 both when the author truly has no posts and
+      // when it skipped the PDS scan because this DID was indexed within the
+      // last 24h. Fall back to the indexed count before treating the author as
+      // post-less and negative-caching the handle.
+      const countRow = await env.DB.prepare(
+        `SELECT COUNT(*) as count FROM posts WHERE author_did = ? AND visibility = 'public'`
+      ).bind(did).first<{ count: number }>()
+      totalPosts = countRow?.count || 0
+    }
 
     if (totalPosts === 0) {
       await env.CACHE.put(negCacheKey, '1', { expirationTtl: 3600 })
       return null
     }
 
-    // Upsert author record
-    await env.DB.prepare(`
-      INSERT INTO authors (did, handle, display_name, description, avatar_url, pds_endpoint, posts_count, is_ai_agent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(did) DO UPDATE SET
-        handle = excluded.handle,
-        display_name = excluded.display_name,
-        description = excluded.description,
-        avatar_url = excluded.avatar_url,
-        pds_endpoint = excluded.pds_endpoint,
-        posts_count = excluded.posts_count,
-        is_ai_agent = MAX(COALESCE(authors.is_ai_agent, 0), excluded.is_ai_agent)
-    `).bind(
-      did, profile.handle, profile.displayName || null, profile.description || null,
-      profile.avatar || null, pdsEndpoint, totalPosts, hasNativeBotLabel ? 1 : 0
-    ).run()
+    // Upsert author record, releasing the handle from any previous owner in
+    // the same batch so handle lookups can't resolve to the old DID.
+    await env.DB.batch([
+      releaseHandleFromOtherAuthors(env.DB, profile.handle, did),
+      env.DB.prepare(`
+        INSERT INTO authors (did, handle, display_name, description, avatar_url, pds_endpoint, posts_count, is_ai_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(did) DO UPDATE SET
+          handle = excluded.handle,
+          display_name = excluded.display_name,
+          description = excluded.description,
+          avatar_url = excluded.avatar_url,
+          pds_endpoint = excluded.pds_endpoint,
+          posts_count = excluded.posts_count,
+          is_ai_agent = MAX(COALESCE(authors.is_ai_agent, 0), excluded.is_ai_agent)
+      `).bind(
+        did, profile.handle, profile.displayName || null, profile.description || null,
+        profile.avatar || null, pdsEndpoint, totalPosts, hasNativeBotLabel ? 1 : 0
+      ),
+    ])
 
     return {
       did,

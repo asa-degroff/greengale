@@ -27,6 +27,7 @@ import {
   publicPostCountDelta,
   shouldRetainSiteStandardPost,
 } from '../lib/archive-policy'
+import { releaseHandleFromOtherAuthors } from '../lib/authors'
 // Re-export pure utility functions from firehose-utils for backwards compatibility
 export {
   SENSITIVE_LABELS,
@@ -792,7 +793,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       // Statement 2: Upsert author (using pre-fetched data)
       if (authorData) {
+        // Handles can transfer between DIDs. Release the handle from any
+        // previous owner in the same batch before this author claims it, so
+        // handle lookups stay unambiguous.
         statements.push(
+          releaseHandleFromOtherAuthors(this.env.DB, authorData.handle, authorData.did),
           this.env.DB.prepare(`
             INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint, is_ai_agent)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1249,7 +1254,11 @@ export class FirehoseConsumer extends DurableObject<Env> {
 
       // Statement 2: Upsert author
       if (authorData) {
+        // Handles can transfer between DIDs. Release the handle from any
+        // previous owner in the same batch before this author claims it, so
+        // handle lookups stay unambiguous.
         statements.push(
+          releaseHandleFromOtherAuthors(this.env.DB, authorData.handle, authorData.did),
           this.env.DB.prepare(`
             INSERT INTO authors (did, handle, display_name, description, avatar_url, banner_url, pds_endpoint, is_ai_agent)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)

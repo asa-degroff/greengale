@@ -20,8 +20,10 @@ npm run test:e2e -- --ui # E2E tests with interactive UI
 npm run deploy           # Full deploy (build + worker + pages)
 
 # Database
-npm run db:migrate       # Run migrations on remote D1
-npm run db:migrate:local # Run migrations locally
+npm run db:migrate       # Sync schema.sql to remote D1 (CREATE TABLE IF NOT EXISTS only)
+npm run db:migrate:local # Same, local D1
+# NOTE: db:migrate does NOT apply workers/migrations/*.sql. Apply a migration file with:
+#   npx wrangler d1 execute greengale --remote --file=./workers/migrations/<file>.sql
 ```
 
 ## Architecture Overview
@@ -666,7 +668,11 @@ curl -X POST "https://greengale.asadegroff.workers.dev/xrpc/app.greengale.admin.
 
 ### Run database migrations
 ```bash
+# Sync schema.sql (only creates missing tables, does not alter existing ones)
 npm run db:migrate
+
+# Apply a specific migration file to remote D1
+npx wrangler d1 execute greengale --remote --file=./workers/migrations/<file>.sql
 ```
 
 ## Routes

@@ -1466,6 +1466,47 @@ describe('API Endpoints', () => {
       vi.unstubAllGlobals()
     })
 
+    it('discovers author when post indexing was skipped by the recent-index cache', async () => {
+      const mockFetch = vi.fn()
+      vi.stubGlobal('fetch', mockFetch)
+
+      env.DB._statement.first.mockResolvedValueOnce(null)
+
+      // Simulate indexPostsFromPds having run for this DID within the last 24h:
+      // it returns 0 without scanning the PDS even though posts already exist.
+      await env.CACHE.put('posts-indexed:v5:did:plc:cacheduser', '1')
+
+      // discoverAndIndexAuthor: Bluesky profile lookup
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          did: 'did:plc:cacheduser',
+          handle: 'cacheduser.bsky.social',
+          displayName: 'Cached User',
+          avatar: 'https://example.com/avatar.jpg',
+        }),
+      })
+      // fetchPdsEndpoint: DID document
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'https://pds.example.com' }],
+        }),
+      })
+      // Fallback count of already-indexed posts
+      env.DB._statement.first.mockResolvedValueOnce({ count: 3 })
+
+      const res = await makeRequest(env, '/xrpc/app.greengale.actor.getProfile?author=cacheduser.bsky.social')
+      expect(res.status).toBe(200)
+
+      const data = await res.json() as { did: string; postsCount: number }
+      expect(data.did).toBe('did:plc:cacheduser')
+      expect(data.postsCount).toBe(3)
+      expect(env.DB.batch).toHaveBeenCalled()
+
+      vi.unstubAllGlobals()
+    })
+
     it('uses negative cache for repeated profile discovery failures', async () => {
       const mockFetch = vi.fn()
       vi.stubGlobal('fetch', mockFetch)
